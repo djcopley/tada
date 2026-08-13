@@ -10,7 +10,18 @@ export async function makeOrigin(name = 'proj'): Promise<string> {
   await git(base, 'init', '-b', 'main', work)
   writeFileSync(join(work, 'README.md'), `# ${name}\n`)
   await git(work, 'add', '.')
-  await git(work, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'init')
+  await git(
+    work,
+    '-c',
+    'user.email=t@t',
+    '-c',
+    'user.name=t',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-m',
+    'init',
+  )
   const bare = join(base, `${name}.git`)
   await git(base, 'clone', '--bare', work, bare)
   return bare
@@ -22,5 +33,11 @@ export function isolateXdg(): string {
   process.env.TADA_DATA_DIR = join(dir, 'data')
   process.env.TADA_CONFIG_DIR = join(dir, 'config')
   process.env.TADA_STATE_DIR = join(dir, 'state')
+  // Force-disable commit signing for git commands spawned in tests: a developer machine's
+  // global gitconfig may have commit.gpgsign=true wired to an interactive signer (e.g. a
+  // hardware key or 1Password), which would hang non-interactive test commits.
+  process.env.GIT_CONFIG_COUNT = '1'
+  process.env.GIT_CONFIG_KEY_0 = 'commit.gpgsign'
+  process.env.GIT_CONFIG_VALUE_0 = 'false'
   return dir
 }
