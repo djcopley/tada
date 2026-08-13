@@ -41,6 +41,9 @@ importers:
       fastify:
         specifier: ^5.11.3
         version: 5.11.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.12
       zod:
         specifier: ^4.4.3
         version: 4.4.3

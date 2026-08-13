@@ -9,7 +9,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "start": "pnpm --filter @tada/server start"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
