@@ -54,6 +54,26 @@ describe('buildApp', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true })
   })
+
+  test('GET /health?x=1 returns 200 with no auth (query string stripped before comparison)', async () => {
+    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    const res = await app.inject({ method: 'GET', url: '/health?x=1' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true })
+  })
+
+  test('paths merely prefixed with /mcp (not /mcp or /mcp/...) still require bearer auth', async () => {
+    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    app.get('/mcpadmin', async () => ({ ok: true }))
+    app.get('/mcpfoo', async () => ({ ok: true }))
+    await app.ready()
+
+    const noAuthAdmin = await app.inject({ method: 'GET', url: '/mcpadmin' })
+    expect(noAuthAdmin.statusCode).toBe(401)
+
+    const noAuthFoo = await app.inject({ method: 'GET', url: '/mcpfoo?x=1' })
+    expect(noAuthFoo.statusCode).toBe(401)
+  })
 })
 
 describe('loadConfig', () => {
