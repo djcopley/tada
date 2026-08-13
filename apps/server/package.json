@@ -9,6 +9,7 @@
     "@tada/shared": "workspace:*",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
+    "execa": "^10.0.1",
     "zod": "^4.4.3"
   },
   "scripts": {
