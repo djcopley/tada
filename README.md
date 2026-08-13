@@ -72,6 +72,14 @@ workspaces/<ws>/
 
 The SQLite database lives at `$XDG_DATA_HOME/tada/tada.db`.
 
+`config.json` holds:
+
+| Key | Default | Notes |
+|---|---|---|
+| `port` | `4242` | TCP port the server listens on |
+| `host` | `0.0.0.0` | Bind address; defaults to all interfaces so tailnet clients can connect. The MCP callback URL handed to agent adapters always stays `127.0.0.1` regardless of this setting - agents run on the same box. |
+| `bearerToken` | random 32-byte hex | See [Authentication](#authentication) |
+
 ## Authentication
 
 On first run, if `$XDG_CONFIG_HOME/tada/config.json` doesn't exist, the server generates one with

@@ -69,7 +69,15 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!run) return reply.code(404).send({ error: 'run not found' })
     if (!run.transcriptPath) return reply.code(404).send({ error: 'no transcript yet' })
 
-    const raw = readFileSync(run.transcriptPath, 'utf-8')
+    let raw: string
+    try {
+      raw = readFileSync(run.transcriptPath, 'utf-8')
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: 'no transcript yet' })
+      }
+      throw err
+    }
     return reply.type('application/x-ndjson').send(raw)
   })
 

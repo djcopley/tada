@@ -126,8 +126,10 @@ export async function executeRun(
     ).catch((err) => console.error('notifyRunFinished failed:', err))
   }
 
-  // Deliberate cancellation (Scheduler.cancel) is not a failure: the card goes back to Ready
-  // unheld so it's immediately eligible to be picked up again.
+  // Deliberate cancellation (Scheduler.cancel) is not a failure: the card goes back to Ready with
+  // queueState null. It is NOT immediately eligible to be picked up again - the scheduler only
+  // starts tickets with queueState 'queued', so a cancelled card sits idle in Ready until a human
+  // re-drags it (any move into Ready re-enqueues via the tickets/:id/move route).
   const markCancelled = (): void => {
     journal.write({ type: 'status', payload: { kind: 'run_status', status: 'cancelled' } })
     assertRunTransition('running', 'cancelled')

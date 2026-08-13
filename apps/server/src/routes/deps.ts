@@ -1,3 +1,4 @@
+import type { Adapter } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import type { Scheduler } from '../runs/scheduler.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
@@ -8,4 +9,5 @@ export interface RouteDeps {
   wm: WorkspaceManager
   scheduler: Scheduler
   hub: BroadcastHub
+  adapters: Map<string, Adapter>
 }

@@ -33,10 +33,19 @@ function repoNameFromUrl(url: string): string {
   return base.endsWith('.git') ? base.slice(0, -'.git'.length) : base
 }
 
+/** basename-only: rejects any name containing '/' (or a resolved-away '..') outright, so a
+ * caller can never make a dataDir-joined path escape its intended directory. */
+function assertSafeName(name: string, what: string): void {
+  if (name !== basename(name) || name === '' || name === '.' || name === '..') {
+    throw new Error(`invalid ${what}: ${name}`)
+  }
+}
+
 export class WorkspaceManager {
   constructor(private readonly db: TadaDb) {}
 
   async create(name: string): Promise<number> {
+    assertSafeName(name, 'workspace name')
     const path = join(dataDir(), 'workspaces', name)
 
     mkdirSync(join(path, 'repos'), { recursive: true })
@@ -67,6 +76,7 @@ export class WorkspaceManager {
   }
 
   async removeRepo(wsId: number, name: string): Promise<void> {
+    assertSafeName(name, 'repo name')
     const path = this.pathFor(wsId)
     rmSync(join(path, 'repos', name), { recursive: true, force: true })
 

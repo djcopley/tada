@@ -1,5 +1,6 @@
 import fastifyWebsocket from '@fastify/websocket'
 import fastify, { type FastifyInstance } from 'fastify'
+import type { Adapter } from './adapters/types.js'
 import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
 import { registerMcpRoute } from './mcp/server.js'
@@ -23,9 +24,17 @@ export interface AppDeps {
   wm: WorkspaceManager
   scheduler: Scheduler
   broadcastHub: BroadcastHub
+  adapters: Map<string, Adapter>
 }
 
-export function buildApp({ db, config, wm, scheduler, broadcastHub }: AppDeps): FastifyInstance {
+export function buildApp({
+  db,
+  config,
+  wm,
+  scheduler,
+  broadcastHub,
+  adapters,
+}: AppDeps): FastifyInstance {
   const app = fastify()
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
@@ -41,7 +50,7 @@ export function buildApp({ db, config, wm, scheduler, broadcastHub }: AppDeps): 
   void app.register(fastifyWebsocket)
   registerWsRoute(app, broadcastHub)
 
-  const routeDeps = { db, wm, scheduler, hub: broadcastHub }
+  const routeDeps = { db, wm, scheduler, hub: broadcastHub, adapters }
   registerWorkspaceRoutes(app, routeDeps)
   registerTicketRoutes(app, routeDeps)
   registerRunRoutes(app, routeDeps)

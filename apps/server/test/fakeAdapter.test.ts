@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { FakeAdapter } from '../src/adapters/fake.js'
+import type { AdapterEvent } from '../src/adapters/types.js'
 import { createDefaultColumns, openDb } from '../src/db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../src/db/schema.js'
 import { Journal } from '../src/runs/journal.js'
 
 describe('FakeAdapter', () => {
   test('1. emits events and exits with code 0', async () => {
-    const events: any[] = []
+    const events: AdapterEvent[] = []
     const adapter = new FakeAdapter({
       events: [
         { type: 'text', payload: 'hi' },
@@ -23,7 +24,7 @@ describe('FakeAdapter', () => {
       model: 'test-model',
       timeoutMs: 5000,
       mcp: { url: 'http://localhost:3000', token: 'token' },
-      onEvent: (e: any) => events.push(e),
+      onEvent: (e: AdapterEvent) => events.push(e),
       signal: new AbortController().signal,
     }
 
@@ -67,8 +68,8 @@ describe('FakeAdapter', () => {
   })
 
   test('3. Journal.write appends to events table and transcript file, calls broadcast', async () => {
-    const { appendFileSync, readFileSync, existsSync } = await import('node:fs')
-    const broadcastCalls: any[] = []
+    const { readFileSync, existsSync } = await import('node:fs')
+    const broadcastCalls: Array<{ runId: number; e: AdapterEvent }> = []
 
     // Setup db
     const dbPath = join(mkdtempSync(join(tmpdir(), 'tada-')), 'tada.db')
@@ -146,8 +147,10 @@ describe('FakeAdapter', () => {
     const transcript = readFileSync(transcriptPath, 'utf-8')
     const lines = transcript.trim().split('\n')
     expect(lines).toHaveLength(2)
-    expect(JSON.parse(lines[0]!)).toEqual(event1)
-    expect(JSON.parse(lines[1]!)).toEqual(event2)
+    const [line0, line1] = lines
+    if (line0 === undefined || line1 === undefined) throw new Error('expected two transcript lines')
+    expect(JSON.parse(line0)).toEqual(event1)
+    expect(JSON.parse(line1)).toEqual(event2)
 
     // Verify broadcast was called
     expect(broadcastCalls).toHaveLength(2)

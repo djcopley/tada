@@ -34,8 +34,8 @@ async function main(): Promise<void> {
   })
   scheduler.recover()
 
-  const app = buildApp({ db, config, wm, scheduler, broadcastHub: hub })
-  const address = await app.listen({ port: config.port, host: '127.0.0.1' })
+  const app = buildApp({ db, config, wm, scheduler, broadcastHub: hub, adapters })
+  const address = await app.listen({ port: config.port, host: config.host })
   app.log.info(`tada server listening on ${address}`)
 }
 

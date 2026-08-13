@@ -73,4 +73,22 @@ describe('WorkspaceManager', () => {
     const id = await manager.create('demo')
     expect(manager.reposDir(id)).toBe(join(dataDir(), 'workspaces', 'demo', 'repos'))
   })
+
+  test('create rejects a path-traversal name', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    await expect(manager.create('../evil')).rejects.toThrow(/invalid/i)
+    expect(existsSync(join(dataDir(), 'workspaces', 'evil'))).toBe(false)
+  })
+
+  test('removeRepo rejects a path-traversal name', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const id = await manager.create('demo')
+    const origin = await makeOrigin('proj')
+    await manager.addRepo(id, origin)
+
+    await expect(manager.removeRepo(id, '../evil')).rejects.toThrow(/invalid/i)
+    expect(existsSync(join(manager.reposDir(id), 'proj'))).toBe(true)
+  })
 })

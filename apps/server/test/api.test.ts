@@ -11,9 +11,9 @@ import { buildApp } from '../src/app.js'
 import type { Config } from '../src/config.js'
 import { loadConfig } from '../src/config.js'
 import { openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, comments } from '../src/db/schema.js'
+import { agentRuns, comments, tickets, workspaces } from '../src/db/schema.js'
 import { git } from '../src/git.js'
-import { stateDir } from '../src/paths.js'
+import { dataDir, stateDir } from '../src/paths.js'
 import { Scheduler } from '../src/runs/scheduler.js'
 import { WorkspaceManager } from '../src/workspaces/manager.js'
 import { BroadcastHub } from '../src/ws.js'
@@ -27,7 +27,7 @@ async function setupApp(adapters: Map<string, Adapter> = new Map()) {
   const scheduler = new Scheduler({ db, wm, adapters, broadcast: hub.broadcast, pr: false })
   scheduler.recover()
   const config = loadConfig()
-  const app = buildApp({ db, config, wm, scheduler, broadcastHub: hub })
+  const app = buildApp({ db, config, wm, scheduler, broadcastHub: hub, adapters })
   await app.ready()
   return { app, db, wm, scheduler, config }
 }
@@ -300,5 +300,274 @@ describe('REST API + WebSocket events', () => {
       payload: { body: 'pwned' },
     })
     expect(res.status).toBe(400)
+  })
+
+  /** Sets up a workspace with a hanging fake run, moves a fresh ticket to Ready, and waits for
+   * the run to be actually 'running' (worktree built, adapter blocked on the never-resolving
+   * promise) before handing back everything a test needs to poke at it further. */
+  async function setupRunningTicket() {
+    const hang: FakeScript = { act: () => new Promise<void>(() => {}) }
+    const adapters = new Map<string, Adapter>([['fake', new FakeAdapter(hang)]])
+    const started = await setupApp(adapters)
+    const { app, config, db } = started
+
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'fake', defaultModel: 'fake-1' },
+    })
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const readyColId = columnIdFor(board, 'ready')
+    const inProgressColId = columnIdFor(board, 'in_progress')
+    const doneColId = columnIdFor(board, 'done')
+    const backlogColId = columnIdFor(board, 'backlog')
+
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: readyColId, position: 1 },
+    })
+
+    let runId!: number
+    await vi.waitFor(async () => {
+      const res = await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` })
+      const t = res.body as TicketDetail
+      const lastRun = t.runs.at(-1)
+      if (lastRun?.status !== 'running') throw new Error('run not running yet')
+      runId = lastRun.id
+    })
+
+    // Status flips to 'running' before buildRunDir (git worktrees) finishes - wait for the
+    // worktree to actually exist before handing control back, so callers can assert on it.
+    const runDirPath = join(stateDir(), 'runs', String(runId))
+    await vi.waitFor(() => {
+      if (!existsSync(runDirPath)) throw new Error('run dir not built yet')
+    })
+
+    return {
+      app,
+      config,
+      db,
+      wsId,
+      ticketId,
+      runId,
+      readyColId,
+      inProgressColId,
+      doneColId,
+      backlogColId,
+    }
+  }
+
+  test('moving a ticket with a running run to Done is rejected with 409, worktree untouched', async () => {
+    const { app, config, ticketId, runId, doneColId, inProgressColId } = await setupRunningTicket()
+
+    const runDirPath = join(stateDir(), 'runs', String(runId))
+    expect(existsSync(runDirPath)).toBe(true)
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: doneColId, position: 1 },
+    })
+    expect(res.status).toBe(409)
+    expect((res.body as { error: string }).error).toBe('run in progress')
+
+    // worktree/run dir untouched, and the card wasn't yanked out of In Progress
+    expect(existsSync(runDirPath)).toBe(true)
+    const ticketRes = await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` })
+    expect((ticketRes.body as TicketDetail).columnId).toBe(inProgressColId)
+  })
+
+  test('moving a ticket with a running run to Ready is rejected with 409, no second run row', async () => {
+    const { app, config, db, ticketId, readyColId } = await setupRunningTicket()
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: readyColId, position: 1 },
+    })
+    expect(res.status).toBe(409)
+    expect((res.body as { error: string }).error).toBe('run in progress')
+
+    const runs = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, ticketId)).all()
+    expect(runs).toHaveLength(1)
+  })
+
+  test('POST /workspaces with a path-traversal name is rejected with 400, nothing created', async () => {
+    const { app, config, db } = await setupApp()
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: '../evil' },
+    })
+    expect(res.status).toBe(400)
+
+    expect(db.drizzle.select().from(workspaces).all()).toHaveLength(0)
+    expect(existsSync(join(dataDir(), 'workspaces', 'evil'))).toBe(false)
+  })
+
+  test('DELETE repo with a path-traversal name is rejected with 400, nothing deleted', async () => {
+    const { app, config } = await setupApp()
+    const origin = await makeOrigin('proj')
+
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/repos`,
+      payload: { url: origin },
+    })
+
+    const res = await json(app, config, {
+      method: 'DELETE',
+      url: `/workspaces/${wsId}/repos/..%2Fevil`,
+    })
+    expect(res.status).toBe(400)
+
+    const manifest = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((manifest.body as { repos: Array<{ name: string }> }).repos).toEqual([
+      { name: 'proj', url: origin, defaultBranch: 'main' },
+    ])
+  })
+
+  test('PATCH workspace with an unknown adapter name returns 400', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'nope' },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('PATCH ticket with an unknown adapterOverride returns 400', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { adapterOverride: 'nope' },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('move to Ready with a stale bogus adapterOverride is rejected 400, column unchanged', async () => {
+    const adapters = new Map<string, Adapter>([['fake', new FakeAdapter()]])
+    const { app, config, db } = await setupApp(adapters)
+
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'fake', defaultModel: 'fake-1' },
+    })
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const readyColId = columnIdFor(board, 'ready')
+    const backlogColId = columnIdFor(board, 'backlog')
+
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    // Bypass the PATCH-time adapter validation entirely, simulating stale/corrupted data.
+    db.drizzle
+      .update(tickets)
+      .set({ adapterOverride: 'nonexistent-adapter' })
+      .where(eq(tickets.id, ticketId))
+      .run()
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: readyColId, position: 1 },
+    })
+    expect(res.status).toBe(400)
+
+    const ticketRes = await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` })
+    expect((ticketRes.body as TicketDetail).columnId).toBe(backlogColId)
+  })
+
+  test('GET /runs/:id/transcript returns 404 (not 500) when the transcript file is missing', async () => {
+    const { app, config, db } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const [run] = db.drizzle
+      .insert(agentRuns)
+      .values({
+        ticketId,
+        adapter: 'fake',
+        model: 'fake-1',
+        status: 'needs_review',
+        runToken: 'tok',
+        transcriptPath: join(stateDir(), 'transcripts', 'does-not-exist.jsonl'),
+      })
+      .returning()
+      .all()
+    if (!run) throw new Error('agentRun insert returned no row')
+
+    const res = await app.inject(
+      authed(config, { method: 'GET', url: `/runs/${run.id}/transcript` }),
+    )
+    expect(res.statusCode).toBe(404)
   })
 })

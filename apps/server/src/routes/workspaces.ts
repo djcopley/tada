@@ -1,3 +1,4 @@
+import { basename } from 'node:path'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -5,7 +6,16 @@ import { createDefaultColumns } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
 import type { RouteDeps } from './deps.js'
 
-const createWorkspaceSchema = z.object({ name: z.string().min(1) })
+// basename-only: any '/' (or a resolved-away '..') in the name is rejected outright, so the
+// on-disk path this feeds (WorkspaceManager.create) can never escape dataDir.
+const createWorkspaceSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .refine((name) => name === basename(name) && name !== '.' && name !== '..', {
+      message: 'invalid workspace name',
+    }),
+})
 
 const patchWorkspaceSchema = z
   .object({
@@ -24,7 +34,7 @@ function workspaceIdParam(id: string): number | undefined {
 }
 
 export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, wm } = deps
+  const { db, wm, adapters } = deps
 
   app.get('/workspaces', async () => {
     const rows = db.drizzle.select().from(workspaces).all()
@@ -78,6 +88,22 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     const existing = db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
     if (!existing) return reply.code(404).send({ error: 'workspace not found' })
 
+    if (parsed.data.defaultAdapter !== undefined && !adapters.has(parsed.data.defaultAdapter)) {
+      return reply.code(400).send({
+        error: `unknown adapter: ${parsed.data.defaultAdapter}. valid adapters: ${[...adapters.keys()].join(', ')}`,
+      })
+    }
+
+    if (parsed.data.defaultModel !== undefined) {
+      const adapterName = parsed.data.defaultAdapter ?? existing.defaultAdapter
+      const adapter = adapters.get(adapterName)
+      if (!adapter?.models.includes(parsed.data.defaultModel)) {
+        return reply.code(400).send({
+          error: `unknown model: ${parsed.data.defaultModel} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
+        })
+      }
+    }
+
     db.drizzle.update(workspaces).set(parsed.data).where(eq(workspaces.id, id)).run()
     return db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
   })
@@ -104,6 +130,12 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     if (!existing) return reply.code(404).send({ error: 'workspace not found' })
 
     const { name } = req.params as { id: string; name: string }
+    // basename-only: any '/' (or a resolved-away '..') in the repo name is rejected outright, so
+    // the rmSync path this feeds (WorkspaceManager.removeRepo) can never escape the repos dir.
+    if (name !== basename(name) || name === '' || name === '.' || name === '..') {
+      return reply.code(400).send({ error: 'invalid repo name' })
+    }
+
     await wm.removeRepo(id, name)
     return wm.manifest(id)
   })

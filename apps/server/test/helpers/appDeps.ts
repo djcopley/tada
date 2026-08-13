@@ -21,5 +21,5 @@ export function makeAppDeps(
     broadcast: hub.broadcast,
     pr: false,
   })
-  return { db, config, wm, scheduler, broadcastHub: hub }
+  return { db, config, wm, scheduler, broadcastHub: hub, adapters: opts.adapters ?? new Map() }
 }

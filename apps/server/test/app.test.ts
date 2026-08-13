@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -89,12 +89,26 @@ describe('loadConfig', () => {
     const config = loadConfig()
 
     expect(config.port).toBe(4242)
+    expect(config.host).toBe('0.0.0.0')
     expect(config.bearerToken).toMatch(/^[0-9a-f]{64}$/)
     expect(existsSync(configPath)).toBe(true)
 
     const onDisk = JSON.parse(readFileSync(configPath, 'utf8'))
     expect(onDisk.bearerToken).toBe(config.bearerToken)
     expect(onDisk.port).toBe(4242)
+    expect(onDisk.host).toBe('0.0.0.0')
+  })
+
+  test('a config.json written before `host` existed still loads with the default', () => {
+    const dir = configDir()
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ port: 4242, bearerToken: 'a'.repeat(64) }, null, 2),
+    )
+
+    const config = loadConfig()
+    expect(config.host).toBe('0.0.0.0')
   })
 
   test('second call reads back the same token', () => {

@@ -18,7 +18,7 @@ export class Journal {
     mkdirSync(transcriptDir, { recursive: true })
 
     // Append to transcript file
-    appendFileSync(this.transcriptPath, JSON.stringify(e) + '\n')
+    appendFileSync(this.transcriptPath, `${JSON.stringify(e)}\n`)
 
     // Insert into events table
     this.db.drizzle

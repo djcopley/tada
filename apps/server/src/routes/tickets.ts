@@ -49,7 +49,7 @@ function columnById(deps: RouteDeps, id: number) {
 }
 
 export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, scheduler, wm, hub } = deps
+  const { db, scheduler, wm, hub, adapters } = deps
 
   app.post('/tickets', async (req, reply) => {
     const parsed = createTicketSchema.safeParse(req.body)
@@ -123,6 +123,25 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     const parsed = patchTicketSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
 
+    if (parsed.data.adapterOverride != null && !adapters.has(parsed.data.adapterOverride)) {
+      return reply.code(400).send({
+        error: `unknown adapter: ${parsed.data.adapterOverride}. valid adapters: ${[...adapters.keys()].join(', ')}`,
+      })
+    }
+
+    if (parsed.data.modelOverride != null) {
+      const adapterName =
+        parsed.data.adapterOverride !== undefined
+          ? parsed.data.adapterOverride
+          : ticket.adapterOverride
+      const adapter = adapterName != null ? adapters.get(adapterName) : undefined
+      if (adapterName != null && !adapter?.models.includes(parsed.data.modelOverride)) {
+        return reply.code(400).send({
+          error: `unknown model: ${parsed.data.modelOverride} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
+        })
+      }
+    }
+
     const editsContent = Object.keys(parsed.data).some((k) =>
       (CONTENT_FIELDS as readonly string[]).includes(k),
     )
@@ -161,9 +180,25 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       return reply.code(403).send({ error: 'illegal move' })
     }
 
+    const existingRuns = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, id)).all()
+
+    // A run that's actually executing owns the ticket's worktree and card position right now -
+    // any human drag (including to Done, which would rmSync the live worktree out from under it)
+    // must be rejected outright, regardless of destination column.
+    if (existingRuns.some((r) => r.status === 'running')) {
+      return reply.code(409).send({ error: 'run in progress' })
+    }
+
     const leavingReady = fromCol.kind === 'ready' && toCol.kind !== 'ready'
-    const landingReady = toCol.kind === 'ready' && ticket.queueState !== 'queued'
+    const hasQueuedRun = existingRuns.some((r) => r.status === 'queued')
+    const landingReady = toCol.kind === 'ready' && ticket.queueState !== 'queued' && !hasQueuedRun
     const landingDone = toCol.kind === 'done'
+
+    const original = {
+      columnId: ticket.columnId,
+      position: ticket.position,
+      queueState: ticket.queueState,
+    }
 
     db.drizzle
       .update(tickets)
@@ -176,20 +211,26 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .run()
 
     if (leavingReady) {
-      const queuedRuns = db.drizzle
-        .select()
-        .from(agentRuns)
-        .where(eq(agentRuns.ticketId, id))
-        .all()
-        .filter((r) => r.status === 'queued')
+      const queuedRuns = existingRuns.filter((r) => r.status === 'queued')
       for (const run of queuedRuns) cancelRun(db, scheduler, run.id)
     }
 
-    if (landingReady) scheduler.enqueue(id)
+    if (landingReady) {
+      try {
+        scheduler.enqueue(id)
+      } catch (err) {
+        // e.g. a stale/invalid adapterOverride slipped past PATCH validation (direct db write,
+        // adapter removed after the fact, etc). Don't strand the ticket in the new column with no
+        // run behind it - roll back to where it was and surface the failure.
+        db.drizzle.update(tickets).set(original).where(eq(tickets.id, id)).run()
+        return reply.code(400).send({
+          error: err instanceof Error ? err.message : 'failed to enqueue run',
+        })
+      }
+    }
 
     if (landingDone) {
-      const allRuns = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, id)).all()
-      for (const run of allRuns) {
+      for (const run of existingRuns) {
         const path = join(stateDir(), 'runs', String(run.id))
         const repoDirs = Object.fromEntries(
           wm.manifest(ticket.workspaceId).repos.map((r) => [r.name, join(path, r.name)]),

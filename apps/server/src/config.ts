@@ -6,6 +6,10 @@ import { configDir } from './paths.js'
 
 const configSchema = z.object({
   port: z.number().int().default(4242),
+  // Bound to all interfaces by default so tailnet clients (the whole point of running this on a
+  // box reachable over Tailscale) can connect. The MCP callback URL handed to adapters stays
+  // loopback-only regardless of this setting - see src/index.ts.
+  host: z.string().min(1).default('0.0.0.0'),
   bearerToken: z.string().min(32),
 })
 
@@ -17,7 +21,11 @@ export function loadConfig(): Config {
 
   if (!existsSync(path)) {
     mkdirSync(dir, { recursive: true })
-    const config: Config = { port: 4242, bearerToken: randomBytes(32).toString('hex') }
+    const config: Config = {
+      port: 4242,
+      host: '0.0.0.0',
+      bearerToken: randomBytes(32).toString('hex'),
+    }
     writeFileSync(path, JSON.stringify(config, null, 2))
     return config
   }
