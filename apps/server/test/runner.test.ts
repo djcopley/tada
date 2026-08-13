@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -9,6 +9,7 @@ import type { Adapter } from '../src/adapters/types.js'
 import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
 import { agentRuns, columns, events, tickets, workspaces } from '../src/db/schema.js'
 import { git } from '../src/git.js'
+import { branchFor } from '../src/runs/runDir.js'
 import { executeRun } from '../src/runs/runner.js'
 import { WorkspaceManager } from '../src/workspaces/manager.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
@@ -193,5 +194,77 @@ describe('executeRun', () => {
 
     const branches = await git(origin, 'branch', '--list', `ticket/${ticket.id}`)
     expect(branches).toContain(`ticket/${ticket.id}`)
+  })
+
+  test('6. setup failure (buildRunDir throws) -> failed, ticket ready/held, error journaled', async () => {
+    const { db, manager, wsId, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+
+    // Force buildRunDir to fail: pre-create a worktree checked out on the ticket branch
+    // elsewhere, so buildRunDir's own `git worktree add` for that same branch conflicts.
+    const canonical = join(manager.reposDir(wsId), 'proj')
+    const staleWt = join(mkdtempSync(join(tmpdir(), 'tada-stale-')), 'wt')
+    await git(canonical, 'worktree', 'add', '-b', branchFor(ticket.id), staleWt, 'main')
+
+    await executeRun({ db, wm: manager, adapters: adapters({}), pr: false }, run.id)
+
+    const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
+    expect(updatedRun?.status).toBe('failed')
+
+    const updatedTicket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+    expect(columnKind(db, updatedTicket?.columnId ?? -1)).toBe('ready')
+    expect(updatedTicket?.queueState).toBe('held')
+
+    const runEvents = db.drizzle.select().from(events).where(eq(events.runId, run.id)).all()
+    expect(runEvents.some((e) => e.type === 'error')).toBe(true)
+    const statuses = runEvents
+      .filter((e) => e.type === 'status')
+      .map((e) => (e.payload as { status?: string }).status)
+    expect(statuses).toContain('failed')
+  })
+
+  test('7. completeRun throws outside its push try/catch (corrupt canonical repo) -> failed, ticket ready/held, error journaled', async () => {
+    const { db, manager, wsId, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+    const canonical = join(manager.reposDir(wsId), 'proj')
+
+    const script: FakeScript = {
+      act: async (ctx) => {
+        const repoDir = join(ctx.runDir, 'proj')
+        writeFileSync(join(repoDir, 'change.txt'), 'work\n')
+        await git(repoDir, 'add', '.')
+        await git(
+          repoDir,
+          '-c',
+          'user.email=t@t',
+          '-c',
+          'user.name=t',
+          'commit',
+          '-m',
+          'agent work',
+        )
+        reportOutcome(db, run.id, ticket.id, 'success', 'shipped it')
+        // Simulate the canonical repo disappearing after the agent already committed to its
+        // worktree: completeRun's branch --list / rev-list detection (outside the push
+        // try/catch) will now throw when it tries to inspect `canonical`.
+        rmSync(canonical, { recursive: true, force: true })
+      },
+    }
+
+    await executeRun({ db, wm: manager, adapters: adapters(script), pr: false }, run.id)
+
+    const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
+    expect(updatedRun?.status).toBe('failed')
+
+    const updatedTicket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
+    expect(columnKind(db, updatedTicket?.columnId ?? -1)).toBe('ready')
+    expect(updatedTicket?.queueState).toBe('held')
+
+    const runEvents = db.drizzle.select().from(events).where(eq(events.runId, run.id)).all()
+    expect(runEvents.some((e) => e.type === 'error')).toBe(true)
+    const statuses = runEvents
+      .filter((e) => e.type === 'status')
+      .map((e) => (e.payload as { status?: string }).status)
+    expect(statuses).toContain('failed')
   })
 })

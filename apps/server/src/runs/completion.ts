@@ -39,6 +39,11 @@ export async function completeRun(
   for (const repo of wm.manifest(wsId).repos) {
     const canonical = join(wm.reposDir(wsId), repo.name)
 
+    // Detection (branch --list, rev-list) is deliberately NOT inside the try/catch below: a
+    // failure there (e.g. a corrupted/removed canonical repo) means we can't even tell
+    // whether there's anything to push, which is a more fundamental problem than a push/PR
+    // failure and is allowed to propagate — the caller (executeRun) guards the whole
+    // completion step and routes any throw through its failure path.
     const branchExists = (await git(canonical, 'branch', '--list', branch)) !== ''
     if (!branchExists) continue
 

@@ -88,92 +88,10 @@ export async function executeRun(deps: RunnerDeps, runId: number): Promise<void>
     .where(eq(tickets.id, ticket.id))
     .run()
 
-  // 2. build the run directory (git worktrees per repo) and compose the prompt
-  const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
-
-  const ticketComments = db.drizzle
-    .select()
-    .from(comments)
-    .where(eq(comments.ticketId, ticket.id))
-    .orderBy(asc(comments.createdAt), asc(comments.id))
-    .all()
-
-  const priorRuns = db.drizzle
-    .select()
-    .from(agentRuns)
-    .where(eq(agentRuns.ticketId, ticket.id))
-    .orderBy(asc(agentRuns.id))
-    .all()
-    .filter((r) => r.id !== runId && r.summary != null)
-
-  const memoryDir = wm.memoryDir(ticket.workspaceId)
-  const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')
-  const noteFiles = readdirSync(join(memoryDir, 'notes'))
-
-  const prompt = composePrompt({
-    ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
-    comments: ticketComments.map((c) => ({
-      author: c.author,
-      body: c.body,
-      createdAt: c.createdAt,
-    })),
-    agentsMd,
-    noteFiles,
-    priorRunSummaries: priorRuns.map((r) => r.summary).filter((s): s is string => s != null),
-  })
-
-  // 3. run the adapter with a timeout
-  const adapter = deps.adapters.get(run.adapter)
-
-  let exitCode: number | undefined
-  let adapterError: unknown
-  let timedOut = false
-
-  if (!adapter) {
-    adapterError = new Error(`unknown adapter: ${run.adapter}`)
-  } else {
-    const manualController = new AbortController()
-    const signal = AbortSignal.any([
-      AbortSignal.timeout(workspace.timeoutMs),
-      manualController.signal,
-    ])
-
-    const runPromise = adapter
-      .run({
-        runDir: runDir.path,
-        prompt,
-        model: run.model,
-        timeoutMs: workspace.timeoutMs,
-        mcp: { url: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp', token: run.runToken },
-        onEvent: (e) => journal.write(e),
-        signal,
-      })
-      .then(
-        (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
-        (error: unknown) => ({ kind: 'error' as const, error }),
-      )
-
-    const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
-      if (signal.aborted) {
-        resolve({ kind: 'timeout' })
-        return
-      }
-      signal.addEventListener('abort', () => resolve({ kind: 'timeout' }), { once: true })
-    })
-
-    const result = await Promise.race([runPromise, timeoutPromise])
-    manualController.abort()
-
-    if (result.kind === 'exit') {
-      exitCode = result.exitCode
-    } else if (result.kind === 'error') {
-      adapterError = result.error
-    } else {
-      timedOut = true
-    }
-  }
-
-  // 4. decide the outcome
+  // Every failure between here and a terminal state (including unexpected throws from
+  // buildRunDir, prompt composition, memory reads, or completeRun) must route through
+  // markFailed rather than propagate — otherwise the run wedges at 'running' with the card
+  // stuck at in_progress and no journaled reason.
   const markFailed = (): void => {
     journal.write({ type: 'status', payload: { kind: 'run_status', status: 'failed' } })
     assertRunTransition('running', 'failed')
@@ -191,64 +109,158 @@ export async function executeRun(deps: RunnerDeps, runId: number): Promise<void>
       .run()
   }
 
-  if (adapterError !== undefined) {
-    journal.write({
-      type: 'error',
-      payload: {
-        message: adapterError instanceof Error ? adapterError.message : String(adapterError),
-      },
+  try {
+    // 2. build the run directory (git worktrees per repo) and compose the prompt
+    const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
+
+    const ticketComments = db.drizzle
+      .select()
+      .from(comments)
+      .where(eq(comments.ticketId, ticket.id))
+      .orderBy(asc(comments.createdAt), asc(comments.id))
+      .all()
+
+    const priorRuns = db.drizzle
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.ticketId, ticket.id))
+      .orderBy(asc(agentRuns.id))
+      .all()
+      .filter((r) => r.id !== runId && r.summary != null)
+
+    const memoryDir = wm.memoryDir(ticket.workspaceId)
+    const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')
+    const noteFiles = readdirSync(join(memoryDir, 'notes'))
+
+    const prompt = composePrompt({
+      ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
+      comments: ticketComments.map((c) => ({
+        author: c.author,
+        body: c.body,
+        createdAt: c.createdAt,
+      })),
+      agentsMd,
+      noteFiles,
+      priorRunSummaries: priorRuns.map((r) => r.summary).filter((s): s is string => s != null),
     })
-    markFailed()
-    return
-  }
 
-  if (timedOut) {
-    journal.write({
-      type: 'error',
-      payload: { message: `run timed out after ${workspace.timeoutMs}ms` },
-    })
-    markFailed()
-    return
-  }
+    // 3. run the adapter with a timeout
+    const adapter = deps.adapters.get(run.adapter)
 
-  if (exitCode !== undefined && exitCode !== 0) {
-    markFailed()
-    return
-  }
+    let exitCode: number | undefined
+    let adapterError: unknown
+    let timedOut = false
 
-  const reported = pendingOutcome(db, runId)
-  if (!reported || reported.status === 'failed') {
-    markFailed()
-    return
-  }
+    if (!adapter) {
+      adapterError = new Error(`unknown adapter: ${run.adapter}`)
+    } else {
+      const manualController = new AbortController()
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(workspace.timeoutMs),
+        manualController.signal,
+      ])
 
-  // success
-  const completion = await completeRun(wm, ticket.workspaceId, ticket.id, {
-    pr: deps.pr ?? true,
-    title: ticket.title,
-    summary: reported.summary,
-    onError: (message) => journal.write({ type: 'error', payload: { message } }),
-  })
+      const runPromise = adapter
+        .run({
+          runDir: runDir.path,
+          prompt,
+          model: run.model,
+          timeoutMs: workspace.timeoutMs,
+          mcp: { url: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp', token: run.runToken },
+          onEvent: (e) => journal.write(e),
+          signal,
+        })
+        .then(
+          (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
+          (error: unknown) => ({ kind: 'error' as const, error }),
+        )
 
-  journal.write({ type: 'status', payload: { kind: 'run_status', status: 'needs_review' } })
-  assertRunTransition('running', 'needs_review')
-  db.drizzle
-    .update(agentRuns)
-    .set({
-      status: 'needs_review',
+      const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
+        if (signal.aborted) {
+          resolve({ kind: 'timeout' })
+          return
+        }
+        signal.addEventListener('abort', () => resolve({ kind: 'timeout' }), { once: true })
+      })
+
+      const result = await Promise.race([runPromise, timeoutPromise])
+      manualController.abort()
+
+      if (result.kind === 'exit') {
+        exitCode = result.exitCode
+      } else if (result.kind === 'error') {
+        adapterError = result.error
+      } else {
+        timedOut = true
+      }
+    }
+
+    // 4. decide the outcome
+    if (adapterError !== undefined) {
+      journal.write({
+        type: 'error',
+        payload: {
+          message: adapterError instanceof Error ? adapterError.message : String(adapterError),
+        },
+      })
+      markFailed()
+      return
+    }
+
+    if (timedOut) {
+      journal.write({
+        type: 'error',
+        payload: { message: `run timed out after ${workspace.timeoutMs}ms` },
+      })
+      markFailed()
+      return
+    }
+
+    if (exitCode !== undefined && exitCode !== 0) {
+      markFailed()
+      return
+    }
+
+    const reported = pendingOutcome(db, runId)
+    if (!reported || reported.status === 'failed') {
+      markFailed()
+      return
+    }
+
+    // success
+    const completion = await completeRun(wm, ticket.workspaceId, ticket.id, {
+      pr: deps.pr ?? true,
+      title: ticket.title,
       summary: reported.summary,
-      branch: branchFor(ticket.id),
-      prUrl: completion.prUrls[0] ?? null,
-      finishedAt: new Date(),
+      onError: (message) => journal.write({ type: 'error', payload: { message } }),
     })
-    .where(eq(agentRuns.id, runId))
-    .run()
 
-  const inReviewColumn = columnFor(db, ticket.workspaceId, 'in_review')
-  assertCardMove('in_progress', 'in_review')
-  db.drizzle
-    .update(tickets)
-    .set({ columnId: inReviewColumn.id, queueState: null })
-    .where(eq(tickets.id, ticket.id))
-    .run()
+    journal.write({ type: 'status', payload: { kind: 'run_status', status: 'needs_review' } })
+    assertRunTransition('running', 'needs_review')
+    db.drizzle
+      .update(agentRuns)
+      .set({
+        status: 'needs_review',
+        summary: reported.summary,
+        branch: branchFor(ticket.id),
+        prUrl: completion.prUrls[0] ?? null,
+        finishedAt: new Date(),
+      })
+      .where(eq(agentRuns.id, runId))
+      .run()
+
+    const inReviewColumn = columnFor(db, ticket.workspaceId, 'in_review')
+    assertCardMove('in_progress', 'in_review')
+    db.drizzle
+      .update(tickets)
+      .set({ columnId: inReviewColumn.id, queueState: null })
+      .where(eq(tickets.id, ticket.id))
+      .run()
+  } catch (err) {
+    journal.write({
+      type: 'error',
+      payload: { message: err instanceof Error ? err.message : String(err) },
+    })
+    markFailed()
+  }
 }
