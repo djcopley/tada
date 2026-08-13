@@ -1,6 +1,7 @@
 import fastify, { type FastifyInstance } from 'fastify'
 import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
+import { registerMcpRoute } from './mcp/server.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -17,6 +18,7 @@ export function buildApp({ db, config }: AppDeps): FastifyInstance {
   const app = fastify()
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
+  registerMcpRoute(app, db)
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?', 1)[0]
     if (path === '/health' || path === '/mcp' || path?.startsWith('/mcp/')) return
