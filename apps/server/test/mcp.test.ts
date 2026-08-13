@@ -11,6 +11,7 @@ import { loadConfig } from '../src/config.js'
 import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../src/db/schema.js'
 import { pendingOutcome } from '../src/mcp/server.js'
+import { makeAppDeps } from './helpers/appDeps.js'
 import { isolateXdg } from './helpers/gitFixtures.js'
 
 function makeDb() {
@@ -60,7 +61,7 @@ function seedRun(db: TadaDb, status: 'queued' | 'running' | 'needs_review' = 'ru
 }
 
 async function startApp(db: TadaDb): Promise<{ app: FastifyInstance; url: string }> {
-  const app = buildApp({ db, config: loadConfig() })
+  const app = buildApp(makeAppDeps(db, loadConfig()))
   const address = await app.listen({ port: 0, host: '127.0.0.1' })
   return { app, url: `${address}/mcp` }
 }

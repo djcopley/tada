@@ -1,7 +1,15 @@
+import fastifyWebsocket from '@fastify/websocket'
 import fastify, { type FastifyInstance } from 'fastify'
 import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
 import { registerMcpRoute } from './mcp/server.js'
+import { registerMemoryRoutes } from './routes/memory.js'
+import { registerRunRoutes } from './routes/runs.js'
+import { registerTicketRoutes } from './routes/tickets.js'
+import { registerWorkspaceRoutes } from './routes/workspaces.js'
+import type { Scheduler } from './runs/scheduler.js'
+import type { WorkspaceManager } from './workspaces/manager.js'
+import { type BroadcastHub, registerWsRoute } from './ws.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -12,9 +20,12 @@ declare module 'fastify' {
 export interface AppDeps {
   db: TadaDb
   config: Config
+  wm: WorkspaceManager
+  scheduler: Scheduler
+  broadcastHub: BroadcastHub
 }
 
-export function buildApp({ db, config }: AppDeps): FastifyInstance {
+export function buildApp({ db, config, wm, scheduler, broadcastHub }: AppDeps): FastifyInstance {
   const app = fastify()
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
@@ -26,5 +37,15 @@ export function buildApp({ db, config }: AppDeps): FastifyInstance {
       await reply.code(401).send({ error: 'unauthorized' })
     }
   })
+
+  void app.register(fastifyWebsocket)
+  registerWsRoute(app, broadcastHub)
+
+  const routeDeps = { db, wm, scheduler, hub: broadcastHub }
+  registerWorkspaceRoutes(app, routeDeps)
+  registerTicketRoutes(app, routeDeps)
+  registerRunRoutes(app, routeDeps)
+  registerMemoryRoutes(app, routeDeps)
+
   return app
 }

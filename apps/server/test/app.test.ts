@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { openDb } from '../src/db/index.js'
 import { configDir } from '../src/paths.js'
+import { makeAppDeps } from './helpers/appDeps.js'
 import { isolateXdg } from './helpers/gitFixtures.js'
 
 function makeDb() {
@@ -18,14 +19,14 @@ describe('buildApp', () => {
   })
 
   test('GET /health returns 200 with no auth', async () => {
-    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     const res = await app.inject({ method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true })
   })
 
   test('other routes require bearer auth', async () => {
-    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     app.get('/whoami', async () => ({ ok: true }))
     await app.ready()
 
@@ -42,7 +43,7 @@ describe('buildApp', () => {
 
   test('correct bearer token passes', async () => {
     const config = loadConfig()
-    const app = buildApp({ db: makeDb(), config })
+    const app = buildApp(makeAppDeps(makeDb(), config))
     app.get('/whoami', async () => ({ ok: true }))
     await app.ready()
 
@@ -56,14 +57,14 @@ describe('buildApp', () => {
   })
 
   test('GET /health?x=1 returns 200 with no auth (query string stripped before comparison)', async () => {
-    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     const res = await app.inject({ method: 'GET', url: '/health?x=1' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true })
   })
 
   test('paths merely prefixed with /mcp (not /mcp or /mcp/...) still require bearer auth', async () => {
-    const app = buildApp({ db: makeDb(), config: loadConfig() })
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     app.get('/mcpadmin', async () => ({ ok: true }))
     app.get('/mcpfoo', async () => ({ ok: true }))
     await app.ready()
