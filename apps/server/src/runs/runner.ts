@@ -50,8 +50,12 @@ function columnFor(db: TadaDb, workspaceId: number, kind: ColumnKind) {
   return row
 }
 
-/** Executes a single run to a terminal state (needs_review or failed). Scheduling is Task 11. */
-export async function executeRun(deps: RunnerDeps, runId: number): Promise<void> {
+/** Executes a single run to a terminal state (needs_review, failed, or cancelled). */
+export async function executeRun(
+  deps: RunnerDeps,
+  runId: number,
+  externalSignal?: AbortSignal,
+): Promise<void> {
   const { db, wm } = deps
 
   const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
@@ -109,6 +113,25 @@ export async function executeRun(deps: RunnerDeps, runId: number): Promise<void>
       .run()
   }
 
+  // Deliberate cancellation (Scheduler.cancel) is not a failure: the card goes back to Ready
+  // unheld so it's immediately eligible to be picked up again.
+  const markCancelled = (): void => {
+    journal.write({ type: 'status', payload: { kind: 'run_status', status: 'cancelled' } })
+    assertRunTransition('running', 'cancelled')
+    db.drizzle
+      .update(agentRuns)
+      .set({ status: 'cancelled', finishedAt: new Date() })
+      .where(eq(agentRuns.id, runId))
+      .run()
+
+    assertCardMove('in_progress', 'ready')
+    db.drizzle
+      .update(tickets)
+      .set({ columnId: readyColumn.id, queueState: null })
+      .where(eq(tickets.id, ticket.id))
+      .run()
+  }
+
   try {
     // 2. build the run directory (git worktrees per repo) and compose the prompt
     const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
@@ -155,10 +178,11 @@ export async function executeRun(deps: RunnerDeps, runId: number): Promise<void>
       adapterError = new Error(`unknown adapter: ${run.adapter}`)
     } else {
       const manualController = new AbortController()
-      const signal = AbortSignal.any([
-        AbortSignal.timeout(workspace.timeoutMs),
-        manualController.signal,
-      ])
+      const signal = AbortSignal.any(
+        [AbortSignal.timeout(workspace.timeoutMs), manualController.signal, externalSignal].filter(
+          (s): s is AbortSignal => s !== undefined,
+        ),
+      )
 
       const runPromise = adapter
         .run({
@@ -208,6 +232,10 @@ export async function executeRun(deps: RunnerDeps, runId: number): Promise<void>
     }
 
     if (timedOut) {
+      if (externalSignal?.aborted) {
+        markCancelled()
+        return
+      }
       journal.write({
         type: 'error',
         payload: { message: `run timed out after ${workspace.timeoutMs}ms` },
