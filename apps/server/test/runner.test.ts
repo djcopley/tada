@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { FakeScript } from '../src/adapters/fake.js'
 import { FakeAdapter } from '../src/adapters/fake.js'
 import type { Adapter } from '../src/adapters/types.js'
 import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, columns, events, tickets, workspaces } from '../src/db/schema.js'
+import { agentRuns, columns, events, pushTokens, tickets, workspaces } from '../src/db/schema.js'
 import { git } from '../src/git.js'
 import { branchFor } from '../src/runs/runDir.js'
 import { executeRun } from '../src/runs/runner.js'
@@ -266,5 +266,90 @@ describe('executeRun', () => {
       .filter((e) => e.type === 'status')
       .map((e) => (e.payload as { status?: string }).status)
     expect(statuses).toContain('failed')
+  })
+
+  test('8. needs_review -> notifies push tokens with the run summary', async () => {
+    const { db, manager, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+    db.drizzle.insert(pushTokens).values({ token: 'ExponentPushToken[xyz]' }).run()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true })
+
+    await executeRun(
+      {
+        db,
+        wm: manager,
+        adapters: adapters({
+          act: async () => reportOutcome(db, run.id, ticket.id, 'success', 'done it'),
+        }),
+        pr: false,
+        fetchImpl,
+      },
+      run.id,
+    )
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://exp.host/--/api/v2/push/send')
+    const body = JSON.parse(init.body as string)
+    expect(body).toEqual([
+      {
+        to: 'ExponentPushToken[xyz]',
+        title: `Ticket "${ticket.title}" ready for review`,
+        body: 'done it',
+        data: { ticketId: ticket.id },
+      },
+    ])
+  })
+
+  test('9. failed run -> notifies push tokens with a failure title', async () => {
+    const { db, manager, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+    db.drizzle.insert(pushTokens).values({ token: 'ExponentPushToken[xyz]' }).run()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true })
+
+    await executeRun(
+      { db, wm: manager, adapters: adapters({ exitCode: 1 }), pr: false, fetchImpl },
+      run.id,
+    )
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string)
+    expect(body).toEqual([
+      {
+        to: 'ExponentPushToken[xyz]',
+        title: `Ticket "${ticket.title}" failed`,
+        body: '',
+        data: { ticketId: ticket.id },
+      },
+    ])
+  })
+
+  test('10. cancelled run -> no push notification', async () => {
+    const { db, manager, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+    db.drizzle.insert(pushTokens).values({ token: 'ExponentPushToken[xyz]' }).run()
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true })
+
+    const controller = new AbortController()
+    const script: FakeScript = {
+      act: (ctx) =>
+        new Promise<void>((resolve) => {
+          ctx.signal.addEventListener('abort', () => {})
+          // Abort once the adapter is actually acting, mirroring Scheduler.cancel mid-run
+          // (aborting before the adapter starts would instead surface as an adapter error).
+          controller.abort()
+          setTimeout(resolve, 60_000).unref()
+        }),
+    }
+
+    await executeRun(
+      { db, wm: manager, adapters: adapters(script), pr: false, fetchImpl },
+      run.id,
+      controller.signal,
+    )
+
+    const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
+    expect(updatedRun?.status).toBe('cancelled')
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

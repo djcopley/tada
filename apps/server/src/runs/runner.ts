@@ -7,6 +7,7 @@ import type { Adapter, AdapterEvent } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
 import { pendingOutcome } from '../mcp/server.js'
+import { notifyRunFinished } from '../notify.js'
 import { stateDir } from '../paths.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
 import { completeRun } from './completion.js'
@@ -25,6 +26,8 @@ export interface RunnerDeps {
   pr?: boolean
   /** MCP endpoint the adapter should call back to. Defaults to a placeholder for tests. */
   mcpUrl?: string
+  /** fetch implementation used for Expo push notifications. Defaults to global fetch; override in tests. */
+  fetchImpl?: typeof fetch
 }
 
 function assertRunTransition(from: RunStatus, to: RunStatus): void {
@@ -111,6 +114,16 @@ export async function executeRun(
       .set({ columnId: readyColumn.id, queueState: 'held' })
       .where(eq(tickets.id, ticket.id))
       .run()
+
+    // report_outcome may have stored a summary before the run went on to fail (e.g. a crash
+    // after the agent called it); re-read the row rather than trusting the stale `run` closure.
+    const failedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+    notifyRunFinished(
+      db,
+      { id: runId, status: 'failed', summary: failedRun?.summary ?? null },
+      ticket,
+      deps.fetchImpl,
+    ).catch((err) => console.error('notifyRunFinished failed:', err))
   }
 
   // Deliberate cancellation (Scheduler.cancel) is not a failure: the card goes back to Ready
@@ -284,6 +297,13 @@ export async function executeRun(
       .set({ columnId: inReviewColumn.id, queueState: null })
       .where(eq(tickets.id, ticket.id))
       .run()
+
+    notifyRunFinished(
+      db,
+      { id: runId, status: 'needs_review', summary: reported.summary },
+      ticket,
+      deps.fetchImpl,
+    ).catch((err) => console.error('notifyRunFinished failed:', err))
   } catch (err) {
     journal.write({
       type: 'error',
