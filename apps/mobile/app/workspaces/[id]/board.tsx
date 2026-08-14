@@ -1,8 +1,10 @@
 import type { ApiTicket } from '@tada/shared'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useState } from 'react'
 import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useBoard, useCreateTicket, useWorkspace } from '../../../src/api/queries'
 import { ColumnView } from '../../../src/components/ColumnView'
+import { TicketActions } from '../../../src/components/TicketActions'
 
 /**
  * At or above this width there's room to show every column side-by-side
@@ -21,6 +23,7 @@ export default function Board() {
   const { data: board, isLoading: boardLoading } = useBoard(wsId)
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(wsId)
   const createTicket = useCreateTicket()
+  const [selectedTicket, setSelectedTicket] = useState<ApiTicket | null>(null)
 
   if (Number.isNaN(wsId)) {
     return (
@@ -42,9 +45,20 @@ export default function Board() {
   const isWide = width >= WIDE_BREAKPOINT
 
   const onTicketPress = (ticket: ApiTicket) => router.push(`/tickets/${ticket.id}`)
+  const onTicketLongPress = (ticket: ApiTicket) => setSelectedTicket(ticket)
   const onCreateTicket = (title: string) => {
     void createTicket.mutateAsync({ workspaceId: wsId, title })
   }
+
+  const actionsSheet = selectedTicket && (
+    <TicketActions
+      ticket={selectedTicket}
+      columns={board.columns}
+      workspace={workspace}
+      visible
+      onClose={() => setSelectedTicket(null)}
+    />
+  )
 
   if (isWide) {
     const columnWidth = (width - COLUMN_MARGIN) / columns.length
@@ -57,33 +71,39 @@ export default function Board() {
             workspace={workspace}
             width={columnWidth}
             onTicketPress={onTicketPress}
+            onTicketLongPress={onTicketLongPress}
             onCreateTicket={column.kind === 'backlog' ? onCreateTicket : undefined}
             creating={createTicket.isPending}
           />
         ))}
+        {actionsSheet}
       </View>
     )
   }
 
   const columnWidth = width - COLUMN_MARGIN
   return (
-    <FlatList
-      testID="board-paged"
-      horizontal
-      pagingEnabled
-      data={columns}
-      keyExtractor={(c) => String(c.id)}
-      renderItem={({ item }) => (
-        <ColumnView
-          column={item}
-          workspace={workspace}
-          width={columnWidth}
-          onTicketPress={onTicketPress}
-          onCreateTicket={item.kind === 'backlog' ? onCreateTicket : undefined}
-          creating={createTicket.isPending}
-        />
-      )}
-    />
+    <>
+      <FlatList
+        testID="board-paged"
+        horizontal
+        pagingEnabled
+        data={columns}
+        keyExtractor={(c) => String(c.id)}
+        renderItem={({ item }) => (
+          <ColumnView
+            column={item}
+            workspace={workspace}
+            width={columnWidth}
+            onTicketPress={onTicketPress}
+            onTicketLongPress={onTicketLongPress}
+            onCreateTicket={item.kind === 'backlog' ? onCreateTicket : undefined}
+            creating={createTicket.isPending}
+          />
+        )}
+      />
+      {actionsSheet}
+    </>
   )
 }
 

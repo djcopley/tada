@@ -3,6 +3,7 @@ import { Stack } from 'expo-router'
 import { type ReactNode, useMemo } from 'react'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { ToastHost } from '../src/toast'
 
 /**
  * Owns the TanStack Query client. Lives inside ConnectionProvider so its
@@ -33,6 +34,7 @@ export default function RootLayout() {
     <ConnectionProvider>
       <AppQueryProvider>
         <Stack />
+        <ToastHost />
       </AppQueryProvider>
     </ConnectionProvider>
   )
