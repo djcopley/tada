@@ -94,6 +94,64 @@ Authorization: Bearer <token from config.json>
 There are no accounts and no OAuth — this single server-issued token is the entire access control
 model. Read `config.json` on the server to get the token for the client app.
 
+## Client (mobile & web)
+
+The client is a cross-platform Expo app (`tada-app`, in `apps/mobile`) available as:
+
+### Running on a mobile device
+
+Use Expo Go to preview development builds, or build a dev build for a faster iteration loop.
+
+1. Start the client dev server from the repo root:
+   ```sh
+   pnpm --filter @tada/mobile start
+   ```
+
+2. Open the generated QR code in Expo Go (iOS/Android) or run `i` for iOS or `a` for Android to
+   build a dev client.
+
+3. On the app's connection screen, enter:
+   - Server URL: your Tailscale tailnet address for the `tada` server (e.g., `http://tada.100.x.x.x:4242`)
+   - Bearer token: read from the server's `config.json` file (see [Configuration & data
+     locations](#configuration--data-locations))
+
+4. Tap "Connect". The app stores credentials securely using `expo-secure-store` (native secure
+   enclave on iOS, Keystore on Android), so you won't need to re-enter them.
+
+### Running on web
+
+For development, start the web dev server:
+
+```sh
+pnpm --filter @tada/mobile web
+```
+
+For a production-ready static build, export to `dist/`:
+
+```sh
+cd apps/mobile && npx expo export --platform web
+```
+
+The web app uses `localStorage` for settings persistence instead of secure storage. Connect via
+the same connection screen as mobile.
+
+### Settings & storage
+
+| Platform | Storage method | Scope |
+|---|---|---|
+| iOS/Android | `expo-secure-store` (native secure enclave) | Credentials only (server URL + token) |
+| Web | `localStorage` | All settings including credentials |
+| All platforms | SQLite (via `expo-sqlite`) | Cached data from server (workspace list, board state, memory) |
+
+### Features & limitations
+
+- **Board interactions:** tap a ticket to open details; long-press to see available actions (move to
+  Ready, reorder priority, mark complete). v1 uses tap-driven actions, not free drag-and-drop.
+- **Push notifications:** native only. Web builds skip registration; completion/failure events are
+  visible in the app's activity feed regardless.
+- **Live updates:** board changes and ticket runs stream via WebSocket when connected. Falls back to
+  polling if the connection drops.
+
 ## Running tests
 
 ```sh
