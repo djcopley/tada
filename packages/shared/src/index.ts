@@ -1,3 +1,3 @@
-export * from './api'
-export * from './domain'
-export * from './stateMachine'
+export * from './api.js'
+export * from './domain.js'
+export * from './stateMachine.js'

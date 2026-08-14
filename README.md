@@ -141,7 +141,7 @@ the same connection screen as mobile.
 |---|---|---|
 | iOS/Android | `expo-secure-store` (native secure enclave) | Credentials only (server URL + token) |
 | Web | `localStorage` | All settings including credentials |
-| All platforms | SQLite (via `expo-sqlite`) | Cached data from server (workspace list, board state, memory) |
+| All platforms | In-memory React Query cache | Fetched data (workspace list, board state); cleared on app close |
 
 ### Features & limitations
 
