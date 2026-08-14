@@ -37,6 +37,26 @@ describe('TadaClient', () => {
     expect(init.body).toBeUndefined()
   })
 
+  // Browsers enforce that `fetch` runs with `this === window` and throw "Illegal invocation"
+  // otherwise. Holding it as an instance property and calling `this.fetchImpl(...)` rebinds `this`
+  // to the client, which breaks every request on web (React Native's polyfill doesn't care, so
+  // native builds hid this). jsdom doesn't enforce the WebIDL check, so assert the binding itself.
+  test('fetch is not invoked as a method of the client', async () => {
+    let capturedThis: unknown = 'never called'
+    const fetchImpl = function (this: unknown): Promise<Response> {
+      capturedThis = this
+      return Promise.resolve(jsonResponse(200, []))
+    }
+    const client = new TadaClient(conn, fetchImpl as unknown as typeof fetch)
+
+    await client.listWorkspaces()
+
+    // `this` must be undefined or the global, never the client - both are legal receivers for the
+    // browser's fetch, whereas the client is what triggers "Illegal invocation".
+    expect(capturedThis).not.toBe(client)
+    expect(capturedThis === undefined || capturedThis === globalThis).toBe(true)
+  })
+
   test('moveTicket issues a POST with JSON content-type and body', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { ok: true }))
     const client = new TadaClient(conn, fetchImpl)

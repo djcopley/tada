@@ -22,10 +22,17 @@ export class ApiError extends Error {
 }
 
 export class TadaClient {
+  private readonly fetchImpl: typeof fetch
+
   constructor(
     private conn: Connection,
-    private fetchImpl: typeof fetch = fetch,
-  ) {}
+    fetchImpl: typeof fetch = fetch,
+  ) {
+    // Wrapped rather than stored directly: browsers require `fetch` to run with `this === window`,
+    // so calling a bare `this.fetchImpl(...)` would rebind `this` to this client and throw
+    // "Illegal invocation" on web. The arrow keeps the call site a plain, unbound invocation.
+    this.fetchImpl = (input, init) => fetchImpl(input, init)
+  }
 
   private baseUrl(): string {
     return this.conn.baseUrl.replace(/\/+$/, '')
