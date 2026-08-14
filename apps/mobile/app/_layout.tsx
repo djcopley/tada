@@ -1,9 +1,31 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Stack } from 'expo-router'
-import { type ReactNode, useMemo } from 'react'
+import { type ReactNode, useEffect, useMemo } from 'react'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { ToastHost } from '../src/toast'
+
+/**
+ * Registers this device for push once per connection (the effect re-runs
+ * only when `connection` itself changes, i.e. on connect/disconnect — not
+ * on every render, even though `client` is a fresh instance each render)
+ * and keeps notification-tap deep links wired for the lifetime of the app.
+ * Renders nothing; must live inside ConnectionProvider to reach the client.
+ */
+function PushSetup() {
+  const { connection, client } = useConnection()
+
+  useEffect(() => {
+    if (!connection || !client) return
+    void registerForPush(client)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection])
+
+  useNotificationDeepLinks()
+
+  return null
+}
 
 /**
  * Owns the TanStack Query client. Lives inside ConnectionProvider so its
@@ -32,6 +54,7 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
 export default function RootLayout() {
   return (
     <ConnectionProvider>
+      <PushSetup />
       <AppQueryProvider>
         <Stack />
         <ToastHost />
