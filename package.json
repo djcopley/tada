@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "lint": "biome check .",
+    "lint": "biome check . && pnpm --filter @tada/mobile lint",
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

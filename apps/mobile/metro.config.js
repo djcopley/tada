@@ -1,0 +1,26 @@
+// Learn more: https://docs.expo.dev/guides/monorepos/
+const { getDefaultConfig } = require('expo/metro-config')
+const path = require('node:path')
+
+const projectRoot = __dirname
+const monorepoRoot = path.resolve(projectRoot, '../..')
+
+const config = getDefaultConfig(projectRoot)
+
+// Expo SDK 52+ auto-detects pnpm monorepos and configures watchFolders /
+// nodeModulesPaths for us. We only need to make sure both are present in
+// case that detection ever misses this layout.
+config.watchFolders = Array.from(new Set([...config.watchFolders, monorepoRoot]))
+config.resolver.nodeModulesPaths = Array.from(
+  new Set([
+    ...config.resolver.nodeModulesPaths,
+    path.resolve(projectRoot, 'node_modules'),
+    path.resolve(monorepoRoot, 'node_modules'),
+  ]),
+)
+
+// pnpm hoists dependencies into a single node_modules with symlinks; Metro
+// needs symlink support enabled to resolve @tada/shared from the workspace.
+config.resolver.unstable_enableSymlinks = true
+
+module.exports = config
