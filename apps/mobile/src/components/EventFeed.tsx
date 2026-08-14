@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
-import { Icon } from './ui'
+import { Icon } from './ui/Icon'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -29,7 +29,8 @@ function StatusPill({ event }: { event: ApiRunEvent }) {
   const status = stringField(event.payload, 'status') ?? jsonPreview(event.payload)
   return (
     <View testID={`event-status-${event.id}`} style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-      <Text style={[type.monoSmall, { color: colors.inkMuted }]}>{status.toUpperCase()}</Text>
+      {/* Visual uppercase only — the payload text itself must stay intact. */}
+      <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{status}</Text>
     </View>
   )
 }
@@ -153,6 +154,9 @@ const styles = StyleSheet.create({
   },
   row: {
     marginVertical: 2,
+  },
+  upper: {
+    textTransform: 'uppercase',
   },
   pill: {
     alignSelf: 'flex-start',

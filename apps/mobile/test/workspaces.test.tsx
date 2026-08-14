@@ -81,8 +81,9 @@ describe('Workspaces screen', () => {
       expect(screen.getByText('Alpha')).toBeTruthy()
     })
     expect(screen.getByText('Beta')).toBeTruthy()
-    expect(screen.getByText('2 running')).toBeTruthy()
-    expect(screen.getByText('1 to review')).toBeTruthy()
+    expect(screen.getByTestId('workspace-running-1')).toHaveTextContent(/Running/)
+    expect(screen.getByTestId('workspace-running-1')).toHaveTextContent(/2/)
+    expect(screen.getByTestId('workspace-review-1')).toHaveTextContent(/1/)
     expect(screen.queryByTestId('workspace-running-2')).toBeNull()
     expect(screen.queryByTestId('workspace-review-2')).toBeNull()
   })
@@ -106,7 +107,7 @@ describe('Workspaces screen', () => {
     await renderWorkspaces()
 
     await waitFor(() => {
-      expect(screen.getByText('No workspaces yet — create one to get started.')).toBeTruthy()
+      expect(screen.getByText('No workspaces yet — create one to start dispatching work.')).toBeTruthy()
     })
   })
 
@@ -119,7 +120,7 @@ describe('Workspaces screen', () => {
     await renderWorkspaces()
 
     await waitFor(() => {
-      expect(screen.getByText('No workspaces yet — create one to get started.')).toBeTruthy()
+      expect(screen.getByText('No workspaces yet — create one to start dispatching work.')).toBeTruthy()
     })
 
     await fireEvent.press(screen.getByTestId('create-workspace-button'))
@@ -139,7 +140,7 @@ describe('Workspaces screen', () => {
     await renderWorkspaces()
 
     await waitFor(() => {
-      expect(screen.getByText('No workspaces yet — create one to get started.')).toBeTruthy()
+      expect(screen.getByText('No workspaces yet — create one to start dispatching work.')).toBeTruthy()
     })
 
     await fireEvent.press(screen.getByTestId('create-workspace-button'))

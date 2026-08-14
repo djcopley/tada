@@ -43,12 +43,11 @@ function FlipCounter({ label, count, signal }: FlipStripItem) {
   const rotate = useSharedValue(0)
 
   useEffect(() => {
-    if (count === shownRef.current) return
-    shownRef.current = count
-    if (reducedMotion) {
-      setShown(count)
+    if (reducedMotion || count === shownRef.current) {
+      shownRef.current = count
       return
     }
+    shownRef.current = count
     if (Platform.OS !== 'web') {
       void Haptics.selectionAsync()
     }
@@ -65,18 +64,21 @@ function FlipCounter({ label, count, signal }: FlipStripItem) {
     transform: [{ perspective: 300 }, { rotateX: `${rotate.value}deg` }],
   }))
 
-  const active = shown > 0
+  // With reduced motion there's no flip animation to stage, so render the
+  // live count directly instead of the animation-staged value.
+  const displayed = reducedMotion ? count : shown
+  const active = displayed > 0
 
   return (
     <View
       accessibilityLabel={`${label} ${count}`}
       style={[styles.counter, { backgroundColor: active ? bg : colors.surfaceAlt }]}
     >
-      <Text style={[type.monoSmall, { color: active ? fg : colors.inkFaint }]}>{label.toUpperCase()}</Text>
+      <Text style={[type.monoSmall, styles.upper, { color: active ? fg : colors.inkFaint }]}>{label}</Text>
       <Animated.Text
         style={[type.monoSmall, styles.digit, { color: active ? fg : colors.inkFaint }, flipStyle]}
       >
-        {shown}
+        {displayed}
       </Animated.Text>
     </View>
   )
@@ -87,6 +89,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: space.sm,
+  },
+  upper: {
+    textTransform: 'uppercase',
   },
   counter: {
     flexDirection: 'row',

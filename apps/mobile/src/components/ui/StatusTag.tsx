@@ -51,7 +51,7 @@ export function StatusTag({ status, detail, testID }: Props) {
     >
       <Animated.View style={[styles.dot, { backgroundColor: fg }, dotStyle]} />
       <Text style={[type.monoSmall, styles.text, { color: fg }]}>
-        {status.label.toUpperCase()}
+        {status.label}
         {detail ? `  ${detail}` : ''}
       </Text>
     </View>

@@ -7,6 +7,22 @@ import { ApiError } from '../src/api/client'
 import { ConnectionProvider } from '../src/ConnectionContext'
 import { ToastHost } from '../src/toast'
 
+// Only AppQueryProvider/ToastHost are exercised here; stub the router so
+// importing app/_layout doesn't drag expo-router's native stack into Jest.
+jest.mock('expo-router', () => ({
+  Stack: () => null,
+  Redirect: () => null,
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
+}))
+
+// app/_layout pulls in src/push, whose expo-notifications import needs
+// native modules Jest doesn't have — stub it like push.test does.
+jest.mock('expo-notifications', () => ({
+  getExpoPushTokenAsync: jest.fn(),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+}))
+
 jest.mock('../src/settings', () => ({
   loadConnection: jest.fn(async () => ({ baseUrl: 'https://example.com', token: 'tok' })),
   saveConnection: jest.fn(async () => undefined),

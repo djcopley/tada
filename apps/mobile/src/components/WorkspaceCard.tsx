@@ -2,7 +2,9 @@ import type { ApiWorkspaceListItem } from '@tada/shared'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTheme } from '../design/ThemeContext'
 import { space, type } from '../design/tokens'
-import { Card, FlipStrip, Icon } from './ui'
+import { Card } from './ui/Card'
+import { FlipStrip } from './ui/FlipStrip'
+import { Icon } from './ui/Icon'
 
 export function WorkspaceCard({
   workspace,

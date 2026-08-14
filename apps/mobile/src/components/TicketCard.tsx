@@ -1,14 +1,15 @@
 import type { ApiTicket, ApiWorkspace, ColumnKind } from '@tada/shared'
 import * as Haptics from 'expo-haptics'
 import { useEffect, useRef } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { runOnJS } from 'react-native-reanimated'
 import { measureInWindow, useBoardDnD } from '../board/dnd'
 import { useTheme } from '../design/ThemeContext'
 import { queueStateVisual, humanize, type StatusVisual } from '../design/status'
 import { space, type } from '../design/tokens'
-import { Card, StatusTag } from './ui'
+import { Card } from './ui/Card'
+import { StatusTag } from './ui/StatusTag'
 
 /**
  * Status precedence: an explicit queueState (queued/held) always wins over
@@ -46,8 +47,8 @@ export function TicketCardBody({
         <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{`#${ticket.id}`}</Text>
       </View>
       <View style={styles.metaRow}>
-        <Text numberOfLines={1} style={[type.monoSmall, styles.agent, { color: colors.inkMuted }]}>
-          {`${humanize(adapter)} · ${humanize(model)}`.toUpperCase()}
+        <Text numberOfLines={1} style={[type.monoSmall, styles.agent, styles.upper, { color: colors.inkMuted }]}>
+          {`${humanize(adapter)} · ${humanize(model)}`}
         </Text>
         {status ? (
           <View testID={`ticket-glyph-${ticket.id}`}>
@@ -123,6 +124,7 @@ export function TicketCard({
 
   const pan = Gesture.Pan()
     .activateAfterLongPress(DRAG_HOLD_MS)
+    // eslint-disable-next-line react-hooks/refs -- `lift` reads cardRef inside a gesture handler, not during render
     .onStart((e) => {
       runOnJS(lift)(e.absoluteX, e.absoluteY)
     })
@@ -166,5 +168,8 @@ const styles = StyleSheet.create({
   },
   agent: {
     flexShrink: 1,
+  },
+  upper: {
+    textTransform: 'uppercase',
   },
 })

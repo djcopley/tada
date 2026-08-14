@@ -182,12 +182,12 @@ function TicketDetailBody({
             <View style={styles.chipRow}>
               {column && (
                 <View testID="chip-column" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={[type.monoSmall, { color: colors.inkMuted }]}>{column.title.toUpperCase()}</Text>
+                  <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{column.title}</Text>
                 </View>
               )}
               <View testID="chip-agent" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[type.monoSmall, { color: colors.inkMuted }]}>
-                  {`${humanize(adapter)} · ${humanize(model)}`.toUpperCase()}
+                <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>
+                  {`${humanize(adapter)} · ${humanize(model)}`}
                 </Text>
               </View>
               {queueVisual && (
@@ -283,6 +283,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space.sm,
     alignItems: 'center',
+  },
+  upper: {
+    textTransform: 'uppercase',
   },
   chip: {
     paddingHorizontal: space.sm,

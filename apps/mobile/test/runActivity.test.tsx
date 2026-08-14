@@ -1,7 +1,6 @@
 import type { ApiRun, ApiTicket } from '@tada/shared'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
-import { Alert } from 'react-native'
 import RunActivity from '../app/runs/[id]'
 import { ConnectionProvider } from '../src/ConnectionContext'
 import { useWorkspaceSocket as mockUseWorkspaceSocket } from '../src/api/useWorkspaceSocket'
@@ -9,6 +8,7 @@ import { useWorkspaceSocket as mockUseWorkspaceSocket } from '../src/api/useWork
 const mockSearchParams = { id: '30', ticketId: '1' }
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockSearchParams,
+  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
 }))
 
 jest.mock('../src/settings', () => ({
@@ -105,7 +105,7 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent('running')
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Running/)
     })
     expect(screen.getByTestId('run-cancel')).toBeTruthy()
   })
@@ -116,18 +116,14 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent('needs_review')
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Needs review/)
     })
     expect(screen.queryByTestId('run-cancel')).toBeNull()
   })
 
-  test('cancel button confirms via Alert then calls cancelRun', async () => {
+  test('cancel button confirms via dialog then calls cancelRun', async () => {
     mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
     mockCancelRun.mockResolvedValue(undefined)
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
-      const destructive = buttons?.find((b) => b.style === 'destructive')
-      destructive?.onPress?.()
-    })
 
     await renderScreen()
 
@@ -135,6 +131,7 @@ describe('Run activity screen', () => {
       expect(screen.getByTestId('run-cancel')).toBeTruthy()
     })
     await fireEvent.press(screen.getByTestId('run-cancel'))
+    await fireEvent.press(screen.getByTestId('run-cancel-confirm'))
 
     await waitFor(() => {
       expect(mockCancelRun).toHaveBeenCalledWith(30)
@@ -143,9 +140,6 @@ describe('Run activity screen', () => {
 
   test('does not cancel when the confirm dialog is dismissed', async () => {
     mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
-    jest.spyOn(Alert, 'alert').mockImplementation(() => {
-      // user dismisses without pressing the destructive action
-    })
 
     await renderScreen()
 
@@ -153,6 +147,8 @@ describe('Run activity screen', () => {
       expect(screen.getByTestId('run-cancel')).toBeTruthy()
     })
     await fireEvent.press(screen.getByTestId('run-cancel'))
+    // Dismiss without confirming.
+    await fireEvent.press(screen.getByText('Keep running'))
 
     expect(mockCancelRun).not.toHaveBeenCalled()
   })
@@ -191,7 +187,7 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent('running')
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Running/)
     })
     await waitFor(() => {
       expect(mockRunEvents).toHaveBeenCalledTimes(1)

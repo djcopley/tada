@@ -5,7 +5,9 @@ import { useBoardDnD } from '../board/dnd'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
 import { TicketCard } from './TicketCard'
-import { Button, Dialog, Input } from './ui'
+import { Button } from './ui/Button'
+import { Dialog } from './ui/Dialog'
+import { Input } from './ui/Input'
 
 export function ColumnView({
   column,
@@ -70,7 +72,7 @@ export function ColumnView({
         ]}
       >
         <View style={styles.header}>
-          <Text style={[type.monoSmall, { color: colors.inkMuted }]}>{column.title.toUpperCase()}</Text>
+          <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{column.title}</Text>
           <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{tickets.length}</Text>
         </View>
         <ScrollView
@@ -144,6 +146,9 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: radius.lg,
     padding: space.sm,
+  },
+  upper: {
+    textTransform: 'uppercase',
   },
   header: {
     flexDirection: 'row',

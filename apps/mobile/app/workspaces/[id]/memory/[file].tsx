@@ -44,7 +44,9 @@ export default function MemoryEditor() {
 
   // Unsaved-changes guard: intercept navigating away while dirty.
   const dirtyRef = useRef(false)
-  dirtyRef.current = isDirty && !putMemory.isPending
+  useEffect(() => {
+    dirtyRef.current = isDirty && !putMemory.isPending
+  }, [isDirty, putMemory.isPending])
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       if (!dirtyRef.current) return
@@ -91,8 +93,7 @@ export default function MemoryEditor() {
     dirtyRef.current = false
     const action = leaveGuard?.action
     setLeaveGuard(null)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (action) navigation.dispatch(action as any)
+    if (action) navigation.dispatch(action as never)
   }
 
   return (

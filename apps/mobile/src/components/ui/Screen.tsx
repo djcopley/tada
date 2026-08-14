@@ -6,7 +6,7 @@ import { useTheme } from '../../design/ThemeContext'
 type Props = {
   children: ReactNode
   /** Edges to pad with safe-area insets. Top defaults on because most screens own their header. */
-  edges?: Array<'top' | 'bottom'>
+  edges?: ('top' | 'bottom')[]
   style?: ViewStyle
   testID?: string
 }

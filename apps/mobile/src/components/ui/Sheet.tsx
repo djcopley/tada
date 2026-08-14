@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
@@ -50,7 +50,13 @@ export function Sheet({ visible, onClose, children, testID }: Props) {
     transform: [{ translateY: translateY.value }],
   }))
 
-  if (!visible && translateY.value !== 0) translateY.value = 0
+  // Reset the drag offset whenever the sheet reopens.
+  useEffect(() => {
+    if (visible) {
+      // eslint-disable-next-line react-hooks/immutability -- Reanimated shared values are mutated via .value by design
+      translateY.value = 0
+    }
+  }, [visible, translateY])
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>

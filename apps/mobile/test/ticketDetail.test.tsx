@@ -262,8 +262,8 @@ describe('Ticket detail screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('run-row-10')).toBeTruthy()
     })
-    expect(screen.getByText(/running/)).toBeTruthy()
-    expect(screen.getByText(/needs_review/)).toBeTruthy()
+    expect(screen.getByText(/Running/)).toBeTruthy()
+    expect(screen.getByText(/Needs review/)).toBeTruthy()
   })
 
   test('sending a comment calls the client and clears the input', async () => {

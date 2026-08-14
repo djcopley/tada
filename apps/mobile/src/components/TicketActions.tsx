@@ -11,7 +11,10 @@ import { useTheme } from '../design/ThemeContext'
 import { humanize } from '../design/status'
 import { space, type } from '../design/tokens'
 import { showToast } from '../toast'
-import { Button, Icon, ListRow, Sheet } from './ui'
+import { Button } from './ui/Button'
+import { Icon } from './ui/Icon'
+import { ListRow } from './ui/ListRow'
+import { Sheet } from './ui/Sheet'
 
 const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
 

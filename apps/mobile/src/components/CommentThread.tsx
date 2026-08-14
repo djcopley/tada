@@ -5,7 +5,7 @@ import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from 
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
 import { relativeTime } from '../relativeTime'
-import { Icon } from './ui'
+import { Icon } from './ui/Icon'
 
 const URL_REGEX = /https?:\/\/\S+/g
 const TRAILING_PUNCTUATION = '.,;:!?]}'
@@ -121,9 +121,8 @@ export function CommentThread({
               testID={`comment-${item.id}`}
               style={[
                 styles.bubble,
-                human
-                  ? [styles.humanBubble, { backgroundColor: colors.ink }]
-                  : [styles.agentBubble, { backgroundColor: colors.surfaceAlt }],
+                human ? styles.humanBubble : styles.agentBubble,
+                { backgroundColor: human ? colors.ink : colors.surfaceAlt },
               ]}
             >
               <View style={styles.bubbleHeader}>

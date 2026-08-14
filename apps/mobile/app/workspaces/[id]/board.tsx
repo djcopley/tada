@@ -75,7 +75,7 @@ export default function Board() {
   const columnViews = useRef(new Map<number, { kind: ColumnKind; view: RNView }>())
   const cardViews = useRef(new Map<number, Map<number, RNView>>())
   const columnRects = useRef(new Map<number, Rect>())
-  const cardMids = useRef(new Map<number, Array<{ id: number; mid: number }>>())
+  const cardMids = useRef(new Map<number, { id: number; mid: number }[]>())
   const lastResolve = useRef(0)
   const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pageRef = useRef(0)
@@ -108,7 +108,7 @@ export default function Board() {
       if (cached) return cached
       const cards = cardViews.current.get(columnId)
       const draggedId = dragRef.current?.ticket.id
-      const mids: Array<{ id: number; mid: number }> = []
+      const mids: { id: number; mid: number }[] = []
       if (cards) {
         await Promise.all(
           [...cards.entries()].map(async ([ticketId, view]) => {
@@ -204,7 +204,9 @@ export default function Board() {
         void measureInWindow(overlayRef.current as RNView).then((o) => {
           overlayOrigin.current = { x: o.x, y: o.y }
         })
+        // eslint-disable-next-line react-hooks/immutability -- Reanimated shared values are mutated via .value by design
         dragX.value = rect.x - overlayOrigin.current.x
+        // eslint-disable-next-line react-hooks/immutability -- see above
         dragY.value = rect.y - overlayOrigin.current.y
         setDrag(dragTicket)
       },
@@ -217,7 +219,9 @@ export default function Board() {
             dy: active.height / 2,
           }
         }
+        // eslint-disable-next-line react-hooks/immutability -- Reanimated shared values are mutated via .value by design
         dragX.value = absX - grabOffset.current.dx - overlayOrigin.current.x
+        // eslint-disable-next-line react-hooks/immutability -- see above
         dragY.value = absY - grabOffset.current.dy - overlayOrigin.current.y
         maybePageAtEdge(absX)
         const now = Date.now()

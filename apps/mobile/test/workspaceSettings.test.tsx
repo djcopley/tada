@@ -1,7 +1,6 @@
 import type { ApiRepo, ApiWorkspace } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
-import { Alert } from 'react-native'
 import { ConnectionProvider } from '../src/ConnectionContext'
 
 const mockPush = jest.fn()
@@ -153,27 +152,19 @@ describe('Workspace settings screen', () => {
       expect(mockAddRepo).not.toHaveBeenCalled()
     })
 
-    test('remove repo shows alert confirm then calls client', async () => {
-      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_, __, buttons) => {
-        const confirmBtn = buttons?.find((b) => b.text === 'Remove')
-        confirmBtn?.onPress?.()
-      })
-
+    test('remove repo confirms via dialog then calls client', async () => {
       await renderSettings()
 
       await waitFor(() => {
         expect(screen.getByText('repo-a')).toBeTruthy()
       })
 
-      const removeButton = screen.getByTestId('remove-repo-repo-a')
-      await fireEvent.press(removeButton)
+      await fireEvent.press(screen.getByTestId('remove-repo-repo-a'))
+      await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
-        expect(alertSpy).toHaveBeenCalled()
         expect(mockRemoveRepo).toHaveBeenCalledWith(1, 'repo-a')
       })
-
-      alertSpy.mockRestore()
     })
 
     test('add repo failure shows inline error and keeps the url input', async () => {
@@ -203,10 +194,6 @@ describe('Workspace settings screen', () => {
     })
 
     test('remove repo failure shows inline error', async () => {
-      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_, __, buttons) => {
-        const confirmBtn = buttons?.find((b) => b.text === 'Remove')
-        confirmBtn?.onPress?.()
-      })
       const { ApiError } = require('../src/api/client')
       mockRemoveRepo.mockRejectedValueOnce(new ApiError(500, { error: 'remove failed' }))
 
@@ -216,16 +203,14 @@ describe('Workspace settings screen', () => {
         expect(screen.getByText('repo-a')).toBeTruthy()
       })
 
-      const removeButton = screen.getByTestId('remove-repo-repo-a')
-      await fireEvent.press(removeButton)
+      await fireEvent.press(screen.getByTestId('remove-repo-repo-a'))
+      await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
         expect(mockRemoveRepo).toHaveBeenCalledWith(1, 'repo-a')
         expect(screen.getByTestId('remove-repo-error')).toBeTruthy()
         expect(screen.getByTestId('remove-repo-error').props.children).toBe('remove failed')
       })
-
-      alertSpy.mockRestore()
     })
   })
 
@@ -246,7 +231,7 @@ describe('Workspace settings screen', () => {
 
       // Wait for modal items to be visible (more than 1 claude)
       await waitFor(() => {
-        const adapterItems = screen.getAllByText('claude')
+        const adapterItems = screen.getAllByText('Claude')
         expect(adapterItems.length).toBeGreaterThan(1)
       })
 
@@ -270,12 +255,12 @@ describe('Workspace settings screen', () => {
 
       // Wait for modal item to be visible
       await waitFor(() => {
-        const adapterItems = screen.getAllByText('claude')
+        const adapterItems = screen.getAllByText('Claude')
         expect(adapterItems.length).toBeGreaterThan(1)
       })
 
       // Press the modal item (the second one, which is from FlatList)
-      const adapterItems = screen.getAllByText('claude')
+      const adapterItems = screen.getAllByText('Claude')
       if (adapterItems.length > 1) {
         const modalItem = adapterItems[adapterItems.length - 1]
         if (modalItem) fireEvent.press(modalItem)
@@ -298,12 +283,12 @@ describe('Workspace settings screen', () => {
 
       // Wait for modal item to be visible
       await waitFor(() => {
-        const modelItems = screen.getAllByText('sonnet')
+        const modelItems = screen.getAllByText('Sonnet')
         expect(modelItems.length).toBeGreaterThan(1)
       })
 
       // Press the modal item (the second one, which is from FlatList)
-      const modelItems = screen.getAllByText('sonnet')
+      const modelItems = screen.getAllByText('Sonnet')
       if (modelItems.length > 1) {
         const modalItem = modelItems[modelItems.length - 1]
         if (modalItem) fireEvent.press(modalItem)
@@ -441,11 +426,11 @@ describe('Workspace settings screen', () => {
       fireEvent.press(adapterPicker)
 
       await waitFor(() => {
-        const adapterItems = screen.getAllByText('claude')
+        const adapterItems = screen.getAllByText('Claude')
         expect(adapterItems.length).toBeGreaterThan(1)
       })
 
-      const adapterItems = screen.getAllByText('claude')
+      const adapterItems = screen.getAllByText('Claude')
       if (adapterItems.length > 1) {
         const modalItem = adapterItems[adapterItems.length - 1]
         if (modalItem) fireEvent.press(modalItem)

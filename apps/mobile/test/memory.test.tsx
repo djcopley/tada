@@ -9,6 +9,7 @@ const mockUseLocalSearchParams = jest.fn()
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  useNavigation: () => ({ addListener: jest.fn(() => jest.fn()), dispatch: jest.fn() }),
 }))
 
 jest.mock('../src/settings', () => ({

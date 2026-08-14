@@ -4,7 +4,8 @@ import { useTheme } from '../design/ThemeContext'
 import { humanize, runStatusVisual } from '../design/status'
 import { radius, space, type } from '../design/tokens'
 import { relativeTime } from '../relativeTime'
-import { Icon, StatusTag } from './ui'
+import { Icon } from './ui/Icon'
+import { StatusTag } from './ui/StatusTag'
 
 export function RunRow({ run, onPress }: { run: ApiRun; onPress: () => void }) {
   const { colors } = useTheme()
