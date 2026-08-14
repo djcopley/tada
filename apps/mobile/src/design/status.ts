@@ -1,7 +1,12 @@
 import type { QueueState, RunStatus } from '@tada/shared'
 import type { Palette } from './tokens'
 
-export type Signal = 'amber' | 'green' | 'violet' | 'red' | 'neutral'
+/**
+ * Instrument Ink has exactly three signal colors: orange = an agent is live,
+ * sage = accepted / your turn, red = failure only. Everything else is
+ * neutral ink.
+ */
+export type Signal = 'live' | 'ok' | 'fail' | 'neutral'
 
 export type StatusVisual = {
   label: string
@@ -13,13 +18,13 @@ export type StatusVisual = {
 export function runStatusVisual(status: RunStatus): StatusVisual {
   switch (status) {
     case 'queued':
-      return { label: 'Queued', signal: 'amber' }
+      return { label: 'Queued', signal: 'neutral' }
     case 'running':
-      return { label: 'Running', signal: 'green', live: true }
+      return { label: 'Live', signal: 'live', live: true }
     case 'needs_review':
-      return { label: 'Needs review', signal: 'violet' }
+      return { label: 'Your turn', signal: 'ok' }
     case 'failed':
-      return { label: 'Failed', signal: 'red' }
+      return { label: 'Failed', signal: 'fail' }
     case 'cancelled':
       return { label: 'Cancelled', signal: 'neutral' }
   }
@@ -28,10 +33,10 @@ export function runStatusVisual(status: RunStatus): StatusVisual {
 export function queueStateVisual(state: QueueState): StatusVisual | null {
   switch (state) {
     case 'queued':
-      return { label: 'Queued', signal: 'amber' }
+      return { label: 'Queued', signal: 'neutral' }
     case 'held':
       // A held ticket is a failed run waiting on a human re-queue.
-      return { label: 'Failed', signal: 'red' }
+      return { label: 'Failed', signal: 'fail' }
     default:
       return null
   }
@@ -39,16 +44,14 @@ export function queueStateVisual(state: QueueState): StatusVisual | null {
 
 export function signalColors(signal: Signal, colors: Palette): { fg: string; bg: string } {
   switch (signal) {
-    case 'amber':
-      return { fg: colors.signalAmber, bg: colors.signalAmberBg }
-    case 'green':
-      return { fg: colors.signalGreen, bg: colors.signalGreenBg }
-    case 'violet':
-      return { fg: colors.signalViolet, bg: colors.signalVioletBg }
-    case 'red':
-      return { fg: colors.signalRed, bg: colors.signalRedBg }
+    case 'live':
+      return { fg: colors.liveText, bg: colors.liveSoft }
+    case 'ok':
+      return { fg: colors.okText, bg: colors.okSoft }
+    case 'fail':
+      return { fg: colors.failText, bg: colors.failSoft }
     case 'neutral':
-      return { fg: colors.inkMuted, bg: colors.surfaceAlt }
+      return { fg: colors.textMuted, bg: colors.raised2 }
   }
 }
 

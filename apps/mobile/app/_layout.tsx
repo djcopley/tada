@@ -1,10 +1,13 @@
 import {
-  Barlow_400Regular,
-  Barlow_500Medium,
-  Barlow_600SemiBold,
-} from '@expo-google-fonts/barlow'
-import { BarlowSemiCondensed_600SemiBold } from '@expo-google-fonts/barlow-semi-condensed'
-import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono'
+  IBMPlexMono_400Regular,
+  IBMPlexMono_500Medium,
+  IBMPlexMono_600SemiBold,
+} from '@expo-google-fonts/ibm-plex-mono'
+import {
+  InstrumentSans_400Regular,
+  InstrumentSans_500Medium,
+  InstrumentSans_600SemiBold,
+} from '@expo-google-fonts/instrument-sans'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useFonts } from 'expo-font'
 import { Stack } from 'expo-router'
@@ -15,7 +18,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
-import { ThemeProvider } from '../src/design/ThemeContext'
+import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { showToast, ToastHost } from '../src/toast'
 
@@ -85,16 +88,22 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }
 
+/** Status bar tracks the Ink theme, not the OS scheme. */
+function ThemedStatusBar() {
+  const { scheme } = useTheme()
+  return <StatusBar style={scheme === 'day' ? 'dark' : 'light'} />
+}
+
 export default function RootLayout() {
   // Screens design their own type with these faces; hold rendering one frame
   // until they're ready so nothing flashes in the system font.
   const [fontsLoaded] = useFonts({
-    Barlow_400Regular,
-    Barlow_500Medium,
-    Barlow_600SemiBold,
-    BarlowSemiCondensed_600SemiBold,
+    InstrumentSans_400Regular,
+    InstrumentSans_500Medium,
+    InstrumentSans_600SemiBold,
     IBMPlexMono_400Regular,
     IBMPlexMono_500Medium,
+    IBMPlexMono_600SemiBold,
   })
   if (!fontsLoaded) return null
 
@@ -102,7 +111,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <StatusBar style="auto" />
+          <ThemedStatusBar />
           <ConnectionProvider>
             <PushSetup />
             <AppQueryProvider>

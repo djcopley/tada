@@ -81,7 +81,7 @@ describe('Workspaces screen', () => {
       expect(screen.getByText('Alpha')).toBeTruthy()
     })
     expect(screen.getByText('Beta')).toBeTruthy()
-    expect(screen.getByTestId('workspace-running-1')).toHaveTextContent(/Running/)
+    expect(screen.getByTestId('workspace-running-1')).toHaveTextContent(/live/)
     expect(screen.getByTestId('workspace-running-1')).toHaveTextContent(/2/)
     expect(screen.getByTestId('workspace-review-1')).toHaveTextContent(/1/)
     expect(screen.queryByTestId('workspace-running-2')).toBeNull()

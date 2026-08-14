@@ -320,7 +320,7 @@ export default function Board() {
       <Screen>
         <AppHeader title="…" back />
         <View style={styles.skeletons}>
-          <Skeleton height={420} style={{ borderRadius: radius.lg }} />
+          <Skeleton height={420} style={{ borderRadius: radius.panel }} />
         </View>
       </Screen>
     )
@@ -376,10 +376,10 @@ export default function Board() {
           <FlipStrip
             testID="board-strip"
             items={[
-              { label: 'Queued', count: queuedCount, signal: 'amber' },
-              { label: 'Running', count: runningCount, signal: 'green' },
-              { label: 'Review', count: reviewCount, signal: 'violet' },
-              ...(heldCount > 0 ? [{ label: 'Held', count: heldCount, signal: 'red' as const }] : []),
+              { label: 'Queued', count: queuedCount, signal: 'neutral' },
+              { label: 'Live', count: runningCount, signal: 'live' },
+              { label: 'Yours', count: reviewCount, signal: 'ok' },
+              ...(heldCount > 0 ? [{ label: 'Failed', count: heldCount, signal: 'fail' as const }] : []),
             ]}
           />
         </AppHeader>
@@ -422,7 +422,7 @@ export default function Board() {
             <Animated.View
               style={[
                 styles.floatingCard,
-                { width: drag.width, backgroundColor: colors.surface },
+                { width: drag.width, backgroundColor: colors.raised, borderColor: colors.borderStrong },
                 shadow.lifted,
                 overlayStyle,
               ]}
@@ -450,7 +450,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    borderRadius: radius.md,
+    borderRadius: radius.card,
+    borderWidth: 1,
     padding: space.md,
   },
 })

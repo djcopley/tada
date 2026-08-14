@@ -1,7 +1,7 @@
 import { forwardRef, useState } from 'react'
 import { StyleSheet, Text, TextInput, type TextInputProps, View, type ViewStyle } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
-import { fonts, radius, space, type } from '../../design/tokens'
+import { radius, space, type } from '../../design/tokens'
 
 type Props = TextInputProps & {
   label?: string
@@ -18,14 +18,14 @@ export const Input = forwardRef<TextInput, Props>(function Input(
   const { colors } = useTheme()
   const [focused, setFocused] = useState(false)
 
-  const borderColor = error ? colors.signalRed : focused ? colors.ink : colors.line
+  const borderColor = error ? colors.fail : focused ? colors.live : colors.controlBorder
 
   return (
     <View style={containerStyle}>
-      {label ? <Text style={[type.caption, styles.label, { color: colors.inkMuted }]}>{label}</Text> : null}
+      {label ? <Text style={[type.monoCaps, styles.label, { color: colors.textFaintSolid }]}>{label}</Text> : null}
       <TextInput
         ref={ref}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.textFaintSolid}
         {...rest}
         onFocus={(e) => {
           setFocused(true)
@@ -39,8 +39,8 @@ export const Input = forwardRef<TextInput, Props>(function Input(
           styles.input,
           mono ? type.mono : type.body,
           {
-            color: colors.ink,
-            backgroundColor: colors.surface,
+            color: colors.text,
+            backgroundColor: colors.controlBg,
             borderColor,
           },
           rest.multiline && styles.multiline,
@@ -48,7 +48,7 @@ export const Input = forwardRef<TextInput, Props>(function Input(
         ]}
       />
       {error ? (
-        <Text accessibilityRole="alert" style={[type.caption, styles.error, { color: colors.signalRed }]}>
+        <Text accessibilityRole="alert" style={[type.caption, styles.error, { color: colors.failText }]}>
           {error}
         </Text>
       ) : null}
@@ -58,15 +58,12 @@ export const Input = forwardRef<TextInput, Props>(function Input(
 
 const styles = StyleSheet.create({
   label: {
-    marginBottom: space.xs,
+    marginBottom: space.xs + 2,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontFamily: fonts.monoMedium,
-    fontSize: 11,
   },
   input: {
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.md,
     paddingVertical: space.md,
     minHeight: 46,

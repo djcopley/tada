@@ -14,7 +14,12 @@ type Props = {
 /** Elevated surface. Pressable when given handlers, static otherwise. */
 export function Card({ children, onPress, onLongPress, style, testID }: Props) {
   const { colors, shadow } = useTheme()
-  const surface = [styles.card, { backgroundColor: colors.surface }, shadow.card, style]
+  const surface = [
+    styles.card,
+    { backgroundColor: colors.raised, borderColor: colors.borderSubtle },
+    shadow.card,
+    style,
+  ]
 
   if (!onPress && !onLongPress) {
     return (
@@ -38,7 +43,8 @@ export function Card({ children, onPress, onLongPress, style, testID }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.md,
+    borderRadius: radius.card,
+    borderWidth: 1,
     padding: space.lg,
   },
   pressed: {

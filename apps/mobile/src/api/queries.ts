@@ -1,5 +1,5 @@
 import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClient } from './ClientContext'
 
 /**
@@ -49,6 +49,21 @@ export function useWorkspaces() {
 export function useBoard(wsId: number) {
   const client = useClient()
   return useQuery({ queryKey: keys.board(wsId), queryFn: () => client.board(wsId) })
+}
+
+/**
+ * Boards for several workspaces at once — the Control screen's triage view
+ * spans every workspace. Shares cache keys with useBoard so per-workspace
+ * screens reuse the same data.
+ */
+export function useBoards(workspaceIds: number[]) {
+  const client = useClient()
+  return useQueries({
+    queries: workspaceIds.map((id) => ({
+      queryKey: keys.board(id),
+      queryFn: () => client.board(id),
+    })),
+  })
 }
 
 export function useTicket(id: number) {

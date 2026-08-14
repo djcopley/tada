@@ -15,10 +15,10 @@ export function EmptyState({ icon, message, action, testID }: Props) {
   const { colors } = useTheme()
   return (
     <View testID={testID} style={styles.root}>
-      <View style={[styles.badge, { backgroundColor: colors.surfaceAlt }]}>
-        <Icon name={icon} size={22} color={colors.inkMuted} />
+      <View style={[styles.badge, { backgroundColor: colors.raised2 }]}>
+        <Icon name={icon} size={22} color={colors.textMuted} />
       </View>
-      <Text style={[type.body, styles.message, { color: colors.inkMuted }]}>{message}</Text>
+      <Text style={[type.body, styles.message, { color: colors.textMuted }]}>{message}</Text>
       {action ? <Button variant="secondary" label={action.label} onPress={action.onPress} small /> : null}
     </View>
   )

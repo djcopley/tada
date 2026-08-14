@@ -9,7 +9,7 @@ import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { CommentThread } from '../../src/components/CommentThread'
 import { RunRow } from '../../src/components/RunRow'
 import { TicketActions } from '../../src/components/TicketActions'
-import { AppHeader, Button, Card, EmptyState, Icon, Input, Screen, Skeleton, StatusTag } from '../../src/components/ui'
+import { AppHeader, Button, Card, EmptyState, Icon, Input, Screen, Skeleton, StatusTag, Tag } from '../../src/components/ui'
 import { useTheme } from '../../src/design/ThemeContext'
 import { humanize, queueStateVisual } from '../../src/design/status'
 import { radius, space, type } from '../../src/design/tokens'
@@ -37,8 +37,8 @@ export default function TicketDetail() {
       <Screen>
         <AppHeader title="…" back />
         <View style={styles.skeletons}>
-          <Skeleton height={120} style={{ borderRadius: radius.md }} />
-          <Skeleton height={200} style={{ borderRadius: radius.md }} />
+          <Skeleton height={120} style={{ borderRadius: radius.card }} />
+          <Skeleton height={200} style={{ borderRadius: radius.card }} />
         </View>
       </Screen>
     )
@@ -158,21 +158,21 @@ function TicketDetailBody({
                 disabled={hasActiveRun}
               >
                 <View style={styles.titleRow}>
-                  <Text testID="ticket-title" style={[type.title, styles.title, { color: colors.ink }]}>
+                  <Text testID="ticket-title" style={[type.title, styles.title, { color: colors.text }]}>
                     {ticket.title}
                   </Text>
                   <Icon
                     name={hasActiveRun ? 'lock' : 'edit-2'}
                     size={16}
-                    color={colors.inkFaint}
+                    color={colors.textFaintSolid}
                   />
                 </View>
                 {ticket.description ? (
-                  <Text testID="ticket-description" style={[type.body, styles.description, { color: colors.inkMuted }]}>
+                  <Text testID="ticket-description" style={[type.body, styles.description, { color: colors.textMuted }]}>
                     {ticket.description}
                   </Text>
                 ) : (
-                  <Text style={[type.caption, styles.description, { color: colors.inkFaint }]}>
+                  <Text style={[type.caption, styles.description, { color: colors.textFaintSolid }]}>
                     {hasActiveRun ? 'Editing is locked while an agent is working.' : 'Tap to add a description.'}
                   </Text>
                 )}
@@ -181,14 +181,12 @@ function TicketDetailBody({
 
             <View style={styles.chipRow}>
               {column && (
-                <View testID="chip-column" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{column.title}</Text>
+                <View testID="chip-column">
+                  <Tag label={column.title.toLowerCase()} />
                 </View>
               )}
-              <View testID="chip-agent" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>
-                  {`${humanize(adapter)} · ${humanize(model)}`}
-                </Text>
+              <View testID="chip-agent">
+                <Tag label={`${humanize(adapter).toLowerCase()} · ${humanize(model).toLowerCase()}`} />
               </View>
               {queueVisual && (
                 <View testID="chip-queue-state">
@@ -199,14 +197,14 @@ function TicketDetailBody({
           </Card>
 
           <View style={styles.section}>
-            <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>DISCUSSION</Text>
+            <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>THREAD</Text>
             <CommentThread comments={comments} onSend={sendComment} sending={comment.isPending} />
           </View>
 
           <View style={styles.section}>
-            <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>RUNS</Text>
+            <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>ATTEMPTS</Text>
             {runs.length === 0 ? (
-              <Text style={[type.caption, { color: colors.inkFaint }]}>
+              <Text style={[type.caption, { color: colors.textFaintSolid }]}>
                 No runs yet — send this ticket to Ready to dispatch an agent.
               </Text>
             ) : (
@@ -221,7 +219,7 @@ function TicketDetailBody({
           </View>
         </ScrollView>
 
-        <View style={[styles.actionBar, { borderTopColor: colors.line, backgroundColor: colors.bg }]}>
+        <View style={[styles.actionBar, { borderTopColor: colors.borderSubtle, backgroundColor: colors.ground }]}>
           <Button
             testID="ticket-actions-button"
             icon="more-horizontal"
@@ -283,14 +281,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space.sm,
     alignItems: 'center',
-  },
-  upper: {
-    textTransform: 'uppercase',
-  },
-  chip: {
-    paddingHorizontal: space.sm,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
   },
   section: {
     gap: space.sm,

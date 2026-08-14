@@ -56,3 +56,30 @@ export async function saveConnection(c: Connection): Promise<void> {
 export async function clearConnection(): Promise<void> {
   await removeRaw()
 }
+
+/** Night watch is the primary theme; paper day is opt-in. */
+export type ThemeScheme = 'night' | 'day'
+
+const THEME_KEY = 'tada.theme'
+
+export async function loadThemeScheme(): Promise<ThemeScheme> {
+  try {
+    const raw = isWeb()
+      ? typeof window === 'undefined'
+        ? null
+        : window.localStorage.getItem(THEME_KEY)
+      : await SecureStore.getItemAsync(THEME_KEY)
+    return raw === 'day' ? 'day' : 'night'
+  } catch {
+    return 'night'
+  }
+}
+
+export async function saveThemeScheme(scheme: ThemeScheme): Promise<void> {
+  if (isWeb()) {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(THEME_KEY, scheme)
+    return
+  }
+  await SecureStore.setItemAsync(THEME_KEY, scheme)
+}

@@ -44,13 +44,16 @@ function CommentBody({
   commentId,
   color,
   linkColor,
+  mono = false,
 }: {
   body: string
   commentId: number
   color: string
   linkColor: string
+  /** Agent comments render in the mono voice. */
+  mono?: boolean
 }) {
-  const bodyStyle = [type.body, { color }]
+  const bodyStyle = [mono ? type.mono : type.body, { color }]
   const matches = [...body.matchAll(URL_REGEX)]
   if (matches.length === 0) return <Text style={bodyStyle}>{body}</Text>
 
@@ -116,29 +119,50 @@ export function CommentThread({
         scrollEnabled={false}
         renderItem={({ item }) => {
           const human = item.author === 'human'
+          if (human) {
+            return (
+              <View
+                testID={`comment-${item.id}`}
+                style={[
+                  styles.bubble,
+                  { backgroundColor: colors.raised, borderColor: colors.borderSubtle },
+                ]}
+              >
+                <Text style={[type.caption, { color: colors.text }]}>
+                  You
+                  <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>
+                    {`  ${relativeTime(item.createdAt)}`}
+                  </Text>
+                </Text>
+                <CommentBody
+                  body={item.body}
+                  commentId={item.id}
+                  color={colors.textMuted}
+                  linkColor={colors.liveText}
+                />
+              </View>
+            )
+          }
+          // The agent's voice: mono on recessed ink with the ▸ prompt.
           return (
             <View
               testID={`comment-${item.id}`}
               style={[
                 styles.bubble,
-                human ? styles.humanBubble : styles.agentBubble,
-                { backgroundColor: human ? colors.ink : colors.surfaceAlt },
+                { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge },
               ]}
             >
-              <View style={styles.bubbleHeader}>
-                <Text style={[type.monoSmall, { color: human ? colors.onInk : colors.inkMuted }]}>
-                  {human ? 'YOU' : 'AGENT'}
-                </Text>
-                <Text style={[type.monoSmall, { color: human ? colors.onInk : colors.inkFaint, opacity: 0.7 }]}>
-                  {relativeTime(item.createdAt)}
-                </Text>
-              </View>
-              <CommentBody
-                body={item.body}
-                commentId={item.id}
-                color={human ? colors.onInk : colors.ink}
-                linkColor={human ? colors.onInk : colors.signalViolet}
-              />
+              <Text style={[type.mono, { color: colors.agentText }]}>
+                <Text style={{ color: colors.agentPrompt }}>{'▸ '}</Text>
+                <CommentBody
+                  body={item.body}
+                  commentId={item.id}
+                  color={colors.agentText}
+                  linkColor={colors.liveText}
+                  mono
+                />
+                <Text style={{ color: colors.agentTextMuted }}>{` · ${relativeTime(item.createdAt)}`}</Text>
+              </Text>
             </View>
           )
         }}
@@ -149,10 +173,10 @@ export function CommentThread({
           style={[
             styles.input,
             type.body,
-            { color: colors.ink, backgroundColor: colors.surface, borderColor: colors.line },
+            { color: colors.text, backgroundColor: colors.controlBg, borderColor: colors.controlBorder },
           ]}
-          placeholder="Write a comment"
-          placeholderTextColor={colors.inkFaint}
+          placeholder="Add a note — the agent reads the thread on its next attempt"
+          placeholderTextColor={colors.textFaintSolid}
           multiline
           value={draft}
           onChangeText={setDraft}
@@ -163,13 +187,13 @@ export function CommentThread({
           accessibilityLabel="Send comment"
           style={({ pressed }) => [
             styles.sendButton,
-            { backgroundColor: colors.ink },
+            { backgroundColor: colors.primaryBg },
             (sending || pressed) && { opacity: 0.6 },
           ]}
           onPress={send}
           disabled={sending}
         >
-          <Icon name="arrow-up" size={18} color={colors.onInk} />
+          <Icon name="arrow-up" size={18} color={colors.primaryText} />
         </Pressable>
       </View>
     </View>
@@ -181,24 +205,12 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   bubble: {
-    maxWidth: '85%',
-    borderRadius: radius.md,
-    padding: space.md,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    paddingHorizontal: space.md + 1,
+    paddingVertical: space.sm + 1,
     marginVertical: space.xs,
     gap: space.xs,
-  },
-  agentBubble: {
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: radius.sm,
-  },
-  humanBubble: {
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: radius.sm,
-  },
-  bubbleHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: space.md,
   },
   link: {
     textDecorationLine: 'underline',
@@ -211,7 +223,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     minHeight: 44,

@@ -19,8 +19,8 @@ import { StatusTag } from './ui/StatusTag'
 function ticketStatus(ticket: ApiTicket, columnKind: ColumnKind): StatusVisual | null {
   const fromQueue = queueStateVisual(ticket.queueState)
   if (fromQueue) return fromQueue
-  if (columnKind === 'in_progress') return { label: 'Running', signal: 'green', live: true }
-  if (columnKind === 'in_review') return { label: 'Needs review', signal: 'violet' }
+  if (columnKind === 'in_progress') return { label: 'Live', signal: 'live', live: true }
+  if (columnKind === 'in_review') return { label: 'Your turn', signal: 'ok' }
   return null
 }
 
@@ -40,15 +40,12 @@ export function TicketCardBody({
 
   return (
     <View style={styles.body}>
-      <View style={styles.titleRow}>
-        <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.ink }]}>
-          {ticket.title}
-        </Text>
-        <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{`#${ticket.id}`}</Text>
-      </View>
+      <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
+        {ticket.title}
+      </Text>
       <View style={styles.metaRow}>
-        <Text numberOfLines={1} style={[type.monoSmall, styles.agent, styles.upper, { color: colors.inkMuted }]}>
-          {`${humanize(adapter)} · ${humanize(model)}`}
+        <Text numberOfLines={1} style={[type.monoSmall, styles.agent, { color: colors.textFaintSolid }]}>
+          {`#${ticket.id} · ${humanize(adapter).toLowerCase()} · ${humanize(model).toLowerCase()}`}
         </Text>
         {status ? (
           <View testID={`ticket-glyph-${ticket.id}`}>
@@ -152,13 +149,9 @@ const styles = StyleSheet.create({
   body: {
     gap: space.sm,
   },
-  titleRow: {
-    flexDirection: 'row',
-    gap: space.sm,
-    alignItems: 'flex-start',
-  },
   title: {
-    flex: 1,
+    fontSize: 13.5,
+    lineHeight: 18,
   },
   metaRow: {
     flexDirection: 'row',
@@ -168,8 +161,5 @@ const styles = StyleSheet.create({
   },
   agent: {
     flexShrink: 1,
-  },
-  upper: {
-    textTransform: 'uppercase',
   },
 })

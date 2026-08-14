@@ -24,10 +24,10 @@ describe('EventFeed', () => {
 
     await render(<EventFeed events={events} live={false} />)
 
-    expect(screen.getByTestId('event-status-1')).toHaveTextContent('running')
-    expect(screen.getByTestId('event-text-2')).toHaveTextContent('thinking about the fix')
-    expect(screen.getByTestId('event-tool-3')).toHaveTextContent('bash({"cmd":"ls"})')
-    expect(screen.getByTestId('event-error-4')).toHaveTextContent('boom')
+    expect(screen.getByTestId('event-status-1')).toHaveTextContent(/running/)
+    expect(screen.getByTestId('event-text-2')).toHaveTextContent(/thinking about the fix/)
+    expect(screen.getByTestId('event-tool-3')).toHaveTextContent(/bash\(/)
+    expect(screen.getByTestId('event-error-4')).toHaveTextContent(/boom/)
   })
 
   test('falls back to a JSON preview when a payload does not have the expected shape', async () => {
@@ -35,6 +35,6 @@ describe('EventFeed', () => {
 
     await render(<EventFeed events={events} live={false} />)
 
-    expect(screen.getByTestId('event-status-1')).toHaveTextContent('{"weird":true}')
+    expect(screen.getByTestId('event-status-1')).toHaveTextContent(/\{"weird":true\}/)
   })
 })

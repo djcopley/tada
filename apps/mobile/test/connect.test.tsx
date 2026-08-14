@@ -140,6 +140,7 @@ describe('Connect screen', () => {
           resolveHealth = resolve
         }),
     )
+    mockListWorkspaces.mockResolvedValueOnce([])
     await renderConnect()
 
     await fillForm()

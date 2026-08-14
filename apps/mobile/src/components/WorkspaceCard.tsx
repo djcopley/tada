@@ -1,9 +1,8 @@
 import type { ApiWorkspaceListItem } from '@tada/shared'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text } from 'react-native'
 import { useTheme } from '../design/ThemeContext'
 import { space, type } from '../design/tokens'
 import { Card } from './ui/Card'
-import { FlipStrip } from './ui/FlipStrip'
 import { Icon } from './ui/Icon'
 
 export function WorkspaceCard({
@@ -18,28 +17,27 @@ export function WorkspaceCard({
 
   return (
     <Card testID={`workspace-card-${workspace.id}`} onPress={onPress} style={styles.card}>
-      <View style={styles.titleRow}>
-        <Text numberOfLines={1} style={[type.title, styles.name, { color: colors.ink }]}>
-          {workspace.name}
-        </Text>
-        <Icon name="chevron-right" size={16} color={colors.inkFaint} />
-      </View>
+      <Text numberOfLines={1} style={[type.bodyStrong, styles.name, { color: colors.text }]}>
+        {workspace.name}
+      </Text>
       {idle ? (
-        <Text style={[type.monoSmall, { color: colors.inkFaint }]}>ALL QUIET</Text>
+        <Text style={[type.monoSmall, styles.counts, { color: colors.textFaintSolid }]}>all quiet</Text>
       ) : (
-        <View style={styles.badges}>
-          {workspace.runningCount > 0 && (
-            <View testID={`workspace-running-${workspace.id}`}>
-              <FlipStrip items={[{ label: 'Running', count: workspace.runningCount, signal: 'green' }]} />
-            </View>
-          )}
-          {workspace.needsReviewCount > 0 && (
-            <View testID={`workspace-review-${workspace.id}`}>
-              <FlipStrip items={[{ label: 'Review', count: workspace.needsReviewCount, signal: 'violet' }]} />
-            </View>
-          )}
-        </View>
+        <Text numberOfLines={1} style={[type.monoSmall, styles.counts, { color: colors.textFaintSolid }]}>
+          {workspace.runningCount > 0 ? (
+            <Text testID={`workspace-running-${workspace.id}`} style={{ color: colors.liveText }}>
+              {`${workspace.runningCount} live`}
+            </Text>
+          ) : null}
+          {workspace.runningCount > 0 && workspace.needsReviewCount > 0 ? ' · ' : ''}
+          {workspace.needsReviewCount > 0 ? (
+            <Text testID={`workspace-review-${workspace.id}`} style={{ color: colors.okText }}>
+              {`${workspace.needsReviewCount} yours`}
+            </Text>
+          ) : null}
+        </Text>
       )}
+      <Icon name="chevron-right" size={16} color={colors.textFaintSolid} />
     </Card>
   )
 }
@@ -48,18 +46,15 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: space.lg,
     marginVertical: space.xs + 2,
-    gap: space.sm,
-  },
-  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
+    paddingVertical: space.md,
   },
   name: {
-    flex: 1,
+    flexShrink: 1,
   },
-  badges: {
-    flexDirection: 'row',
-    gap: space.sm,
+  counts: {
+    flex: 1,
   },
 })

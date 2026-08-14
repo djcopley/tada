@@ -37,13 +37,13 @@ export function Skeleton({ width = '100%', height = 16, style }: Props) {
 
   return (
     <Animated.View
-      style={[styles.block, { width, height, backgroundColor: colors.surfaceAlt }, animated, style]}
+      style={[styles.block, { width, height, backgroundColor: colors.raised2 }, animated, style]}
     />
   )
 }
 
 const styles = StyleSheet.create({
   block: {
-    borderRadius: radius.sm,
+    borderRadius: radius.tag,
   },
 })

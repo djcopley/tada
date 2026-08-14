@@ -135,10 +135,10 @@ export function TicketActions({
   return (
     <Sheet visible={visible} onClose={close} testID="ticket-actions-sheet">
       <View style={styles.titleBlock}>
-        <Text numberOfLines={2} style={[type.title, { color: colors.ink }]}>
+        <Text numberOfLines={2} style={[type.title, { color: colors.text }]}>
           {ticket.title}
         </Text>
-        <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{`#${ticket.id}`}</Text>
+        <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{`#${ticket.id}`}</Text>
       </View>
 
       {view === 'main' && (
@@ -191,9 +191,9 @@ export function TicketActions({
               <ListRow
                 icon="cpu"
                 title={`${humanize(currentAdapter)} · ${humanize(currentModel)}`}
-                trailing={<Icon name="lock" size={14} color={colors.inkFaint} />}
+                trailing={<Icon name="lock" size={14} color={colors.textFaintSolid} />}
               />
-              <Text testID="action-agent-hint" style={[type.caption, styles.hint, { color: colors.inkMuted }]}>
+              <Text testID="action-agent-hint" style={[type.caption, styles.hint, { color: colors.textMuted }]}>
                 Run in progress — cancel it to change the agent or model.
               </Text>
             </View>
@@ -204,7 +204,7 @@ export function TicketActions({
                 icon="cpu"
                 title="Agent"
                 trailing={
-                  <Text style={[type.mono, { color: colors.inkMuted }]}>{humanize(currentAdapter)}</Text>
+                  <Text style={[type.mono, { color: colors.textMuted }]}>{humanize(currentAdapter)}</Text>
                 }
                 onPress={() => setView('agent')}
               />
@@ -213,7 +213,7 @@ export function TicketActions({
                 icon="layers"
                 title="Model"
                 trailing={
-                  <Text style={[type.mono, { color: colors.inkMuted }]}>{humanize(currentModel)}</Text>
+                  <Text style={[type.mono, { color: colors.textMuted }]}>{humanize(currentModel)}</Text>
                 }
                 onPress={() => setView('model')}
               />
@@ -232,7 +232,7 @@ export function TicketActions({
               testID={`action-agent-${adapter}`}
               title={humanize(adapter)}
               trailing={
-                adapter === currentAdapter ? <Icon name="check" size={16} color={colors.ink} /> : null
+                adapter === currentAdapter ? <Icon name="check" size={16} color={colors.text} /> : null
               }
               onPress={() => chooseAdapter(adapter)}
             />
@@ -248,7 +248,7 @@ export function TicketActions({
               key={model}
               testID={`action-model-${model}`}
               title={humanize(model)}
-              trailing={model === currentModel ? <Icon name="check" size={16} color={colors.ink} /> : null}
+              trailing={model === currentModel ? <Icon name="check" size={16} color={colors.text} /> : null}
               onPress={() => chooseModel(model)}
             />
           ))}

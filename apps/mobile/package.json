@@ -4,9 +4,8 @@
   "main": "expo-router/entry",
   "private": true,
   "dependencies": {
-    "@expo-google-fonts/barlow": "^0.4.1",
-    "@expo-google-fonts/barlow-semi-condensed": "^0.4.1",
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
+    "@expo-google-fonts/instrument-sans": "^0.4.2",
     "@expo/vector-icons": "^15.0.2",
     "@tada/shared": "workspace:^",
     "@tanstack/react-query": "^5.101.4",

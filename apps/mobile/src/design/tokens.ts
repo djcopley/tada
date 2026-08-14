@@ -1,71 +1,126 @@
 import type { TextStyle, ViewStyle } from 'react-native'
 
 /**
- * "Dispatch" design tokens. Chrome is neutral ink-and-bone; the four signal
- * colors are the only saturated colors in the app and always carry status
- * meaning (amber = waiting, green = running/success, violet = needs review,
- * red = failed/destructive). See docs/superpowers/specs/2026-08-14-dispatch-design-system.md.
+ * "Instrument Ink" design tokens. Night watch (warm brown-black ink) is the
+ * primary theme; paper day is the opt-in light theme. Two voices share every
+ * screen: the agent speaks IBM Plex Mono from recessed dark ink (the agent*
+ * tokens are theme-invariant), you speak Instrument Sans on raised surfaces.
+ * Orange = live, sage = accepted/ok, red only for failure — no other
+ * decorative color exists.
  */
 
 export type Palette = {
-  bg: string
-  surface: string
-  surfaceAlt: string
-  ink: string
-  inkMuted: string
-  inkFaint: string
-  line: string
-  signalAmber: string
-  signalAmberBg: string
-  signalGreen: string
-  signalGreenBg: string
-  signalViolet: string
-  signalVioletBg: string
-  signalRed: string
-  signalRedBg: string
+  /** Screen background (ink-900 / paper-100). */
+  ground: string
+  /** Cards and other raised surfaces. */
+  raised: string
+  /** A second step of raise: pressed rows, chips, lanes. */
+  raised2: string
+  /** Recessed wells (segmented controls, transcript panels). */
+  recessed: string
+  /** Floating menus and sheets. */
+  overlay: string
+  text: string
+  textMuted: string
+  textFaint: string
+  textFaintSolid: string
+  textInverse: string
+  borderSubtle: string
+  borderStrong: string
   scrim: string
-  /** Text/icon color drawn on top of an `ink`-filled control. */
-  onInk: string
+  /** Orange — an agent is live right now. */
+  live: string
+  liveText: string
+  liveSoft: string
+  /** Sage — accepted, ok, your turn. */
+  ok: string
+  okText: string
+  okSoft: string
+  /** Red — failure only. */
+  fail: string
+  failText: string
+  failSoft: string
+  /** The agent's material — constant in both themes. */
+  agentSurface: string
+  agentSurfaceEdge: string
+  agentText: string
+  agentTextMuted: string
+  agentPrompt: string
+  controlBg: string
+  controlBgHover: string
+  controlBorder: string
+  primaryBg: string
+  primaryText: string
 }
 
-export const light: Palette = {
-  bg: '#F2F1EC',
-  surface: '#FFFFFF',
-  surfaceAlt: '#E9E7E0',
-  ink: '#16202E',
-  inkMuted: '#5B6572',
-  inkFaint: '#9AA1AA',
-  line: '#D8D5CD',
-  signalAmber: '#B97700',
-  signalAmberBg: '#F6ECD9',
-  signalGreen: '#20803F',
-  signalGreenBg: '#E1EFE4',
-  signalViolet: '#6D4FC4',
-  signalVioletBg: '#EAE5F7',
-  signalRed: '#B3372F',
-  signalRedBg: '#F7E4E2',
-  scrim: 'rgba(16,22,31,0.45)',
-  onInk: '#F2F1EC',
+export const night: Palette = {
+  ground: '#1B1613',
+  raised: '#211C17',
+  raised2: '#282219',
+  recessed: '#100D0B',
+  overlay: '#241E1A',
+  text: '#F0EADD',
+  textMuted: '#B3A794',
+  textFaint: '#80756455',
+  textFaintSolid: '#8A7F6D',
+  textInverse: '#1B1613',
+  borderSubtle: '#F0EADD14',
+  borderStrong: '#F0EADD2B',
+  scrim: '#0F0C0AB3',
+  live: '#EF8B3F',
+  liveText: '#F6A96A',
+  liveSoft: '#EF8B3F1F',
+  ok: '#93AC86',
+  okText: '#AEC2A3',
+  okSoft: '#93AC861F',
+  fail: '#D95F4C',
+  failText: '#E68A78',
+  failSoft: '#D95F4C21',
+  agentSurface: '#100D0B',
+  agentSurfaceEdge: '#F0EADD0F',
+  agentText: '#DDD5C4',
+  agentTextMuted: '#968B77',
+  agentPrompt: '#EF8B3F',
+  controlBg: '#282219',
+  controlBgHover: '#332B21',
+  controlBorder: '#F0EADD1F',
+  primaryBg: '#F9F5EE',
+  primaryText: '#1B1613',
 }
 
-export const dark: Palette = {
-  bg: '#10161F',
-  surface: '#1A2230',
-  surfaceAlt: '#141B26',
-  ink: '#E8E6E1',
-  inkMuted: '#98A2AE',
-  inkFaint: '#5B6572',
-  line: '#2A3342',
-  signalAmber: '#E0A030',
-  signalAmberBg: '#2B2414',
-  signalGreen: '#4CAF6E',
-  signalGreenBg: '#15281C',
-  signalViolet: '#9B84E8',
-  signalVioletBg: '#241E38',
-  signalRed: '#E06055',
-  signalRedBg: '#331A18',
-  scrim: 'rgba(16,22,31,0.45)',
-  onInk: '#10161F',
+export const day: Palette = {
+  ground: '#F3EDE2',
+  raised: '#FDFBF7',
+  raised2: '#F9F5EE',
+  recessed: '#E9E1D2',
+  overlay: '#FDFBF7',
+  text: '#221C15',
+  textMuted: '#6E6250',
+  textFaint: '#4A404055',
+  textFaintSolid: '#998C76',
+  textInverse: '#F9F5EE',
+  borderSubtle: '#221C1514',
+  borderStrong: '#221C1526',
+  scrim: '#2A231C59',
+  live: '#E37A2C',
+  liveText: '#C4631E',
+  liveSoft: '#E37A2C24',
+  ok: '#75906A',
+  okText: '#5C7552',
+  okSoft: '#75906A26',
+  fail: '#BF4736',
+  failText: '#A03A2C',
+  failSoft: '#BF473621',
+  agentSurface: '#100D0B',
+  agentSurfaceEdge: '#F0EADD0F',
+  agentText: '#DDD5C4',
+  agentTextMuted: '#968B77',
+  agentPrompt: '#EF8B3F',
+  controlBg: '#FDFBF7',
+  controlBgHover: '#F9F5EE',
+  controlBorder: '#221C1526',
+  primaryBg: '#1B1613',
+  primaryText: '#F9F5EE',
 }
 
 export const space = {
@@ -79,59 +134,71 @@ export const space = {
   huge: 48,
 } as const
 
+/** Tight radii on controls, generous soft radii on big containers. */
 export const radius = {
-  sm: 4,
-  md: 10,
-  lg: 16,
+  tag: 4,
+  control: 5,
+  card: 14,
+  panel: 18,
   full: 999,
 } as const
 
 export const fonts = {
-  ui: 'Barlow_400Regular',
-  uiMedium: 'Barlow_500Medium',
-  uiSemiBold: 'Barlow_600SemiBold',
-  display: 'BarlowSemiCondensed_600SemiBold',
+  ui: 'InstrumentSans_400Regular',
+  uiMedium: 'InstrumentSans_500Medium',
+  uiSemiBold: 'InstrumentSans_600SemiBold',
+  display: 'InstrumentSans_600SemiBold',
   mono: 'IBMPlexMono_400Regular',
   monoMedium: 'IBMPlexMono_500Medium',
+  monoSemiBold: 'IBMPlexMono_600SemiBold',
 } as const
 
 export const type = {
   display: {
     fontFamily: fonts.display,
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: 0.5,
+    fontSize: 21,
+    lineHeight: 26,
+    letterSpacing: -0.3,
   },
   title: {
     fontFamily: fonts.uiSemiBold,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.2,
   },
   body: {
     fontFamily: fonts.ui,
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 23,
   },
   bodyStrong: {
     fontFamily: fonts.uiSemiBold,
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 23,
   },
   caption: {
     fontFamily: fonts.uiMedium,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  mono: {
-    fontFamily: fonts.mono,
     fontSize: 13,
     lineHeight: 18,
   },
+  mono: {
+    fontFamily: fonts.mono,
+    fontSize: 13.5,
+    lineHeight: 22,
+    letterSpacing: 0.13,
+  },
   monoSmall: {
     fontFamily: fonts.monoMedium,
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 18,
+    letterSpacing: 0.12,
+  },
+  /** Uppercase mono section labels — pair with textTransform: 'uppercase'. */
+  monoCaps: {
+    fontFamily: fonts.monoMedium,
+    fontSize: 10.5,
     lineHeight: 15,
-    letterSpacing: 0.8,
+    letterSpacing: 0.85,
   },
 } satisfies Record<string, TextStyle>
 
@@ -139,23 +206,30 @@ export const motion = {
   fast: 120,
   base: 200,
   slow: 320,
+  /** The single earned moment of delight: plays once on run acceptance. */
+  tada: 900,
 } as const
 
-/** Soft ink-tinted card shadow; `lifted` is the stronger drag state. */
+/**
+ * Depth on the dark ground is drawn with edges + hairline borders rather
+ * than big drop shadows; `card` is the resting raise, `lifted` the drag /
+ * overlay state.
+ */
 export function shadows(palette: Palette): { card: ViewStyle; lifted: ViewStyle } {
+  const isNight = palette === night
   return {
     card: {
-      shadowColor: palette === dark ? '#000000' : light.ink,
-      shadowOpacity: 0.1,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: '#000000',
+      shadowOpacity: isNight ? 0.18 : 0.08,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
       elevation: 2,
     },
     lifted: {
-      shadowColor: palette === dark ? '#000000' : light.ink,
-      shadowOpacity: 0.22,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 8 },
+      shadowColor: '#000000',
+      shadowOpacity: isNight ? 0.65 : 0.2,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 12 },
       elevation: 8,
     },
   }

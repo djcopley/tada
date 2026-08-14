@@ -37,8 +37,15 @@ export function Dialog({ visible, title, onClose, children, confirm, cancelLabel
           style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
           onPress={onClose}
         />
-        <View testID={testID} style={[styles.card, { backgroundColor: colors.surface }, shadow.lifted]}>
-          <Text style={[type.title, { color: colors.ink }]}>{title}</Text>
+        <View
+          testID={testID}
+          style={[
+            styles.card,
+            { backgroundColor: colors.overlay, borderColor: colors.borderStrong },
+            shadow.lifted,
+          ]}
+        >
+          <Text style={[type.title, { color: colors.text }]}>{title}</Text>
           {children}
           <View style={styles.actions}>
             <Button variant="ghost" label={cancelLabel} onPress={onClose} small />
@@ -69,8 +76,9 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 420,
-    borderRadius: radius.lg,
+    maxWidth: 440,
+    borderRadius: radius.card,
+    borderWidth: 1,
     padding: space.xl,
     gap: space.lg,
   },

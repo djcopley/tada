@@ -114,6 +114,10 @@ export default function MemoryList() {
         actions={[{ icon: 'plus', label: 'New note', onPress: handleCreateNote, testID: 'memory-add-button' }]}
       />
 
+      <Text style={[type.caption, styles.intro, { color: colors.textMuted }]}>
+        The agent reads every note before a run — and may add its own. Plain text, edit freely.
+      </Text>
+
       <FlatList
         testID="memory-list"
         data={files}
@@ -126,8 +130,8 @@ export default function MemoryList() {
             title={item.name}
             trailing={
               item.isAgents ? (
-                <View style={[styles.pinnedTag, { backgroundColor: colors.surfaceAlt }]}>
-                  <Text style={[type.monoSmall, { color: colors.inkMuted }]}>PINNED</Text>
+                <View style={[styles.pinnedTag, { backgroundColor: colors.raised2 }]}>
+                  <Text style={[type.monoSmall, { color: colors.textMuted }]}>PINNED</Text>
                 </View>
               ) : undefined
             }
@@ -163,7 +167,7 @@ export default function MemoryList() {
           <Text
             testID="memory-name-error"
             accessibilityRole="alert"
-            style={[type.caption, { color: colors.signalRed }]}
+            style={[type.caption, { color: colors.failText }]}
           >
             {nameError}
           </Text>
@@ -182,9 +186,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
+  intro: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+  },
   pinnedTag: {
     paddingHorizontal: space.sm,
     paddingVertical: 2,
-    borderRadius: radius.sm,
+    borderRadius: radius.tag,
   },
 })

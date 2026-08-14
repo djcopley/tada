@@ -105,7 +105,7 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent(/Running/)
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Live/)
     })
     expect(screen.getByTestId('run-cancel')).toBeTruthy()
   })
@@ -116,7 +116,7 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent(/Needs review/)
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Your turn/)
     })
     expect(screen.queryByTestId('run-cancel')).toBeNull()
   })
@@ -187,7 +187,7 @@ describe('Run activity screen', () => {
     await renderScreen()
 
     await waitFor(() => {
-      expect(screen.getByTestId('run-status')).toHaveTextContent(/Running/)
+      expect(screen.getByTestId('run-status')).toHaveTextContent(/Live/)
     })
     await waitFor(() => {
       expect(mockRunEvents).toHaveBeenCalledTimes(1)
@@ -208,7 +208,7 @@ describe('Run activity screen', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByTestId('event-text-5')).toHaveTextContent('hello from ws')
+      expect(screen.getByTestId('event-text-5')).toHaveTextContent(/hello from ws/)
     })
     expect(screen.queryAllByTestId(/^event-text-/)).toHaveLength(1)
   })

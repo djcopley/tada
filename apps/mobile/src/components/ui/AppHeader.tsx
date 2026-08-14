@@ -14,24 +14,26 @@ type Action = {
 
 type Props = {
   title: string
+  /** Render the tada✱ wordmark before the title (root screens). */
+  wordmark?: boolean
   /** Show a back chevron (router.back). Off for root screens. */
   back?: boolean
   actions?: Action[]
-  /** Extra content under the title row (e.g. the board FlipStrip). */
+  /** Extra content under the title row (e.g. the board status strip). */
   children?: ReactNode
 }
 
 /**
- * The one app header: display-face title, optional back chevron, icon
- * actions. Replaces both the native stack headers and the hand-rolled
- * per-screen header rows.
+ * The one app header: sans-semibold title with tight tracking, optional
+ * back chevron, icon actions. Root screens lead with the tada✱ wordmark —
+ * the orange star is the only brand mark in the app.
  */
-export function AppHeader({ title, back = false, actions = [], children }: Props) {
+export function AppHeader({ title, wordmark = false, back = false, actions = [], children }: Props) {
   const router = useRouter()
   const { colors } = useTheme()
 
   return (
-    <View style={[styles.root, { borderBottomColor: colors.line }]}>
+    <View style={[styles.root, { borderBottomColor: colors.borderSubtle }]}>
       <View style={styles.row}>
         {back ? (
           <Pressable
@@ -45,8 +47,16 @@ export function AppHeader({ title, back = false, actions = [], children }: Props
             <Icon name="chevron-left" size={24} />
           </Pressable>
         ) : null}
-        <Text numberOfLines={1} style={[type.display, styles.title, { color: colors.ink }]}>
-          {title}
+        <Text numberOfLines={1} style={[type.display, styles.title, { color: colors.text }]}>
+          {wordmark ? (
+            <>
+              {'tada'}
+              <Text style={{ color: colors.live }}>✱</Text>
+              {title ? `  ${title}` : ''}
+            </>
+          ) : (
+            title
+          )}
         </Text>
         {actions.map((action) => (
           <Pressable
@@ -58,7 +68,7 @@ export function AppHeader({ title, back = false, actions = [], children }: Props
             hitSlop={8}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
-            <Icon name={action.icon} size={20} color={colors.inkMuted} />
+            <Icon name={action.icon} size={20} color={colors.textMuted} />
           </Pressable>
         ))}
       </View>

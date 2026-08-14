@@ -101,9 +101,9 @@ export default function MemoryEditor() {
       <AppHeader title={file} back>
         <View style={styles.saveRow}>
           {isDirty ? (
-            <Text style={[type.monoSmall, { color: colors.signalAmber }]}>UNSAVED CHANGES</Text>
+            <Text style={[type.monoSmall, { color: colors.liveText }]}>UNSAVED CHANGES</Text>
           ) : (
-            <Text style={[type.monoSmall, { color: colors.inkFaint }]}>SAVED</Text>
+            <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>SAVED</Text>
           )}
           <Button
             testID="memory-save-button"
@@ -119,13 +119,13 @@ export default function MemoryEditor() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <TextInput
           testID="memory-editor-input"
-          style={[styles.editor, { color: colors.ink }]}
+          style={[styles.editor, { color: colors.text }]}
           multiline
           value={editedBody}
           onChangeText={setEditedBody}
           editable={!putMemory.isPending}
           placeholder="Write notes for your agents…"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.textFaintSolid}
         />
       </KeyboardAvoidingView>
 
@@ -136,7 +136,7 @@ export default function MemoryEditor() {
         cancelLabel="Keep editing"
         confirm={{ label: 'Discard', destructive: true, onPress: discardAndLeave }}
       >
-        <Text style={[type.body, { color: colors.inkMuted }]}>
+        <Text style={[type.body, { color: colors.textMuted }]}>
           This note has unsaved changes that will be lost.
         </Text>
       </Dialog>

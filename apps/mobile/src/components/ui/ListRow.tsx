@@ -18,22 +18,22 @@ type Props = {
 /** Standard tappable row for lists and sheets. */
 export function ListRow({ title, subtitle, icon, trailing, onPress, destructive = false, testID }: Props) {
   const { colors } = useTheme()
-  const titleColor = destructive ? colors.signalRed : colors.ink
+  const titleColor = destructive ? colors.failText : colors.text
 
   const body = (
     <>
-      {icon ? <Icon name={icon} size={18} color={destructive ? colors.signalRed : colors.inkMuted} /> : null}
+      {icon ? <Icon name={icon} size={18} color={destructive ? colors.failText : colors.textMuted} /> : null}
       <View style={styles.textBlock}>
         <Text numberOfLines={1} style={[type.body, { color: titleColor }]}>
           {title}
         </Text>
         {subtitle ? (
-          <Text numberOfLines={1} style={[type.caption, { color: colors.inkMuted }]}>
+          <Text numberOfLines={1} style={[type.caption, { color: colors.textMuted }]}>
             {subtitle}
           </Text>
         ) : null}
       </View>
-      {trailing ?? (onPress ? <Icon name="chevron-right" size={16} color={colors.inkFaint} /> : null)}
+      {trailing ?? (onPress ? <Icon name="chevron-right" size={16} color={colors.textFaintSolid} /> : null)}
     </>
   )
 
@@ -50,7 +50,7 @@ export function ListRow({ title, subtitle, icon, trailing, onPress, destructive 
       accessibilityRole="button"
       accessibilityLabel={title}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.raised2 }]}
     >
       {body}
     </Pressable>

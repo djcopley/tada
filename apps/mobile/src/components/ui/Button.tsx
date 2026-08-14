@@ -32,10 +32,10 @@ export function Button({
   const { colors } = useTheme()
 
   const palette = {
-    primary: { bg: colors.ink, fg: colors.onInk, border: 'transparent' },
-    secondary: { bg: colors.surface, fg: colors.ink, border: colors.line },
-    ghost: { bg: 'transparent', fg: colors.ink, border: 'transparent' },
-    destructive: { bg: colors.signalRedBg, fg: colors.signalRed, border: 'transparent' },
+    primary: { bg: colors.primaryBg, fg: colors.primaryText, border: 'transparent' },
+    secondary: { bg: colors.controlBg, fg: colors.text, border: colors.controlBorder },
+    ghost: { bg: 'transparent', fg: colors.textMuted, border: 'transparent' },
+    destructive: { bg: colors.failSoft, fg: colors.failText, border: 'transparent' },
   }[variant]
 
   const blocked = disabled || loading
@@ -74,7 +74,7 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',

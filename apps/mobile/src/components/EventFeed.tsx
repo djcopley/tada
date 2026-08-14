@@ -24,14 +24,29 @@ function stringField(payload: unknown, field: string): string | undefined {
   return isRecord(payload) && typeof payload[field] === 'string' ? (payload[field] as string) : undefined
 }
 
-function StatusPill({ event }: { event: ApiRunEvent }) {
+/** "09:41" clock stamp for an event's mono line. */
+function timeStamp(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '--:--'
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+function Stamp({ event }: { event: ApiRunEvent }) {
+  const { colors } = useTheme()
+  return <Text style={{ color: colors.agentTextMuted }}>{`${timeStamp(event.createdAt)}  `}</Text>
+}
+
+function StatusRow({ event }: { event: ApiRunEvent }) {
   const { colors } = useTheme()
   const status = stringField(event.payload, 'status') ?? jsonPreview(event.payload)
   return (
-    <View testID={`event-status-${event.id}`} style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
-      {/* Visual uppercase only — the payload text itself must stay intact. */}
-      <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{status}</Text>
-    </View>
+    <Text testID={`event-status-${event.id}`} style={[type.mono, styles.line, { color: colors.agentTextMuted }]}>
+      <Stamp event={event} />
+      {/* Visual lowercase only — the payload text itself must stay intact. */}
+      <Text style={styles.lower}>{status}</Text>
+    </Text>
   )
 }
 
@@ -39,13 +54,14 @@ function TextRow({ event }: { event: ApiRunEvent }) {
   const { colors } = useTheme()
   const text = stringField(event.payload, 'text') ?? jsonPreview(event.payload)
   return (
-    <Text testID={`event-text-${event.id}`} style={[type.body, styles.row, { color: colors.ink }]}>
+    <Text testID={`event-text-${event.id}`} style={[type.mono, styles.line, { color: colors.agentText }]}>
+      <Stamp event={event} />
       {text}
     </Text>
   )
 }
 
-/** Tool calls render as collapsible mono cards: name up front, input on tap. */
+/** Tool calls are collapsible mono lines: name up front, input on tap. */
 function ToolUseRow({ event }: { event: ApiRunEvent }) {
   const { colors } = useTheme()
   const [expanded, setExpanded] = useState(false)
@@ -56,19 +72,17 @@ function ToolUseRow({ event }: { event: ApiRunEvent }) {
       accessibilityRole="button"
       accessibilityLabel={`Tool call ${name}`}
       onPress={() => setExpanded((v) => !v)}
-      style={[styles.toolCard, { backgroundColor: colors.surfaceAlt }]}
+      style={styles.toolRow}
     >
-      <View style={styles.toolHeader}>
-        <Icon name="tool" size={12} color={colors.inkMuted} />
-        <Text
-          testID={`event-tool-${event.id}`}
-          numberOfLines={expanded ? undefined : 1}
-          style={[type.mono, styles.toolName, { color: colors.ink }]}
-        >
-          {`${name}(${inputPreview})`}
-        </Text>
-        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.inkFaint} />
-      </View>
+      <Text
+        testID={`event-tool-${event.id}`}
+        numberOfLines={expanded ? undefined : 1}
+        style={[type.mono, styles.toolName, { color: colors.agentTextMuted }]}
+      >
+        <Stamp event={event} />
+        {`${name}(${inputPreview})`}
+      </Text>
+      <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.agentTextMuted} />
     </Pressable>
   )
 }
@@ -77,19 +91,17 @@ function ErrorRow({ event }: { event: ApiRunEvent }) {
   const { colors } = useTheme()
   const message = stringField(event.payload, 'message') ?? jsonPreview(event.payload)
   return (
-    <View style={[styles.errorCard, { backgroundColor: colors.signalRedBg }]}>
-      <Icon name="alert-triangle" size={14} color={colors.signalRed} />
-      <Text testID={`event-error-${event.id}`} style={[type.body, styles.errorText, { color: colors.signalRed }]}>
-        {message}
-      </Text>
-    </View>
+    <Text testID={`event-error-${event.id}`} style={[type.mono, styles.line, { color: colors.failText }]}>
+      <Stamp event={event} />
+      {`✕ ${message}`}
+    </Text>
   )
 }
 
 function EventRow({ event }: { event: ApiRunEvent }) {
   switch (event.type) {
     case 'status':
-      return <StatusPill event={event} />
+      return <StatusRow event={event} />
     case 'text':
       return <TextRow event={event} />
     case 'tool_use':
@@ -101,6 +113,10 @@ function EventRow({ event }: { event: ApiRunEvent }) {
   }
 }
 
+/**
+ * The agent narrates its run as timestamped mono lines on recessed dark
+ * ink — one panel, identical in both themes.
+ */
 export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boolean }) {
   const { colors, shadow } = useTheme()
   const listRef = useRef<FlatList<ApiRunEvent>>(null)
@@ -114,7 +130,9 @@ export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boole
   }, [count, live, pinnedToEnd])
 
   return (
-    <View style={styles.feed}>
+    <View
+      style={[styles.feed, { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge }]}
+    >
       <FlatList
         testID="event-feed"
         ref={listRef}
@@ -134,10 +152,10 @@ export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boole
             setPinnedToEnd(true)
             listRef.current?.scrollToEnd({ animated: true })
           }}
-          style={[styles.jumpPill, { backgroundColor: colors.ink }, shadow.card]}
+          style={[styles.jumpPill, { backgroundColor: colors.primaryBg }, shadow.card]}
         >
-          <Icon name="arrow-down" size={14} color={colors.onInk} />
-          <Text style={[type.caption, { color: colors.onInk }]}>Latest</Text>
+          <Icon name="arrow-down" size={14} color={colors.primaryText} />
+          <Text style={[type.caption, { color: colors.primaryText }]}>Latest</Text>
         </Pressable>
       )}
     </View>
@@ -147,45 +165,28 @@ export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boole
 const styles = StyleSheet.create({
   feed: {
     flex: 1,
+    borderRadius: radius.control,
+    borderWidth: 1,
   },
   feedContent: {
+    padding: space.lg,
     paddingBottom: space.xxl,
-    gap: space.sm,
+    gap: space.xs,
   },
-  row: {
-    marginVertical: 2,
+  line: {
+    lineHeight: 22,
   },
-  upper: {
-    textTransform: 'uppercase',
+  lower: {
+    textTransform: 'lowercase',
   },
-  pill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: space.sm,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
-  },
-  toolCard: {
-    borderRadius: radius.sm,
-    paddingHorizontal: space.sm,
-    paddingVertical: space.sm,
-  },
-  toolHeader: {
+  toolRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
   },
   toolName: {
     flex: 1,
-  },
-  errorCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: space.sm,
-    borderRadius: radius.sm,
-    padding: space.sm,
-  },
-  errorText: {
-    flex: 1,
+    lineHeight: 22,
   },
   jumpPill: {
     position: 'absolute',

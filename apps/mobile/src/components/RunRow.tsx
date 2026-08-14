@@ -14,15 +14,15 @@ export function RunRow({ run, onPress }: { run: ApiRun; onPress: () => void }) {
       testID={`run-row-${run.id}`}
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceAlt }]}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.raised2 }]}
     >
       <View style={styles.info}>
-        <Text style={[type.mono, { color: colors.ink }]}>
+        <Text style={[type.mono, { color: colors.text }]}>
           {`${humanize(run.adapter)} · ${humanize(run.model)}`}
         </Text>
         <View style={styles.metaRow}>
-          <StatusTag status={runStatusVisual(run.status)} />
-          <Text style={[type.caption, { color: colors.inkMuted }]}>{relativeTime(run.createdAt)}</Text>
+          <StatusTag bare status={runStatusVisual(run.status)} />
+          <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{relativeTime(run.createdAt)}</Text>
         </View>
       </View>
       {run.prUrl && (
@@ -32,7 +32,7 @@ export function RunRow({ run, onPress }: { run: ApiRun; onPress: () => void }) {
           accessibilityLabel="View pull request"
           style={({ pressed }) => [
             styles.prButton,
-            { backgroundColor: colors.surfaceAlt },
+            { backgroundColor: colors.raised2 },
             pressed && { opacity: 0.7 },
           ]}
           onPress={(event) => {
@@ -40,11 +40,11 @@ export function RunRow({ run, onPress }: { run: ApiRun; onPress: () => void }) {
             void Linking.openURL(run.prUrl as string)
           }}
         >
-          <Icon name="git-pull-request" size={14} color={colors.ink} />
-          <Text style={[type.caption, { color: colors.ink }]}>PR</Text>
+          <Icon name="git-pull-request" size={14} color={colors.text} />
+          <Text style={[type.caption, { color: colors.text }]}>PR</Text>
         </Pressable>
       )}
-      <Icon name="chevron-right" size={16} color={colors.inkFaint} />
+      <Icon name="chevron-right" size={16} color={colors.textFaintSolid} />
     </Pressable>
   )
 }
@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
     gap: space.md,
     paddingVertical: space.md,
     paddingHorizontal: space.xs,
-    borderRadius: radius.sm,
+    borderRadius: radius.tag,
   },
   info: {
     flex: 1,
@@ -73,6 +73,6 @@ const styles = StyleSheet.create({
     gap: space.xs,
     paddingHorizontal: space.sm,
     paddingVertical: space.xs,
-    borderRadius: radius.sm,
+    borderRadius: radius.tag,
   },
 })

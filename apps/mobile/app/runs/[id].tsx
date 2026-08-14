@@ -108,12 +108,12 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
             {run ? (
               <>
                 <StatusTag status={runStatusVisual(run.status)} />
-                <Text style={[type.caption, { color: colors.inkMuted }]}>
+                <Text style={[type.caption, { color: colors.textMuted }]}>
                   {`${humanize(run.adapter)} · ${humanize(run.model)} · started ${relativeTime(run.createdAt)}`}
                 </Text>
               </>
             ) : (
-              <Text style={[type.caption, { color: colors.inkFaint }]}>—</Text>
+              <Text style={[type.caption, { color: colors.textFaintSolid }]}>—</Text>
             )}
           </View>
           {live && (
@@ -121,7 +121,7 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
               testID="run-cancel"
               variant="destructive"
               icon="x-octagon"
-              label="Cancel"
+              label="Stop run"
               onPress={() => setConfirmVisible(true)}
               small
             />
@@ -141,7 +141,7 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
         {transcriptVisible && (
           <View
             testID="transcript-panel"
-            style={[styles.transcriptPanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.line }]}
+            style={[styles.transcriptPanel, { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge }]}
           >
             {transcriptLoading ? (
               <View testID="transcript-loading" style={styles.transcriptSkeleton}>
@@ -151,7 +151,7 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
               </View>
             ) : (
               <ScrollView style={styles.transcriptScroll} nestedScrollEnabled>
-                <Text testID="transcript-text" style={[styles.mono, { color: colors.ink }]}>
+                <Text testID="transcript-text" style={[styles.mono, { color: colors.agentTextMuted }]}>
                   {transcript}
                 </Text>
               </ScrollView>
@@ -160,6 +160,12 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
         )}
 
         <EventFeed events={events} live={live} />
+
+        {live && (
+          <Text style={[type.caption, { color: colors.textFaintSolid }]}>
+            {"Safe to close — it runs unattended. You'll get a ping when it needs you."}
+          </Text>
+        )}
       </View>
 
       <Dialog
@@ -174,7 +180,7 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
           testID: 'run-cancel-confirm',
         }}
       >
-        <Text style={[type.body, { color: colors.inkMuted }]}>
+        <Text style={[type.body, { color: colors.textMuted }]}>
           This stops the agent working on this run.
         </Text>
       </Dialog>
@@ -203,7 +209,7 @@ const styles = StyleSheet.create({
   },
   transcriptPanel: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     padding: space.md,
     maxHeight: 240,
   },

@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useTheme } from '../../design/ThemeContext'
 import { signalColors, type Signal } from '../../design/status'
-import { motion, radius, space, type } from '../../design/tokens'
+import { motion, space, type } from '../../design/tokens'
 
 export type FlipStripItem = {
   label: string
@@ -35,7 +35,7 @@ export function FlipStrip({ items, testID }: { items: FlipStripItem[]; testID?: 
 
 function FlipCounter({ label, count, signal }: FlipStripItem) {
   const { colors } = useTheme()
-  const { fg, bg } = signalColors(signal, colors)
+  const { fg } = signalColors(signal, colors)
   const reducedMotion = useReducedMotion()
 
   const [shown, setShown] = useState(count)
@@ -70,13 +70,11 @@ function FlipCounter({ label, count, signal }: FlipStripItem) {
   const active = displayed > 0
 
   return (
-    <View
-      accessibilityLabel={`${label} ${count}`}
-      style={[styles.counter, { backgroundColor: active ? bg : colors.surfaceAlt }]}
-    >
-      <Text style={[type.monoSmall, styles.upper, { color: active ? fg : colors.inkFaint }]}>{label}</Text>
+    <View accessibilityLabel={`${label} ${count}`} style={styles.counter}>
+      <View style={[styles.dot, { backgroundColor: active ? fg : colors.textFaint }]} />
+      <Text style={[type.monoSmall, styles.lower, { color: active ? fg : colors.textFaintSolid }]}>{label}</Text>
       <Animated.Text
-        style={[type.monoSmall, styles.digit, { color: active ? fg : colors.inkFaint }, flipStyle]}
+        style={[type.monoSmall, styles.digit, { color: active ? fg : colors.textFaintSolid }, flipStyle]}
       >
         {displayed}
       </Animated.Text>
@@ -88,18 +86,20 @@ const styles = StyleSheet.create({
   strip: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: space.sm,
+    gap: space.lg,
   },
-  upper: {
-    textTransform: 'uppercase',
+  lower: {
+    textTransform: 'lowercase',
   },
   counter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.sm,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
+    gap: space.xs + 2,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   digit: {
     fontSize: 13,

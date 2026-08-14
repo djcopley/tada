@@ -152,7 +152,7 @@ describe('Ticket detail screen', () => {
     jest.spyOn(Linking, 'openURL').mockResolvedValue(true)
   })
 
-  test('renders the comment thread in chronological order with author alignment', async () => {
+  test('renders the comment thread in chronological order with per-voice materials', async () => {
     mockTicket.mockResolvedValueOnce({
       ticket: ticket(),
       comments: [
@@ -171,9 +171,14 @@ describe('Ticket detail screen', () => {
     const bubbles = screen.getAllByTestId(/^comment-\d+$/)
     expect(bubbles.map((b) => b.props.testID)).toEqual(['comment-1', 'comment-2'])
 
+    // The two voices are told apart by their material, not alignment: the
+    // agent speaks from recessed dark ink (theme-invariant #100D0B), the
+    // human from a raised surface.
     const flattenStyle = (style: unknown) => (Array.isArray(style) ? Object.assign({}, ...style) : style)
-    expect(flattenStyle(screen.getByTestId('comment-1').props.style).alignSelf).toBe('flex-start')
-    expect(flattenStyle(screen.getByTestId('comment-2').props.style).alignSelf).toBe('flex-end')
+    const agentBg = flattenStyle(screen.getByTestId('comment-1').props.style).backgroundColor
+    const humanBg = flattenStyle(screen.getByTestId('comment-2').props.style).backgroundColor
+    expect(agentBg).toBe('#100D0B')
+    expect(humanBg).not.toBe(agentBg)
   })
 
   test('comment link strips a trailing period from the URL', async () => {
@@ -262,8 +267,8 @@ describe('Ticket detail screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('run-row-10')).toBeTruthy()
     })
-    expect(screen.getByText(/Running/)).toBeTruthy()
-    expect(screen.getByText(/Needs review/)).toBeTruthy()
+    expect(screen.getByText(/Live/)).toBeTruthy()
+    expect(screen.getByText(/Your turn/)).toBeTruthy()
   })
 
   test('sending a comment calls the client and clears the input', async () => {

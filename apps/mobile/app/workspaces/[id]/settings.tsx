@@ -1,6 +1,7 @@
 import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
+import { ScrollView, StyleSheet, Switch, Text, TextInput, View, Pressable } from 'react-native'
+import { useConnection } from '../../../src/ConnectionContext'
 import { useRemoveRepo, useAddRepo, usePatchWorkspace, useWorkspace } from '../../../src/api/queries'
 import { ADAPTERS } from '../../../src/adapters'
 import type { ApiError } from '../../../src/api/client'
@@ -31,7 +32,9 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 export default function WorkspaceSettings() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const wsId = Number(id)
-  const { colors } = useTheme()
+  const { colors, scheme, setScheme } = useTheme()
+  const { connection, disconnect } = useConnection()
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
   const { data: workspace, isLoading } = useWorkspace(wsId)
   const removeRepo = useRemoveRepo(wsId)
@@ -102,8 +105,8 @@ export default function WorkspaceSettings() {
       <Screen>
         <AppHeader title="Settings" back />
         <View style={styles.skeletons}>
-          <Skeleton height={140} style={{ borderRadius: radius.md }} />
-          <Skeleton height={120} style={{ borderRadius: radius.md }} />
+          <Skeleton height={140} style={{ borderRadius: radius.control }} />
+          <Skeleton height={120} style={{ borderRadius: radius.control }} />
         </View>
       </Screen>
     )
@@ -217,11 +220,11 @@ export default function WorkspaceSettings() {
   const modelList = ADAPTERS[settings.selectedAdapter] ?? []
 
   const sectionTitle = (title: string) => (
-    <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>{title}</Text>
+    <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>{title}</Text>
   )
 
   const errorText = (testID: string, message: string) => (
-    <Text testID={testID} accessibilityRole="alert" style={[type.caption, { color: colors.signalRed }]}>
+    <Text testID={testID} accessibilityRole="alert" style={[type.caption, { color: colors.failText }]}>
       {message}
     </Text>
   )
@@ -231,10 +234,10 @@ export default function WorkspaceSettings() {
       <AppHeader title="Settings" back />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.section}>
-          {sectionTitle('REPOSITORIES')}
+          {sectionTitle('SOURCES — THIS WORKSPACE ONLY')}
           <Card style={styles.sectionCard}>
             {workspace.repos.length === 0 ? (
-              <Text style={[type.caption, { color: colors.inkFaint }]}>
+              <Text style={[type.caption, { color: colors.textFaintSolid }]}>
                 No repositories — agents will run without a codebase.
               </Text>
             ) : (
@@ -253,7 +256,7 @@ export default function WorkspaceSettings() {
                       onPress={() => setRepoToRemove(repo.name)}
                       style={({ pressed }) => [styles.removeButton, pressed && { opacity: 0.6 }]}
                     >
-                      <Icon name="trash-2" size={16} color={colors.signalRed} />
+                      <Icon name="trash-2" size={16} color={colors.failText} />
                     </Pressable>
                   }
                 />
@@ -278,14 +281,14 @@ export default function WorkspaceSettings() {
         </View>
 
         <View style={styles.section}>
-          {sectionTitle('DEFAULTS')}
+          {sectionTitle('AGENT')}
           <Card style={styles.sectionCard}>
             <ListRow
               testID="adapter-picker"
               icon="cpu"
               title="Agent"
               trailing={
-                <Text style={[type.mono, { color: colors.inkMuted }]}>
+                <Text style={[type.mono, { color: colors.textMuted }]}>
                   {humanize(settings.selectedAdapter)}
                 </Text>
               }
@@ -296,7 +299,7 @@ export default function WorkspaceSettings() {
               icon="layers"
               title="Model"
               trailing={
-                <Text style={[type.mono, { color: colors.inkMuted }]}>
+                <Text style={[type.mono, { color: colors.textMuted }]}>
                   {humanize(settings.selectedModel)}
                 </Text>
               }
@@ -307,7 +310,7 @@ export default function WorkspaceSettings() {
         </View>
 
         <View style={styles.section}>
-          {sectionTitle('ADVANCED')}
+          {sectionTitle('RUN LIMITS')}
           <Card style={styles.sectionCard}>
             <ListRow
               icon="git-merge"
@@ -322,13 +325,13 @@ export default function WorkspaceSettings() {
                     onPress={handleConcurrencyDecrement}
                     style={({ pressed }) => [
                       styles.stepperButton,
-                      { backgroundColor: colors.surfaceAlt },
+                      { backgroundColor: colors.raised2 },
                       pressed && { opacity: 0.6 },
                     ]}
                   >
                     <Icon name="minus" size={16} />
                   </Pressable>
-                  <Text style={[type.mono, styles.stepperValue, { color: colors.ink }]}>
+                  <Text style={[type.mono, styles.stepperValue, { color: colors.text }]}>
                     {settings.concurrency}
                   </Text>
                   <Pressable
@@ -338,7 +341,7 @@ export default function WorkspaceSettings() {
                     onPress={handleConcurrencyIncrement}
                     style={({ pressed }) => [
                       styles.stepperButton,
-                      { backgroundColor: colors.surfaceAlt },
+                      { backgroundColor: colors.raised2 },
                       pressed && { opacity: 0.6 },
                     ]}
                   >
@@ -357,7 +360,7 @@ export default function WorkspaceSettings() {
                   style={[
                     styles.timeoutInput,
                     type.mono,
-                    { color: colors.ink, borderColor: colors.line, backgroundColor: colors.surface },
+                    { color: colors.text, borderColor: colors.borderSubtle, backgroundColor: colors.raised },
                   ]}
                   keyboardType="numeric"
                   value={settings.timeoutMinutes}
@@ -368,7 +371,61 @@ export default function WorkspaceSettings() {
             />
           </Card>
         </View>
+
+        <View style={styles.section}>
+          {sectionTitle('GLOBAL — APPLIES TO EVERY WORKSPACE')}
+          <Card style={styles.sectionCard}>
+            <ListRow
+              icon="moon"
+              title="Night watch"
+              subtitle="Dark ink is the default; flip for paper day"
+              trailing={
+                <Switch
+                  testID="theme-switch"
+                  accessibilityLabel="Day mode"
+                  value={scheme === 'day'}
+                  onValueChange={(on) => setScheme(on ? 'day' : 'night')}
+                  trackColor={{ true: colors.live, false: colors.raised2 }}
+                  thumbColor={colors.raised}
+                />
+              }
+            />
+            <ListRow
+              icon="server"
+              title="Server"
+              subtitle={connection?.baseUrl ?? '—'}
+              trailing={
+                <Button
+                  testID="disconnect-button"
+                  variant="destructive"
+                  label="Disconnect"
+                  onPress={() => setConfirmDisconnect(true)}
+                  small
+                />
+              }
+            />
+          </Card>
+        </View>
       </ScrollView>
+
+      <Dialog
+        visible={confirmDisconnect}
+        title="Disconnect from server?"
+        onClose={() => setConfirmDisconnect(false)}
+        confirm={{
+          label: 'Disconnect',
+          destructive: true,
+          onPress: () => {
+            setConfirmDisconnect(false)
+            void disconnect()
+          },
+          testID: 'disconnect-confirm',
+        }}
+      >
+        <Text style={[type.body, { color: colors.textMuted }]}>
+          {"You'll be sent back to the connect screen. Nothing on the server is touched."}
+        </Text>
+      </Dialog>
 
       <Sheet visible={showAdapterPicker} onClose={() => setShowAdapterPicker(false)}>
         {adapterList.map((item) => (
@@ -376,7 +433,7 @@ export default function WorkspaceSettings() {
             key={item}
             title={humanize(item)}
             trailing={
-              item === settings.selectedAdapter ? <Icon name="check" size={16} color={colors.ink} /> : null
+              item === settings.selectedAdapter ? <Icon name="check" size={16} color={colors.text} /> : null
             }
             onPress={() => void handleAdapterChange(item)}
           />
@@ -389,7 +446,7 @@ export default function WorkspaceSettings() {
             key={item}
             title={humanize(item)}
             trailing={
-              item === settings.selectedModel ? <Icon name="check" size={16} color={colors.ink} /> : null
+              item === settings.selectedModel ? <Icon name="check" size={16} color={colors.text} /> : null
             }
             onPress={() => void handleModelChange(item)}
           />
@@ -407,7 +464,7 @@ export default function WorkspaceSettings() {
           testID: 'remove-repo-confirm',
         }}
       >
-        <Text style={[type.body, { color: colors.inkMuted }]}>
+        <Text style={[type.body, { color: colors.textMuted }]}>
           {`${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
         </Text>
       </Dialog>
@@ -455,7 +512,7 @@ const styles = StyleSheet.create({
   stepperButton: {
     width: 36,
     height: 36,
-    borderRadius: radius.sm + 2,
+    borderRadius: radius.tag + 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -465,7 +522,7 @@ const styles = StyleSheet.create({
   },
   timeoutInput: {
     borderWidth: 1,
-    borderRadius: radius.sm + 2,
+    borderRadius: radius.tag + 2,
     paddingHorizontal: space.sm,
     paddingVertical: space.xs,
     width: 72,

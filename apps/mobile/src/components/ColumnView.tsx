@@ -56,9 +56,15 @@ export function ColumnView({
   }
 
   const hovering = dropIndex !== null && dropIndex !== undefined
-  const indicator = (
-    <View style={[styles.indicator, { backgroundColor: colors.ink }]} />
-  )
+
+  // Running and in-review columns carry their signal color in the header.
+  const headerColor =
+    column.kind === 'in_progress'
+      ? colors.liveText
+      : column.kind === 'in_review'
+        ? colors.okText
+        : colors.textFaintSolid
+  const indicator = <View style={[styles.indicator, { backgroundColor: colors.live }]} />
 
   return (
     <View testID={`column-${column.id}`} style={[styles.column, { width }]}>
@@ -67,13 +73,15 @@ export function ColumnView({
         collapsable={false}
         style={[
           styles.lane,
-          { backgroundColor: colors.surfaceAlt },
-          hovering && { borderColor: colors.ink, borderWidth: 1 },
+          hovering && { borderColor: colors.borderStrong, borderWidth: 1, borderStyle: 'dashed' },
         ]}
       >
         <View style={styles.header}>
-          <Text style={[type.monoSmall, styles.upper, { color: colors.inkMuted }]}>{column.title}</Text>
-          <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{tickets.length}</Text>
+          {column.kind === 'in_progress' || column.kind === 'in_review' ? (
+            <View style={[styles.headerDot, { backgroundColor: headerColor }]} />
+          ) : null}
+          <Text style={[type.monoCaps, styles.upper, { color: headerColor }]}>{column.title}</Text>
+          <Text style={[type.monoCaps, { color: colors.textFaintSolid }]}>{tickets.length}</Text>
         </View>
         <ScrollView
           testID={`column-tickets-${column.id}`}
@@ -82,7 +90,7 @@ export function ColumnView({
           showsVerticalScrollIndicator={false}
         >
           {tickets.length === 0 && !hovering ? (
-            <Text style={[type.caption, styles.emptyHint, { color: colors.inkFaint }]}>
+            <Text style={[type.caption, styles.emptyHint, { color: colors.textFaintSolid }]}>
               {column.kind === 'backlog' ? 'Add a ticket to get started' : 'Nothing here'}
             </Text>
           ) : null}
@@ -105,7 +113,7 @@ export function ColumnView({
             testID={`add-ticket-${column.id}`}
             variant="ghost"
             icon="plus"
-            label="Add ticket"
+            label="Add a ticket"
             onPress={openModal}
             small
             style={styles.addButton}
@@ -144,18 +152,24 @@ const styles = StyleSheet.create({
   },
   lane: {
     flex: 1,
-    borderRadius: radius.lg,
+    borderRadius: radius.card,
     padding: space.sm,
   },
   upper: {
     textTransform: 'uppercase',
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space.sm,
     paddingHorizontal: space.sm,
     paddingVertical: space.sm,
+  },
+  headerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   list: {
     flex: 1,

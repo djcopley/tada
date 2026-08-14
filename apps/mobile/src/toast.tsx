@@ -51,11 +51,11 @@ export function ToastHost() {
         style={[
           styles.toast,
           // Inverted surface so the toast reads above either theme.
-          { backgroundColor: colors.ink },
+          { backgroundColor: colors.primaryBg },
           shadow.lifted,
         ]}
       >
-        <Text testID="toast-message" style={[type.body, { color: colors.onInk }]}>
+        <Text testID="toast-message" style={[type.body, { color: colors.primaryText }]}>
           {message}
         </Text>
       </Animated.View>
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   toast: {
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     maxWidth: '90%',
   },
 })

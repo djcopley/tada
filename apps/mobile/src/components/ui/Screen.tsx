@@ -21,7 +21,7 @@ export function Screen({ children, edges = ['top'], style, testID }: Props) {
       style={[
         styles.root,
         {
-          backgroundColor: colors.bg,
+          backgroundColor: colors.ground,
           paddingTop: edges.includes('top') ? insets.top : 0,
           paddingBottom: edges.includes('bottom') ? insets.bottom : 0,
         },

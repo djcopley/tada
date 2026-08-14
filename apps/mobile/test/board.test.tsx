@@ -176,7 +176,7 @@ describe('Board screen', () => {
     await waitFor(() => {
       expect(screen.getByText('Fallback ticket')).toBeTruthy()
     })
-    expect(screen.getByText('Claude · Sonnet')).toBeTruthy()
+    expect(screen.getByText('#20 · claude · sonnet')).toBeTruthy()
   })
 
   test('ticket card shows override chip text when set', async () => {
@@ -203,7 +203,7 @@ describe('Board screen', () => {
     await waitFor(() => {
       expect(screen.getByText('Override ticket')).toBeTruthy()
     })
-    expect(screen.getByText('Codex · Gpt-5')).toBeTruthy()
+    expect(screen.getByText('#21 · codex · gpt-5')).toBeTruthy()
   })
 
   test('shows queued, held, and in-progress glyphs correctly', async () => {
@@ -248,7 +248,7 @@ describe('Board screen', () => {
     })
     expect(screen.getByTestId('ticket-glyph-30')).toHaveTextContent('Queued')
     expect(screen.getByTestId('ticket-glyph-31')).toHaveTextContent('Failed')
-    expect(screen.getByTestId('ticket-glyph-32')).toHaveTextContent('Running')
+    expect(screen.getByTestId('ticket-glyph-32')).toHaveTextContent('Live')
   })
 
   test('add ticket footer only appears on the backlog column', async () => {

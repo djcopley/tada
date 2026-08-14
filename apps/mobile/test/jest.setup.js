@@ -14,6 +14,22 @@ jest.mock('react-native-reanimated', () => {
 // SafeAreaProvider in the tree.
 jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default)
 
+// SecureStore has no native module under jest-expo; an in-memory map keeps
+// src/settings.ts (pulled in transitively via ThemeContext) importable in
+// suites that don't mock ../src/settings themselves.
+jest.mock('expo-secure-store', () => {
+  const store = new Map()
+  return {
+    getItemAsync: jest.fn(async (key) => store.get(key) ?? null),
+    setItemAsync: jest.fn(async (key, value) => {
+      store.set(key, value)
+    }),
+    deleteItemAsync: jest.fn(async (key) => {
+      store.delete(key)
+    }),
+  }
+})
+
 // Fonts resolve instantly so RootLayout doesn't render null in tests.
 jest.mock('expo-font', () => ({
   useFonts: () => [true, null],

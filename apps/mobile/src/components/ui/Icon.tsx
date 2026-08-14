@@ -12,5 +12,5 @@ type Props = {
 
 export function Icon({ name, size = 18, color }: Props) {
   const { colors } = useTheme()
-  return <Feather name={name} size={size} color={color ?? colors.ink} />
+  return <Feather name={name} size={size} color={color ?? colors.text} />
 }

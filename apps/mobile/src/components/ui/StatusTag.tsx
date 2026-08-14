@@ -15,13 +15,15 @@ import { radius, space, type } from '../../design/tokens'
 
 type Props = {
   status: StatusVisual
-  /** Extra trailing text inside the tag, e.g. an elapsed time. */
+  /** Extra trailing text inside the badge, e.g. an elapsed time. */
   detail?: string
+  /** Dot + text only, no pill background — for inline run-status rows. */
+  bare?: boolean
   testID?: string
 }
 
-/** Uppercase mono "departure tag" with a signal dot; the dot pulses while live. */
-export function StatusTag({ status, detail, testID }: Props) {
+/** Lowercase mono status badge with a signal dot; the dot pulses while live. */
+export function StatusTag({ status, detail, bare = false, testID }: Props) {
   const { colors } = useTheme()
   const { fg, bg } = signalColors(status.signal, colors)
   const reducedMotion = useReducedMotion()
@@ -47,12 +49,12 @@ export function StatusTag({ status, detail, testID }: Props) {
     <View
       testID={testID}
       accessibilityLabel={detail ? `${status.label}, ${detail}` : status.label}
-      style={[styles.tag, { backgroundColor: bg }]}
+      style={[styles.tag, bare ? styles.bare : { backgroundColor: bg }]}
     >
       <Animated.View style={[styles.dot, { backgroundColor: fg }, dotStyle]} />
       <Text style={[type.monoSmall, styles.text, { color: fg }]}>
         {status.label}
-        {detail ? `  ${detail}` : ''}
+        {detail ? ` · ${detail}` : ''}
       </Text>
     </View>
   )
@@ -64,9 +66,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: space.xs + 2,
-    paddingHorizontal: space.sm,
+    paddingHorizontal: space.sm + 2,
     paddingVertical: 3,
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
+  },
+  bare: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
   dot: {
     width: 6,
@@ -74,6 +80,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   text: {
-    textTransform: 'uppercase',
+    textTransform: 'lowercase',
   },
 })

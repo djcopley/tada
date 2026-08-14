@@ -74,13 +74,15 @@ export function Sheet({ visible, onClose, children, testID }: Props) {
               styles.sheet,
               sheetStyle,
               {
-                backgroundColor: colors.surface,
+                backgroundColor: colors.overlay,
+                borderColor: colors.borderStrong,
+                borderWidth: 1,
                 paddingBottom: insets.bottom + space.lg,
                 maxHeight: windowHeight * 0.85,
               },
             ]}
           >
-            <View style={[styles.handle, { backgroundColor: colors.line }]} />
+            <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
             {children}
           </Animated.View>
         </GestureDetector>
@@ -95,8 +97,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
+    borderTopLeftRadius: radius.panel,
+    borderTopRightRadius: radius.panel,
     paddingTop: space.sm,
     paddingHorizontal: space.lg,
   },
