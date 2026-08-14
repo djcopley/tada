@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.tada"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,6 +24,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-notifications"]
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-notifications"
+    ]
   }
 }

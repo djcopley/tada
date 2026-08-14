@@ -59,6 +59,8 @@ export function useNotificationDeepLinks(): void {
   const router = useRouter()
 
   useEffect(() => {
+    if (Platform.OS === 'web') return
+
     let cancelled = false
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
