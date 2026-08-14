@@ -171,6 +171,77 @@ describe('Ticket detail screen', () => {
     expect(flattenStyle(screen.getByTestId('comment-2').props.style).alignSelf).toBe('flex-end')
   })
 
+  test('comment link strips a trailing period from the URL', async () => {
+    mockTicket.mockResolvedValueOnce({
+      ticket: ticket(),
+      comments: [
+        comment({
+          id: 1,
+          author: 'agent',
+          body: 'Check this out https://example.com/foo. Thanks',
+        }),
+      ],
+      runs: [],
+    })
+
+    await renderScreen()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('comment-link-1-0')).toBeTruthy()
+    })
+    const link = screen.getByTestId('comment-link-1-0')
+    expect(link).toHaveTextContent('https://example.com/foo')
+
+    await fireEvent.press(link)
+    expect(Linking.openURL).toHaveBeenCalledWith('https://example.com/foo')
+  })
+
+  test('comment link strips a trailing comma from the URL', async () => {
+    mockTicket.mockResolvedValueOnce({
+      ticket: ticket(),
+      comments: [
+        comment({ id: 1, author: 'agent', body: 'See https://example.com/foo, thanks' }),
+      ],
+      runs: [],
+    })
+
+    await renderScreen()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('comment-link-1-0')).toBeTruthy()
+    })
+    const link = screen.getByTestId('comment-link-1-0')
+    expect(link).toHaveTextContent('https://example.com/foo')
+
+    await fireEvent.press(link)
+    expect(Linking.openURL).toHaveBeenCalledWith('https://example.com/foo')
+  })
+
+  test('comment link strips the closing paren when the URL is wrapped in parentheses', async () => {
+    mockTicket.mockResolvedValueOnce({
+      ticket: ticket(),
+      comments: [
+        comment({
+          id: 1,
+          author: 'agent',
+          body: 'Docs are here (https://example.com/foo) for reference',
+        }),
+      ],
+      runs: [],
+    })
+
+    await renderScreen()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('comment-link-1-0')).toBeTruthy()
+    })
+    const link = screen.getByTestId('comment-link-1-0')
+    expect(link).toHaveTextContent('https://example.com/foo')
+
+    await fireEvent.press(link)
+    expect(Linking.openURL).toHaveBeenCalledWith('https://example.com/foo')
+  })
+
   test('renders both run statuses', async () => {
     mockTicket.mockResolvedValueOnce({
       ticket: ticket(),

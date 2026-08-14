@@ -4,26 +4,60 @@ import { useState } from 'react'
 import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
 const URL_REGEX = /https?:\/\/\S+/g
+const TRAILING_PUNCTUATION = '.,;:!?]}'
+
+/**
+ * `\S+` greedily swallows trailing punctuation that's actually sentence
+ * structure, not part of the URL ("...(https://x.com/foo)." would otherwise
+ * link to "foo).") . Strip trailing punctuation off the match; `)` is only
+ * stripped when the match itself contains no `(`, so a URL whose path
+ * legitimately balances parens (e.g. a Wikipedia link) is left alone.
+ */
+function trimTrailingPunctuation(url: string): { clean: string; trailing: string } {
+  const hasOpenParen = url.includes('(')
+  let end = url.length
+  while (end > 0) {
+    const ch = url.charAt(end - 1)
+    if (ch === ')') {
+      if (hasOpenParen) break
+      end -= 1
+      continue
+    }
+    if (TRAILING_PUNCTUATION.includes(ch)) {
+      end -= 1
+      continue
+    }
+    break
+  }
+  return { clean: url.slice(0, end), trailing: url.slice(end) }
+}
 
 /** Splits a comment body on bare URLs, rendering each URL as a tappable
  * span. Full markdown link rendering (`[text](url)`) is deferred — this
  * covers the common case of a pasted link. */
-function CommentBody({ body }: { body: string }) {
+function CommentBody({ body, commentId }: { body: string; commentId: number }) {
   const matches = [...body.matchAll(URL_REGEX)]
   if (matches.length === 0) return <Text style={styles.bubbleText}>{body}</Text>
 
   const nodes: ReactNode[] = []
   let cursor = 0
   matches.forEach((match, i) => {
-    const url = match[0]
+    const raw = match[0]
     const start = match.index ?? 0
     if (start > cursor) nodes.push(<Text key={`t-${i}`}>{body.slice(cursor, start)}</Text>)
+    const { clean, trailing } = trimTrailingPunctuation(raw)
     nodes.push(
-      <Text key={`u-${i}`} style={styles.link} onPress={() => void Linking.openURL(url)}>
-        {url}
+      <Text
+        key={`u-${i}`}
+        testID={`comment-link-${commentId}-${i}`}
+        style={styles.link}
+        onPress={() => void Linking.openURL(clean)}
+      >
+        {clean}
       </Text>,
     )
-    cursor = start + url.length
+    if (trailing) nodes.push(<Text key={`p-${i}`}>{trailing}</Text>)
+    cursor = start + raw.length
   })
   if (cursor < body.length) nodes.push(<Text key="t-end">{body.slice(cursor)}</Text>)
 
@@ -62,7 +96,7 @@ export function CommentThread({
             style={[styles.bubble, item.author === 'human' ? styles.humanBubble : styles.agentBubble]}
           >
             <Text style={styles.author}>{item.author === 'human' ? 'you' : 'agent'}</Text>
-            <CommentBody body={item.body} />
+            <CommentBody body={item.body} commentId={item.id} />
           </View>
         )}
       />
