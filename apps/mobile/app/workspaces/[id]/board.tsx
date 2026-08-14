@@ -1,7 +1,7 @@
 import type { ApiTicket } from '@tada/shared'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useBoard, useCreateTicket, useWorkspace } from '../../../src/api/queries'
 import { useWorkspaceSocket } from '../../../src/api/useWorkspaceSocket'
 import { ColumnView } from '../../../src/components/ColumnView'
@@ -63,30 +63,52 @@ export default function Board() {
     />
   )
 
+  const handleMemoryPress = () => router.push(`/workspaces/${wsId}/memory`)
+
   if (isWide) {
     const columnWidth = (width - COLUMN_MARGIN) / columns.length
     return (
-      <View testID="board-wide" style={styles.wideContainer}>
-        {columns.map((column) => (
-          <ColumnView
-            key={column.id}
-            column={column}
-            workspace={workspace}
-            width={columnWidth}
-            onTicketPress={onTicketPress}
-            onTicketLongPress={onTicketLongPress}
-            onCreateTicket={column.kind === 'backlog' ? onCreateTicket : undefined}
-            creating={createTicket.isPending}
-          />
-        ))}
-        {actionsSheet}
-      </View>
+      <>
+        <View style={styles.header}>
+          <Pressable
+            testID="board-memory-button"
+            onPress={handleMemoryPress}
+            style={styles.memoryButton}
+          >
+            <Text style={styles.memoryButtonText}>Memory</Text>
+          </Pressable>
+        </View>
+        <View testID="board-wide" style={styles.wideContainer}>
+          {columns.map((column) => (
+            <ColumnView
+              key={column.id}
+              column={column}
+              workspace={workspace}
+              width={columnWidth}
+              onTicketPress={onTicketPress}
+              onTicketLongPress={onTicketLongPress}
+              onCreateTicket={column.kind === 'backlog' ? onCreateTicket : undefined}
+              creating={createTicket.isPending}
+            />
+          ))}
+          {actionsSheet}
+        </View>
+      </>
     )
   }
 
   const columnWidth = width - COLUMN_MARGIN
   return (
     <>
+      <View style={styles.header}>
+        <Pressable
+          testID="board-memory-button"
+          onPress={handleMemoryPress}
+          style={styles.memoryButton}
+        >
+          <Text style={styles.memoryButtonText}>Memory</Text>
+        </Pressable>
+      </View>
       <FlatList
         testID="board-paged"
         horizontal
@@ -115,6 +137,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e5e5',
+  },
+  memoryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+  },
+  memoryButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#007AFF',
   },
   wideContainer: {
     flex: 1,
