@@ -102,5 +102,5 @@ describe.skipIf(!process.env.TADA_IT)('ClaudeAdapter (integration)', () => {
 
     const log = await git(origin, 'log', `ticket/${ticket.id}`, '--oneline')
     expect(log.length).toBeGreaterThan(0)
-  })
+  }, 600_000)
 })
