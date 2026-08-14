@@ -312,7 +312,7 @@ describe('Ticket detail screen', () => {
 
     await fireEvent.press(screen.getByTestId('run-row-30'))
 
-    expect(mockPush).toHaveBeenCalledWith('/runs/30')
+    expect(mockPush).toHaveBeenCalledWith('/runs/30?ticketId=1')
   })
 
   test('editing is blocked while a run is queued or running', async () => {

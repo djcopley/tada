@@ -156,7 +156,11 @@ function TicketDetailBody({
       <View style={styles.runsSection}>
         <Text style={styles.sectionTitle}>Runs</Text>
         {runs.map((run) => (
-          <RunRow key={run.id} run={run} onPress={() => router.push(`/runs/${run.id}`)} />
+          <RunRow
+            key={run.id}
+            run={run}
+            onPress={() => router.push(`/runs/${run.id}?ticketId=${run.ticketId}`)}
+          />
         ))}
       </View>
 
