@@ -2,13 +2,17 @@ import type { ApiComment, ApiRun, ApiTicket } from '@tada/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
 import { keys, useBoard, useComment, usePatchTicket, useTicket, useWorkspace } from '../../src/api/queries'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { CommentThread } from '../../src/components/CommentThread'
 import { RunRow } from '../../src/components/RunRow'
 import { TicketActions } from '../../src/components/TicketActions'
+import { AppHeader, Button, Card, EmptyState, Icon, Input, Screen, Skeleton, StatusTag } from '../../src/components/ui'
+import { useTheme } from '../../src/design/ThemeContext'
+import { humanize, queueStateVisual } from '../../src/design/status'
+import { radius, space, type } from '../../src/design/tokens'
 import { showToast } from '../../src/toast'
 
 const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
@@ -21,17 +25,22 @@ export default function TicketDetail() {
 
   if (Number.isNaN(ticketId)) {
     return (
-      <View style={styles.center}>
-        <Text>Invalid ticket</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Ticket" back />
+        <EmptyState icon="alert-circle" message="This ticket doesn't exist." />
+      </Screen>
     )
   }
 
   if (isLoading || !data) {
     return (
-      <View style={styles.center}>
-        <Text>Loading…</Text>
-      </View>
+      <Screen>
+        <AppHeader title="…" back />
+        <View style={styles.skeletons}>
+          <Skeleton height={120} style={{ borderRadius: radius.md }} />
+          <Skeleton height={200} style={{ borderRadius: radius.md }} />
+        </View>
+      </Screen>
     )
   }
 
@@ -47,6 +56,7 @@ function TicketDetailBody({
 }) {
   const router = useRouter()
   const qc = useQueryClient()
+  const { colors } = useTheme()
   const { ticket, comments, runs } = data
 
   useWorkspaceSocket(ticket.workspaceId)
@@ -101,79 +111,125 @@ function TicketDetailBody({
   const column = board?.columns.find((c) => c.id === ticket.columnId)
   const adapter = ticket.adapterOverride ?? workspace?.defaultAdapter ?? '—'
   const model = ticket.modelOverride ?? workspace?.defaultModel ?? '—'
+  const queueVisual = queueStateVisual(ticket.queueState)
 
   return (
-    <ScrollView testID="ticket-detail" style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.section}>
-        {editing ? (
-          <View style={styles.editForm}>
-            <TextInput
-              testID="ticket-title-input"
-              style={styles.titleInput}
-              value={titleDraft}
-              onChangeText={setTitleDraft}
-            />
-            <TextInput
-              testID="ticket-description-input"
-              style={styles.descriptionInput}
-              value={descriptionDraft}
-              onChangeText={setDescriptionDraft}
-              multiline
-              placeholder="Description"
-            />
-            <View style={styles.editActions}>
-              <Pressable testID="ticket-edit-cancel" style={styles.editButton} onPress={cancelEdit}>
-                <Text>Cancel</Text>
+    <Screen edges={['top', 'bottom']}>
+      <AppHeader title={`Ticket #${ticket.id}`} back />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex}
+      >
+        <ScrollView testID="ticket-detail" style={styles.flex} contentContainerStyle={styles.content}>
+          <Card style={styles.titleCard}>
+            {editing ? (
+              <View style={styles.editForm}>
+                <Input
+                  testID="ticket-title-input"
+                  label="Title"
+                  value={titleDraft}
+                  onChangeText={setTitleDraft}
+                />
+                <Input
+                  testID="ticket-description-input"
+                  label="Description"
+                  value={descriptionDraft}
+                  onChangeText={setDescriptionDraft}
+                  multiline
+                  placeholder="What should the agent do, in detail?"
+                />
+                <View style={styles.editActions}>
+                  <Button testID="ticket-edit-cancel" variant="ghost" label="Cancel" onPress={cancelEdit} small />
+                  <Button
+                    testID="ticket-edit-save"
+                    label="Save changes"
+                    onPress={saveEdit}
+                    loading={patchTicket.isPending}
+                    small
+                  />
+                </View>
+              </View>
+            ) : (
+              <Pressable
+                testID="ticket-edit-trigger"
+                accessibilityRole="button"
+                accessibilityLabel={hasActiveRun ? 'Editing locked while a run is active' : 'Edit ticket'}
+                onPress={startEdit}
+                disabled={hasActiveRun}
+              >
+                <View style={styles.titleRow}>
+                  <Text testID="ticket-title" style={[type.title, styles.title, { color: colors.ink }]}>
+                    {ticket.title}
+                  </Text>
+                  <Icon
+                    name={hasActiveRun ? 'lock' : 'edit-2'}
+                    size={16}
+                    color={colors.inkFaint}
+                  />
+                </View>
+                {ticket.description ? (
+                  <Text testID="ticket-description" style={[type.body, styles.description, { color: colors.inkMuted }]}>
+                    {ticket.description}
+                  </Text>
+                ) : (
+                  <Text style={[type.caption, styles.description, { color: colors.inkFaint }]}>
+                    {hasActiveRun ? 'Editing is locked while an agent is working.' : 'Tap to add a description.'}
+                  </Text>
+                )}
               </Pressable>
-              <Pressable testID="ticket-edit-save" style={styles.editButton} onPress={saveEdit}>
-                <Text>Save</Text>
-              </Pressable>
+            )}
+
+            <View style={styles.chipRow}>
+              {column && (
+                <View testID="chip-column" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
+                  <Text style={[type.monoSmall, { color: colors.inkMuted }]}>{column.title.toUpperCase()}</Text>
+                </View>
+              )}
+              <View testID="chip-agent" style={[styles.chip, { backgroundColor: colors.surfaceAlt }]}>
+                <Text style={[type.monoSmall, { color: colors.inkMuted }]}>
+                  {`${humanize(adapter)} · ${humanize(model)}`.toUpperCase()}
+                </Text>
+              </View>
+              {queueVisual && (
+                <View testID="chip-queue-state">
+                  <StatusTag status={queueVisual} />
+                </View>
+              )}
             </View>
+          </Card>
+
+          <View style={styles.section}>
+            <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>DISCUSSION</Text>
+            <CommentThread comments={comments} onSend={sendComment} sending={comment.isPending} />
           </View>
-        ) : (
-          <Pressable testID="ticket-edit-trigger" onPress={startEdit} disabled={hasActiveRun}>
-            <Text testID="ticket-title" style={styles.title}>
-              {ticket.title}
-            </Text>
-            {ticket.description ? (
-              <Text testID="ticket-description" style={styles.description}>
-                {ticket.description}
+
+          <View style={styles.section}>
+            <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>RUNS</Text>
+            {runs.length === 0 ? (
+              <Text style={[type.caption, { color: colors.inkFaint }]}>
+                No runs yet — send this ticket to Ready to dispatch an agent.
               </Text>
-            ) : null}
-          </Pressable>
-        )}
-      </View>
+            ) : (
+              runs.map((run) => (
+                <RunRow
+                  key={run.id}
+                  run={run}
+                  onPress={() => router.push(`/runs/${run.id}?ticketId=${run.ticketId}`)}
+                />
+              ))
+            )}
+          </View>
+        </ScrollView>
 
-      <View style={styles.chipRow}>
-        {column && (
-          <Text testID="chip-column" style={styles.chip}>
-            {column.title}
-          </Text>
-        )}
-        <Text testID="chip-agent" style={styles.chip}>{`${adapter} · ${model}`}</Text>
-        {ticket.queueState && (
-          <Text testID="chip-queue-state" style={styles.badge}>
-            {ticket.queueState}
-          </Text>
-        )}
-      </View>
-
-      <CommentThread comments={comments} onSend={sendComment} sending={comment.isPending} />
-
-      <View style={styles.runsSection}>
-        <Text style={styles.sectionTitle}>Runs</Text>
-        {runs.map((run) => (
-          <RunRow
-            key={run.id}
-            run={run}
-            onPress={() => router.push(`/runs/${run.id}?ticketId=${run.ticketId}`)}
+        <View style={[styles.actionBar, { borderTopColor: colors.line, backgroundColor: colors.bg }]}>
+          <Button
+            testID="ticket-actions-button"
+            icon="more-horizontal"
+            label="Actions"
+            onPress={() => setActionsVisible(true)}
           />
-        ))}
-      </View>
-
-      <Pressable testID="ticket-actions-button" style={styles.actionsButton} onPress={() => setActionsVisible(true)}>
-        <Text style={styles.actionsButtonText}>Actions</Text>
-      </Pressable>
+        </View>
+      </KeyboardAvoidingView>
 
       {workspace && board && (
         <TicketActions
@@ -184,100 +240,63 @@ function TicketDetailBody({
           onClose={() => setActionsVisible(false)}
         />
       )}
-    </ScrollView>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  center: {
+  flex: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  container: {
-    flex: 1,
+  skeletons: {
+    padding: space.lg,
+    gap: space.lg,
   },
   content: {
-    padding: 16,
-    gap: 16,
+    padding: space.lg,
+    gap: space.xxl,
   },
-  section: {
-    gap: 6,
+  titleCard: {
+    gap: space.lg,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '700',
+    flex: 1,
   },
   description: {
-    fontSize: 14,
-    color: '#333',
+    marginTop: space.sm,
   },
   editForm: {
-    gap: 8,
-  },
-  titleInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 6,
-    padding: 10,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  descriptionInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 6,
-    padding: 10,
-    minHeight: 80,
+    gap: space.md,
   },
   editActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
-  },
-  editButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: space.sm,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: space.sm,
     alignItems: 'center',
   },
   chip: {
-    fontSize: 12,
-    color: '#555',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    overflow: 'hidden',
+    paddingHorizontal: space.sm,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
   },
-  badge: {
-    fontSize: 11,
-    color: '#b35c00',
-    backgroundColor: '#fff3e0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  runsSection: {
-    gap: 4,
+  section: {
+    gap: space.sm,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
+    letterSpacing: 1.2,
   },
-  actionsButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#1565c0',
-  },
-  actionsButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+  actionBar: {
+    padding: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 })

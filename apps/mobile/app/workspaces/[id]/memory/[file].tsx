@@ -1,24 +1,23 @@
-import { useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams, useNavigation } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMemory, usePutMemory } from '../../../../src/api/queries'
+import { AppHeader, Button, Dialog, EmptyState, Screen, Skeleton } from '../../../../src/components/ui'
+import { useTheme } from '../../../../src/design/ThemeContext'
+import { fonts, space, type } from '../../../../src/design/tokens'
 import { showToast } from '../../../../src/toast'
 
 export default function MemoryEditor() {
   const { id, file } = useLocalSearchParams<{ id: string; file: string }>()
   const wsId = Number(id)
+  const navigation = useNavigation()
+  const { colors } = useTheme()
 
   const { data: memoryData, isLoading } = useMemory(wsId)
   const putMemory = usePutMemory(wsId)
 
   const [editedBody, setEditedBody] = useState('')
+  const [leaveGuard, setLeaveGuard] = useState<{ action: unknown } | null>(null)
   const lastFileRef = useRef<string | undefined>(undefined)
 
   // Compute original body from memoryData
@@ -32,6 +31,7 @@ export default function MemoryEditor() {
   }
 
   const originalBody = getOriginalBody()
+  const isDirty = editedBody !== originalBody
 
   // Initialize/reset editedBody when file or data changes
   useEffect(() => {
@@ -42,122 +42,127 @@ export default function MemoryEditor() {
     }
   }, [memoryData, file, originalBody])
 
+  // Unsaved-changes guard: intercept navigating away while dirty.
+  const dirtyRef = useRef(false)
+  dirtyRef.current = isDirty && !putMemory.isPending
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!dirtyRef.current) return
+      e.preventDefault()
+      setLeaveGuard({ action: e.data.action })
+    })
+    return unsubscribe
+  }, [navigation])
+
   if (Number.isNaN(wsId) || !file) {
     return (
-      <View style={styles.center}>
-        <Text>Invalid parameters</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Note" back />
+        <EmptyState icon="alert-circle" message="This note doesn't exist." />
+      </Screen>
     )
   }
 
   if (isLoading || !memoryData) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
+      <Screen>
+        <AppHeader title={file ?? 'Note'} back />
+        <View style={styles.skeletons}>
+          <Skeleton height={14} width="90%" />
+          <Skeleton height={14} width="75%" />
+          <Skeleton height={14} width="85%" />
+        </View>
+      </Screen>
     )
   }
-
-  const isDirty = editedBody !== originalBody
 
   const handleSave = () => {
     void putMemory
       .mutateAsync({ file, body: editedBody })
       .then(() => {
         showToast('Saved')
-        // After save succeeds, update lastFileRef to mark this content as saved
-        // The isDirty will become false since editedBody now equals originalBody
       })
       .catch(() => {
         // The global mutation error handler already surfaces a toast.
       })
   }
 
-  const handleContentChange = (text: string) => {
-    setEditedBody(text)
+  const discardAndLeave = () => {
+    dirtyRef.current = false
+    const action = leaveGuard?.action
+    setLeaveGuard(null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (action) navigation.dispatch(action as any)
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{file}</Text>
-        <Pressable
-          testID="memory-save-button"
-          onPress={handleSave}
-          disabled={!isDirty || putMemory.isPending}
-          style={[
-            styles.saveButton,
-            (!isDirty || putMemory.isPending) && styles.saveButtonDisabled,
-          ]}
-        >
-          {putMemory.isPending ? (
-            <ActivityIndicator size="small" color="#fff" />
+    <Screen edges={['top', 'bottom']}>
+      <AppHeader title={file} back>
+        <View style={styles.saveRow}>
+          {isDirty ? (
+            <Text style={[type.monoSmall, { color: colors.signalAmber }]}>UNSAVED CHANGES</Text>
           ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
+            <Text style={[type.monoSmall, { color: colors.inkFaint }]}>SAVED</Text>
           )}
-        </Pressable>
-      </View>
+          <Button
+            testID="memory-save-button"
+            label="Save"
+            onPress={handleSave}
+            disabled={!isDirty}
+            loading={putMemory.isPending}
+            small
+          />
+        </View>
+      </AppHeader>
 
-      <TextInput
-        testID="memory-editor-input"
-        style={styles.editor}
-        multiline
-        value={editedBody}
-        onChangeText={handleContentChange}
-        editable={!putMemory.isPending}
-        placeholder="Enter your notes here..."
-        placeholderTextColor="#999"
-      />
-    </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+        <TextInput
+          testID="memory-editor-input"
+          style={[styles.editor, { color: colors.ink }]}
+          multiline
+          value={editedBody}
+          onChangeText={setEditedBody}
+          editable={!putMemory.isPending}
+          placeholder="Write notes for your agents…"
+          placeholderTextColor={colors.inkFaint}
+        />
+      </KeyboardAvoidingView>
+
+      <Dialog
+        visible={leaveGuard !== null}
+        title="Discard changes?"
+        onClose={() => setLeaveGuard(null)}
+        cancelLabel="Keep editing"
+        confirm={{ label: 'Discard', destructive: true, onPress: discardAndLeave }}
+      >
+        <Text style={[type.body, { color: colors.inkMuted }]}>
+          This note has unsaved changes that will be lost.
+        </Text>
+      </Dialog>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: '#fff',
   },
-  header: {
+  skeletons: {
+    padding: space.lg,
+    gap: space.md,
+  },
+  saveRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#ccc',
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.md,
   },
   editor: {
     flex: 1,
-    padding: 16,
-    fontSize: 14,
-    fontFamily: 'Courier New',
+    padding: space.lg,
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    lineHeight: 20,
     textAlignVertical: 'top',
   },
 })

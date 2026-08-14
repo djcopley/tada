@@ -2,13 +2,18 @@ import type { ApiRun } from '@tada/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams } from 'expo-router'
 import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
 import { useClient } from '../../src/api/ClientContext'
 import { keys, useTicket } from '../../src/api/queries'
 import { useRunEvents } from '../../src/api/useRunEvents'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { EventFeed } from '../../src/components/EventFeed'
+import { AppHeader, Button, Dialog, EmptyState, Screen, Skeleton, StatusTag } from '../../src/components/ui'
+import { useTheme } from '../../src/design/ThemeContext'
+import { humanize, runStatusVisual } from '../../src/design/status'
+import { fonts, radius, space, type } from '../../src/design/tokens'
+import { relativeTime } from '../../src/relativeTime'
 import { showToast } from '../../src/toast'
 
 const ACTIVE_RUN_STATUSES: ReadonlySet<ApiRun['status']> = new Set(['queued', 'running'])
@@ -27,9 +32,10 @@ export default function RunActivity() {
 
   if (Number.isNaN(runId) || Number.isNaN(ticketIdNum)) {
     return (
-      <View style={styles.center}>
-        <Text>Invalid run</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Run" back />
+        <EmptyState icon="alert-circle" message="This run doesn't exist." />
+      </Screen>
     )
   }
 
@@ -39,6 +45,7 @@ export default function RunActivity() {
 function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number }) {
   const client = useClient()
   const qc = useQueryClient()
+  const { colors } = useTheme()
   const { data } = useTicket(ticketId)
   const run = data?.runs.find((r) => r.id === runId)
 
@@ -55,28 +62,20 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
     },
   })
 
+  const [confirmVisible, setConfirmVisible] = useState(false)
   const [transcriptVisible, setTranscriptVisible] = useState(false)
   const [transcript, setTranscript] = useState<string | null>(null)
   const [transcriptLoading, setTranscriptLoading] = useState(false)
 
-  const cancel = () => {
-    Alert.alert('Cancel run?', 'This stops the agent working on this run.', [
-      { text: 'Keep running', style: 'cancel' },
-      {
-        text: 'Cancel run',
-        style: 'destructive',
-        onPress: () => {
-          // client.cancelRun is a plain client call, not a react-query
-          // mutation, so it never reaches the global mutation error
-          // handler — show the toast here instead of leaving a failure
-          // silent (and unhandled-rejection-prone).
-          void client
-            .cancelRun(runId)
-            .then(() => qc.invalidateQueries({ queryKey: keys.ticket(ticketId) }))
-            .catch(() => showToast('Could not cancel run'))
-        },
-      },
-    ])
+  const cancelRun = () => {
+    setConfirmVisible(false)
+    // client.cancelRun is a plain client call, not a react-query mutation,
+    // so it never reaches the global mutation error handler — show the
+    // toast here instead of leaving a failure silent.
+    void client
+      .cancelRun(runId)
+      .then(() => qc.invalidateQueries({ queryKey: keys.ticket(ticketId) }))
+      .catch(() => showToast('Could not cancel run'))
   }
 
   const toggleTranscript = () => {
@@ -101,96 +100,122 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
   }
 
   return (
-    <View testID="run-activity" style={styles.container}>
-      <View style={styles.header}>
-        <Text testID="run-status" style={styles.status}>
-          {run?.status ?? '—'}
-        </Text>
-        {live && (
-          <Pressable testID="run-cancel" style={styles.cancelButton} onPress={cancel}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <Pressable testID="transcript-toggle" style={styles.transcriptButton} onPress={toggleTranscript}>
-        <Text style={styles.transcriptButtonText}>
-          {transcriptVisible ? 'Hide transcript' : 'View transcript'}
-        </Text>
-      </Pressable>
-
-      {transcriptVisible && (
-        <View testID="transcript-panel" style={styles.transcriptPanel}>
-          {transcriptLoading ? (
-            <Text testID="transcript-loading">Loading…</Text>
-          ) : (
-            <Text testID="transcript-text" style={styles.mono}>
-              {transcript}
-            </Text>
+    <Screen edges={['top', 'bottom']} testID="run-activity">
+      <AppHeader title={`Run #${runId}`} back />
+      <View style={styles.body}>
+        <View style={styles.statusRow}>
+          <View testID="run-status" style={styles.statusBlock}>
+            {run ? (
+              <>
+                <StatusTag status={runStatusVisual(run.status)} />
+                <Text style={[type.caption, { color: colors.inkMuted }]}>
+                  {`${humanize(run.adapter)} · ${humanize(run.model)} · started ${relativeTime(run.createdAt)}`}
+                </Text>
+              </>
+            ) : (
+              <Text style={[type.caption, { color: colors.inkFaint }]}>—</Text>
+            )}
+          </View>
+          {live && (
+            <Button
+              testID="run-cancel"
+              variant="destructive"
+              icon="x-octagon"
+              label="Cancel"
+              onPress={() => setConfirmVisible(true)}
+              small
+            />
           )}
         </View>
-      )}
 
-      <View style={styles.feedContainer}>
+        <Button
+          testID="transcript-toggle"
+          variant="secondary"
+          icon="file-text"
+          label={transcriptVisible ? 'Hide transcript' : 'View transcript'}
+          onPress={toggleTranscript}
+          small
+          style={styles.transcriptToggle}
+        />
+
+        {transcriptVisible && (
+          <View
+            testID="transcript-panel"
+            style={[styles.transcriptPanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.line }]}
+          >
+            {transcriptLoading ? (
+              <View testID="transcript-loading" style={styles.transcriptSkeleton}>
+                <Skeleton height={12} width="90%" />
+                <Skeleton height={12} width="70%" />
+                <Skeleton height={12} width="80%" />
+              </View>
+            ) : (
+              <ScrollView style={styles.transcriptScroll} nestedScrollEnabled>
+                <Text testID="transcript-text" style={[styles.mono, { color: colors.ink }]}>
+                  {transcript}
+                </Text>
+              </ScrollView>
+            )}
+          </View>
+        )}
+
         <EventFeed events={events} live={live} />
       </View>
-    </View>
+
+      <Dialog
+        visible={confirmVisible}
+        title="Cancel run?"
+        onClose={() => setConfirmVisible(false)}
+        cancelLabel="Keep running"
+        confirm={{
+          label: 'Cancel run',
+          destructive: true,
+          onPress: cancelRun,
+          testID: 'run-cancel-confirm',
+        }}
+      >
+        <Text style={[type.body, { color: colors.inkMuted }]}>
+          This stops the agent working on this run.
+        </Text>
+      </Dialog>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  center: {
+  body: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: space.lg,
+    gap: space.md,
   },
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  header: {
+  statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: space.md,
   },
-  status: {
-    fontSize: 18,
-    fontWeight: '700',
+  statusBlock: {
+    flex: 1,
+    gap: space.xs,
   },
-  cancelButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#c62828',
-  },
-  cancelText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  transcriptButton: {
+  transcriptToggle: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#f0f0f0',
-  },
-  transcriptButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
   },
   transcriptPanel: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    padding: 10,
+    borderRadius: radius.md,
+    padding: space.md,
+    maxHeight: 240,
+  },
+  transcriptScroll: {
+    flexGrow: 0,
+  },
+  transcriptSkeleton: {
+    gap: space.sm,
   },
   mono: {
-    fontFamily: 'Menlo, monospace',
+    fontFamily: fonts.mono,
     fontSize: 12,
-  },
-  feedContainer: {
-    flex: 1,
+    lineHeight: 18,
   },
 })

@@ -1,6 +1,9 @@
 import type { ApiRunEvent } from '@tada/shared'
-import { useEffect, useRef } from 'react'
-import { FlatList, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useTheme } from '../design/ThemeContext'
+import { radius, space, type } from '../design/tokens'
+import { Icon } from './ui'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -22,39 +25,63 @@ function stringField(payload: unknown, field: string): string | undefined {
 }
 
 function StatusPill({ event }: { event: ApiRunEvent }) {
+  const { colors } = useTheme()
   const status = stringField(event.payload, 'status') ?? jsonPreview(event.payload)
   return (
-    <View testID={`event-status-${event.id}`} style={styles.pill}>
-      <Text style={styles.pillText}>{status}</Text>
+    <View testID={`event-status-${event.id}`} style={[styles.pill, { backgroundColor: colors.surfaceAlt }]}>
+      <Text style={[type.monoSmall, { color: colors.inkMuted }]}>{status.toUpperCase()}</Text>
     </View>
   )
 }
 
 function TextRow({ event }: { event: ApiRunEvent }) {
+  const { colors } = useTheme()
   const text = stringField(event.payload, 'text') ?? jsonPreview(event.payload)
   return (
-    <Text testID={`event-text-${event.id}`} style={styles.bodyText}>
+    <Text testID={`event-text-${event.id}`} style={[type.body, styles.row, { color: colors.ink }]}>
       {text}
     </Text>
   )
 }
 
+/** Tool calls render as collapsible mono cards: name up front, input on tap. */
 function ToolUseRow({ event }: { event: ApiRunEvent }) {
+  const { colors } = useTheme()
+  const [expanded, setExpanded] = useState(false)
   const name = stringField(event.payload, 'name') ?? 'tool'
   const inputPreview = stringField(event.payload, 'inputPreview') ?? jsonPreview(event.payload)
   return (
-    <Text testID={`event-tool-${event.id}`} style={styles.mono}>
-      {`${name}(${inputPreview})`}
-    </Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Tool call ${name}`}
+      onPress={() => setExpanded((v) => !v)}
+      style={[styles.toolCard, { backgroundColor: colors.surfaceAlt }]}
+    >
+      <View style={styles.toolHeader}>
+        <Icon name="tool" size={12} color={colors.inkMuted} />
+        <Text
+          testID={`event-tool-${event.id}`}
+          numberOfLines={expanded ? undefined : 1}
+          style={[type.mono, styles.toolName, { color: colors.ink }]}
+        >
+          {`${name}(${inputPreview})`}
+        </Text>
+        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.inkFaint} />
+      </View>
+    </Pressable>
   )
 }
 
 function ErrorRow({ event }: { event: ApiRunEvent }) {
+  const { colors } = useTheme()
   const message = stringField(event.payload, 'message') ?? jsonPreview(event.payload)
   return (
-    <Text testID={`event-error-${event.id}`} style={styles.errorText}>
-      {message}
-    </Text>
+    <View style={[styles.errorCard, { backgroundColor: colors.signalRedBg }]}>
+      <Icon name="alert-triangle" size={14} color={colors.signalRed} />
+      <Text testID={`event-error-${event.id}`} style={[type.body, styles.errorText, { color: colors.signalRed }]}>
+        {message}
+      </Text>
+    </View>
   )
 }
 
@@ -74,53 +101,97 @@ function EventRow({ event }: { event: ApiRunEvent }) {
 }
 
 export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boolean }) {
+  const { colors, shadow } = useTheme()
   const listRef = useRef<FlatList<ApiRunEvent>>(null)
   const count = events.length
+  const [pinnedToEnd, setPinnedToEnd] = useState(true)
 
   useEffect(() => {
-    if (live && count > 0) {
+    if (live && count > 0 && pinnedToEnd) {
       listRef.current?.scrollToEnd({ animated: true })
     }
-  }, [count, live])
+  }, [count, live, pinnedToEnd])
 
   return (
-    <FlatList
-      testID="event-feed"
-      ref={listRef}
-      data={events}
-      keyExtractor={(event) => String(event.id)}
-      renderItem={({ item }) => <EventRow event={item} />}
-    />
+    <View style={styles.feed}>
+      <FlatList
+        testID="event-feed"
+        ref={listRef}
+        data={events}
+        keyExtractor={(event) => String(event.id)}
+        renderItem={({ item }) => <EventRow event={item} />}
+        onScrollBeginDrag={() => setPinnedToEnd(false)}
+        onEndReached={() => setPinnedToEnd(true)}
+        onEndReachedThreshold={0.05}
+        contentContainerStyle={styles.feedContent}
+      />
+      {live && !pinnedToEnd && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Jump to latest"
+          onPress={() => {
+            setPinnedToEnd(true)
+            listRef.current?.scrollToEnd({ animated: true })
+          }}
+          style={[styles.jumpPill, { backgroundColor: colors.ink }, shadow.card]}
+        >
+          <Icon name="arrow-down" size={14} color={colors.onInk} />
+          <Text style={[type.caption, { color: colors.onInk }]}>Latest</Text>
+        </Pressable>
+      )}
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  feed: {
+    flex: 1,
+  },
+  feedContent: {
+    paddingBottom: space.xxl,
+    gap: space.sm,
+  },
+  row: {
+    marginVertical: 2,
+  },
   pill: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-    backgroundColor: '#e0f0ff',
-    marginVertical: 4,
+    paddingHorizontal: space.sm,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
   },
-  pillText: {
-    color: '#1565c0',
-    fontSize: 12,
-    fontWeight: '600',
+  toolCard: {
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
   },
-  bodyText: {
-    fontSize: 14,
-    marginVertical: 4,
+  toolHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
   },
-  mono: {
-    fontFamily: 'Menlo, monospace',
-    fontSize: 12,
-    color: '#333',
-    marginVertical: 4,
+  toolName: {
+    flex: 1,
+  },
+  errorCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    borderRadius: radius.sm,
+    padding: space.sm,
   },
   errorText: {
-    fontSize: 13,
-    color: '#c62828',
-    marginVertical: 4,
+    flex: 1,
+  },
+  jumpPill: {
+    position: 'absolute',
+    bottom: space.lg,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 2,
+    borderRadius: radius.full,
   },
 })

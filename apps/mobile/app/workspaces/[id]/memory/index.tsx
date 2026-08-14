@@ -1,21 +1,17 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
-import {
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { useMemory, usePutMemory } from '../../../../src/api/queries'
+import { AppHeader, Dialog, EmptyState, Input, ListRow, Screen, Skeleton } from '../../../../src/components/ui'
+import { useTheme } from '../../../../src/design/ThemeContext'
+import { radius, space, type } from '../../../../src/design/tokens'
 import { showToast } from '../../../../src/toast'
 
 export default function MemoryList() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const wsId = Number(id)
   const router = useRouter()
+  const { colors } = useTheme()
 
   const { data: memoryData, isLoading } = useMemory(wsId)
   const putMemory = usePutMemory(wsId)
@@ -26,17 +22,23 @@ export default function MemoryList() {
 
   if (Number.isNaN(wsId)) {
     return (
-      <View style={styles.center}>
-        <Text>Invalid workspace</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Memory" back />
+        <EmptyState icon="alert-circle" message="This workspace doesn't exist." />
+      </Screen>
     )
   }
 
   if (isLoading || !memoryData) {
     return (
-      <View style={styles.center}>
-        <Text>Loading…</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Memory" back />
+        <View style={styles.skeletons}>
+          <Skeleton height={52} />
+          <Skeleton height={52} />
+          <Skeleton height={52} />
+        </View>
+      </Screen>
     )
   }
 
@@ -66,6 +68,12 @@ export default function MemoryList() {
     setNameError('')
     setNewNoteName('')
     setShowNamePrompt(true)
+  }
+
+  const closePrompt = () => {
+    setShowNamePrompt(false)
+    setNewNoteName('')
+    setNameError('')
   }
 
   const handleSubmitName = () => {
@@ -99,178 +107,84 @@ export default function MemoryList() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Memory</Text>
-        <Pressable testID="memory-add-button" onPress={handleCreateNote} style={styles.addButton}>
-          <Text style={styles.addButtonText}>+</Text>
-        </Pressable>
-      </View>
+    <Screen>
+      <AppHeader
+        title="Memory"
+        back
+        actions={[{ icon: 'plus', label: 'New note', onPress: handleCreateNote, testID: 'memory-add-button' }]}
+      />
 
       <FlatList
         testID="memory-list"
         data={files}
         keyExtractor={(item) => item.name}
+        contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <Pressable
+          <ListRow
             testID={`memory-file-${item.name}`}
+            icon={item.isAgents ? 'compass' : 'file-text'}
+            title={item.name}
+            trailing={
+              item.isAgents ? (
+                <View style={[styles.pinnedTag, { backgroundColor: colors.surfaceAlt }]}>
+                  <Text style={[type.monoSmall, { color: colors.inkMuted }]}>PINNED</Text>
+                </View>
+              ) : undefined
+            }
             onPress={() => handleFilePress(item.name)}
-            style={styles.fileItem}
-          >
-            <Text style={styles.fileName}>{item.name}</Text>
-          </Pressable>
+          />
         )}
       />
 
-      <Modal visible={showNamePrompt} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Note</Text>
-            <TextInput
-              testID="memory-name-input"
-              style={styles.nameInput}
-              placeholder="note-name (or note-name.md)"
-              value={newNoteName}
-              onChangeText={(text) => {
-                setNewNoteName(text)
-                setNameError('')
-              }}
-              editable={!putMemory.isPending}
-            />
-            {nameError ? (
-              <Text testID="memory-name-error" style={styles.errorText}>
-                {nameError}
-              </Text>
-            ) : null}
-            <View style={styles.modalButtons}>
-              <Pressable
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => {
-                  setShowNamePrompt(false)
-                  setNewNoteName('')
-                  setNameError('')
-                }}
-              >
-                <Text style={styles.buttonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                testID="memory-name-submit"
-                style={[styles.button, styles.submitButton]}
-                onPress={handleSubmitName}
-                disabled={putMemory.isPending}
-              >
-                <Text style={[styles.buttonText, putMemory.isPending && styles.disabledText]}>
-                  Create
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
+      <Dialog
+        visible={showNamePrompt}
+        title="New note"
+        onClose={closePrompt}
+        confirm={{
+          label: 'Create',
+          onPress: handleSubmitName,
+          disabled: putMemory.isPending,
+          testID: 'memory-name-submit',
+        }}
+      >
+        <Input
+          testID="memory-name-input"
+          placeholder="note-name (or note-name.md)"
+          mono
+          autoFocus
+          value={newNoteName}
+          onChangeText={(text) => {
+            setNewNoteName(text)
+            setNameError('')
+          }}
+          editable={!putMemory.isPending}
+        />
+        {nameError ? (
+          <Text
+            testID="memory-name-error"
+            accessibilityRole="alert"
+            style={[type.caption, { color: colors.signalRed }]}
+          >
+            {nameError}
+          </Text>
+        ) : null}
+      </Dialog>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
+  skeletons: {
+    padding: space.lg,
+    gap: space.md,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
+  listContent: {
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fileItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  fileName: {
-    fontSize: 16,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '80%',
-    maxWidth: 300,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 16,
-  },
-  nameInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
-    fontSize: 16,
-  },
-  errorText: {
-    color: '#ff3b30',
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
-  },
-  submitButton: {
-    backgroundColor: '#007AFF',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  disabledText: {
-    opacity: 0.6,
+  pinnedTag: {
+    paddingHorizontal: space.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
   },
 })

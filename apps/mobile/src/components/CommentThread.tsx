@@ -2,6 +2,10 @@ import type { ApiComment } from '@tada/shared'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useTheme } from '../design/ThemeContext'
+import { radius, space, type } from '../design/tokens'
+import { relativeTime } from '../relativeTime'
+import { Icon } from './ui'
 
 const URL_REGEX = /https?:\/\/\S+/g
 const TRAILING_PUNCTUATION = '.,;:!?]}'
@@ -35,9 +39,20 @@ function trimTrailingPunctuation(url: string): { clean: string; trailing: string
 /** Splits a comment body on bare URLs, rendering each URL as a tappable
  * span. Full markdown link rendering (`[text](url)`) is deferred — this
  * covers the common case of a pasted link. */
-function CommentBody({ body, commentId }: { body: string; commentId: number }) {
+function CommentBody({
+  body,
+  commentId,
+  color,
+  linkColor,
+}: {
+  body: string
+  commentId: number
+  color: string
+  linkColor: string
+}) {
+  const bodyStyle = [type.body, { color }]
   const matches = [...body.matchAll(URL_REGEX)]
-  if (matches.length === 0) return <Text style={styles.bubbleText}>{body}</Text>
+  if (matches.length === 0) return <Text style={bodyStyle}>{body}</Text>
 
   const nodes: ReactNode[] = []
   let cursor = 0
@@ -50,7 +65,7 @@ function CommentBody({ body, commentId }: { body: string; commentId: number }) {
       <Text
         key={`u-${i}`}
         testID={`comment-link-${commentId}-${i}`}
-        style={styles.link}
+        style={[styles.link, { color: linkColor }]}
         onPress={() => void Linking.openURL(clean)}
       >
         {clean}
@@ -61,7 +76,7 @@ function CommentBody({ body, commentId }: { body: string; commentId: number }) {
   })
   if (cursor < body.length) nodes.push(<Text key="t-end">{body.slice(cursor)}</Text>)
 
-  return <Text style={styles.bubbleText}>{nodes}</Text>
+  return <Text style={bodyStyle}>{nodes}</Text>
 }
 
 export function CommentThread({
@@ -77,6 +92,7 @@ export function CommentThread({
   onSend: (body: string) => void | Promise<void>
   sending?: boolean
 }) {
+  const { colors } = useTheme()
   const [draft, setDraft] = useState('')
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
@@ -98,31 +114,63 @@ export function CommentThread({
         data={sorted}
         keyExtractor={(c) => String(c.id)}
         scrollEnabled={false}
-        renderItem={({ item }) => (
-          <View
-            testID={`comment-${item.id}`}
-            style={[styles.bubble, item.author === 'human' ? styles.humanBubble : styles.agentBubble]}
-          >
-            <Text style={styles.author}>{item.author === 'human' ? 'you' : 'agent'}</Text>
-            <CommentBody body={item.body} commentId={item.id} />
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const human = item.author === 'human'
+          return (
+            <View
+              testID={`comment-${item.id}`}
+              style={[
+                styles.bubble,
+                human
+                  ? [styles.humanBubble, { backgroundColor: colors.ink }]
+                  : [styles.agentBubble, { backgroundColor: colors.surfaceAlt }],
+              ]}
+            >
+              <View style={styles.bubbleHeader}>
+                <Text style={[type.monoSmall, { color: human ? colors.onInk : colors.inkMuted }]}>
+                  {human ? 'YOU' : 'AGENT'}
+                </Text>
+                <Text style={[type.monoSmall, { color: human ? colors.onInk : colors.inkFaint, opacity: 0.7 }]}>
+                  {relativeTime(item.createdAt)}
+                </Text>
+              </View>
+              <CommentBody
+                body={item.body}
+                commentId={item.id}
+                color={human ? colors.onInk : colors.ink}
+                linkColor={human ? colors.onInk : colors.signalViolet}
+              />
+            </View>
+          )
+        }}
       />
       <View style={styles.inputRow}>
         <TextInput
           testID="comment-input"
-          style={styles.input}
+          style={[
+            styles.input,
+            type.body,
+            { color: colors.ink, backgroundColor: colors.surface, borderColor: colors.line },
+          ]}
           placeholder="Write a comment"
+          placeholderTextColor={colors.inkFaint}
+          multiline
           value={draft}
           onChangeText={setDraft}
         />
         <Pressable
           testID="comment-send"
-          style={[styles.sendButton, sending && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Send comment"
+          style={({ pressed }) => [
+            styles.sendButton,
+            { backgroundColor: colors.ink },
+            (sending || pressed) && { opacity: 0.6 },
+          ]}
           onPress={send}
           disabled={sending}
         >
-          <Text style={styles.sendText}>Send</Text>
+          <Icon name="arrow-up" size={18} color={colors.onInk} />
         </Pressable>
       </View>
     </View>
@@ -131,58 +179,50 @@ export function CommentThread({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 8,
+    gap: space.sm,
   },
   bubble: {
-    maxWidth: '80%',
-    borderRadius: 10,
-    padding: 10,
-    marginVertical: 4,
-    gap: 2,
+    maxWidth: '85%',
+    borderRadius: radius.md,
+    padding: space.md,
+    marginVertical: space.xs,
+    gap: space.xs,
   },
   agentBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#f0f0f0',
+    borderBottomLeftRadius: radius.sm,
   },
   humanBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#e0f0ff',
+    borderBottomRightRadius: radius.sm,
   },
-  author: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
-  },
-  bubbleText: {
-    fontSize: 14,
+  bubbleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: space.md,
   },
   link: {
-    color: '#1565c0',
     textDecorationLine: 'underline',
   },
   inputRow: {
     flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
+    gap: space.sm,
+    alignItems: 'flex-end',
   },
   input: {
     flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 6,
-    padding: 10,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    minHeight: 44,
+    maxHeight: 120,
   },
   sendButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 6,
-    backgroundColor: '#1565c0',
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  sendText: {
-    color: '#fff',
-    fontWeight: '600',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 })

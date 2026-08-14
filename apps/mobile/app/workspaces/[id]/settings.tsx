@@ -1,23 +1,37 @@
 import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  Pressable,
-  Modal,
-  FlatList,
-} from 'react-native'
+import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
 import { useRemoveRepo, useAddRepo, usePatchWorkspace, useWorkspace } from '../../../src/api/queries'
 import { ADAPTERS } from '../../../src/adapters'
 import type { ApiError } from '../../../src/api/client'
+import {
+  AppHeader,
+  Button,
+  Card,
+  Dialog,
+  EmptyState,
+  Icon,
+  Input,
+  ListRow,
+  Screen,
+  Sheet,
+  Skeleton,
+} from '../../../src/components/ui'
+import { useTheme } from '../../../src/design/ThemeContext'
+import { humanize } from '../../../src/design/status'
+import { radius, space, type } from '../../../src/design/tokens'
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const apiErr = err as ApiError
+  return typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
+    ? String((apiErr.body as Record<string, unknown>).error)
+    : fallback
+}
 
 export default function WorkspaceSettings() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const wsId = Number(id)
+  const { colors } = useTheme()
 
   const { data: workspace, isLoading } = useWorkspace(wsId)
   const removeRepo = useRemoveRepo(wsId)
@@ -31,6 +45,7 @@ export default function WorkspaceSettings() {
 
   const [showAdapterPicker, setShowAdapterPicker] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
+  const [repoToRemove, setRepoToRemove] = useState<string | null>(null)
 
   interface SettingsState {
     selectedAdapter: string
@@ -75,17 +90,22 @@ export default function WorkspaceSettings() {
 
   if (Number.isNaN(wsId)) {
     return (
-      <View style={styles.center}>
-        <Text>Invalid workspace</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Settings" back />
+        <EmptyState icon="alert-circle" message="This workspace doesn't exist." />
+      </Screen>
     )
   }
 
   if (isLoading || !workspace) {
     return (
-      <View style={styles.center}>
-        <Text>Loading…</Text>
-      </View>
+      <Screen>
+        <AppHeader title="Settings" back />
+        <View style={styles.skeletons}>
+          <Skeleton height={140} style={{ borderRadius: radius.md }} />
+          <Skeleton height={120} style={{ borderRadius: radius.md }} />
+        </View>
+      </Screen>
     )
   }
 
@@ -107,33 +127,24 @@ export default function WorkspaceSettings() {
       return
     }
 
-    void addRepo.mutateAsync(addRepoUrl).then(() => {
-      setAddRepoUrl('')
-    }).catch((err) => {
-      const apiErr = err as ApiError
-      setAddRepoError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
-        ? String((apiErr.body as Record<string, unknown>).error)
-        : 'Failed to add repo')
-    })
+    void addRepo
+      .mutateAsync(addRepoUrl)
+      .then(() => {
+        setAddRepoUrl('')
+      })
+      .catch((err) => {
+        setAddRepoError(apiErrorMessage(err, 'Failed to add repo'))
+      })
   }
 
-  const handleRemoveRepo = (repoName: string) => {
-    Alert.alert('Remove repository', `Are you sure you want to remove ${repoName}?`, [
-      { text: 'Cancel', onPress: () => {} },
-      {
-        text: 'Remove',
-        onPress: () => {
-          setRemoveRepoError('')
-          void removeRepo.mutateAsync(repoName).catch((err) => {
-            const apiErr = err as ApiError
-            setRemoveRepoError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
-              ? String((apiErr.body as Record<string, unknown>).error)
-              : 'Failed to remove repo')
-          })
-        },
-        style: 'destructive',
-      },
-    ])
+  const confirmRemoveRepo = () => {
+    const repoName = repoToRemove
+    setRepoToRemove(null)
+    if (!repoName) return
+    setRemoveRepoError('')
+    void removeRepo.mutateAsync(repoName).catch((err) => {
+      setRemoveRepoError(apiErrorMessage(err, 'Failed to remove repo'))
+    })
   }
 
   const handleAdapterChange = async (adapter: string) => {
@@ -152,10 +163,7 @@ export default function WorkspaceSettings() {
     try {
       await patchWorkspace.mutateAsync({ defaultAdapter: adapter, defaultModel: modelToSet })
     } catch (err) {
-      const apiErr = err as ApiError
-      setPatchError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
-        ? String((apiErr.body as Record<string, unknown>).error)
-        : `Error: ${apiErr.message}`)
+      setPatchError(apiErrorMessage(err, `Error: ${(err as ApiError).message}`))
     }
   }
 
@@ -167,10 +175,7 @@ export default function WorkspaceSettings() {
     try {
       await patchWorkspace.mutateAsync({ defaultModel: model })
     } catch (err) {
-      const apiErr = err as ApiError
-      setPatchError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
-        ? String((apiErr.body as Record<string, unknown>).error)
-        : `Error: ${apiErr.message}`)
+      setPatchError(apiErrorMessage(err, `Error: ${(err as ApiError).message}`))
     }
   }
 
@@ -211,377 +216,259 @@ export default function WorkspaceSettings() {
   const adapterList = Object.keys(ADAPTERS)
   const modelList = ADAPTERS[settings.selectedAdapter] ?? []
 
+  const sectionTitle = (title: string) => (
+    <Text style={[type.monoSmall, styles.sectionTitle, { color: colors.inkMuted }]}>{title}</Text>
+  )
+
+  const errorText = (testID: string, message: string) => (
+    <Text testID={testID} accessibilityRole="alert" style={[type.caption, { color: colors.signalRed }]}>
+      {message}
+    </Text>
+  )
+
   return (
-    <ScrollView style={styles.container}>
-      {/* Repos Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Repositories</Text>
-
-        {workspace.repos.map((repo) => (
-          <View key={repo.name} style={styles.repoItem}>
-            <View style={styles.repoInfo}>
-              <Text style={styles.repoName}>{repo.name}</Text>
-              <Text style={styles.repoUrl}>{repo.url}</Text>
+    <Screen>
+      <AppHeader title="Settings" back />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.section}>
+          {sectionTitle('REPOSITORIES')}
+          <Card style={styles.sectionCard}>
+            {workspace.repos.length === 0 ? (
+              <Text style={[type.caption, { color: colors.inkFaint }]}>
+                No repositories — agents will run without a codebase.
+              </Text>
+            ) : (
+              workspace.repos.map((repo) => (
+                <ListRow
+                  key={repo.name}
+                  icon="git-branch"
+                  title={repo.name}
+                  subtitle={repo.url}
+                  trailing={
+                    <Pressable
+                      testID={`remove-repo-${repo.name}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${repo.name}`}
+                      hitSlop={8}
+                      onPress={() => setRepoToRemove(repo.name)}
+                      style={({ pressed }) => [styles.removeButton, pressed && { opacity: 0.6 }]}
+                    >
+                      <Icon name="trash-2" size={16} color={colors.signalRed} />
+                    </Pressable>
+                  }
+                />
+              ))
+            )}
+            <View style={styles.addRepoRow}>
+              <Input
+                testID="add-repo-url-input"
+                placeholder="https://… or git@…"
+                mono
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={addRepoUrl}
+                onChangeText={setAddRepoUrl}
+                containerStyle={styles.addRepoInput}
+              />
+              <Button testID="add-repo-button" label="Add" onPress={handleAddRepo} small />
             </View>
-            <Pressable
-              testID={`remove-repo-${repo.name}`}
-              onPress={() => handleRemoveRepo(repo.name)}
-              style={styles.removeButton}
-            >
-              <Text style={styles.removeButtonText}>Remove</Text>
-            </Pressable>
-          </View>
+            {addRepoError ? errorText('add-repo-error', addRepoError) : null}
+            {removeRepoError ? errorText('remove-repo-error', removeRepoError) : null}
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          {sectionTitle('DEFAULTS')}
+          <Card style={styles.sectionCard}>
+            <ListRow
+              testID="adapter-picker"
+              icon="cpu"
+              title="Agent"
+              trailing={
+                <Text style={[type.mono, { color: colors.inkMuted }]}>
+                  {humanize(settings.selectedAdapter)}
+                </Text>
+              }
+              onPress={() => setShowAdapterPicker(true)}
+            />
+            <ListRow
+              testID="model-picker"
+              icon="layers"
+              title="Model"
+              trailing={
+                <Text style={[type.mono, { color: colors.inkMuted }]}>
+                  {humanize(settings.selectedModel)}
+                </Text>
+              }
+              onPress={() => setShowModelPicker(true)}
+            />
+            {patchError ? errorText('patch-error', patchError) : null}
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          {sectionTitle('ADVANCED')}
+          <Card style={styles.sectionCard}>
+            <ListRow
+              icon="git-merge"
+              title="Concurrency"
+              subtitle="Agents working at once (1–4)"
+              trailing={
+                <View style={styles.stepper}>
+                  <Pressable
+                    testID="concurrency-decrement"
+                    accessibilityRole="button"
+                    accessibilityLabel="Decrease concurrency"
+                    onPress={handleConcurrencyDecrement}
+                    style={({ pressed }) => [
+                      styles.stepperButton,
+                      { backgroundColor: colors.surfaceAlt },
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Icon name="minus" size={16} />
+                  </Pressable>
+                  <Text style={[type.mono, styles.stepperValue, { color: colors.ink }]}>
+                    {settings.concurrency}
+                  </Text>
+                  <Pressable
+                    testID="concurrency-increment"
+                    accessibilityRole="button"
+                    accessibilityLabel="Increase concurrency"
+                    onPress={handleConcurrencyIncrement}
+                    style={({ pressed }) => [
+                      styles.stepperButton,
+                      { backgroundColor: colors.surfaceAlt },
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Icon name="plus" size={16} />
+                  </Pressable>
+                </View>
+              }
+            />
+            <ListRow
+              icon="clock"
+              title="Timeout"
+              subtitle="Minutes before a run is stopped"
+              trailing={
+                <TextInput
+                  testID="timeout-minutes-input"
+                  style={[
+                    styles.timeoutInput,
+                    type.mono,
+                    { color: colors.ink, borderColor: colors.line, backgroundColor: colors.surface },
+                  ]}
+                  keyboardType="numeric"
+                  value={settings.timeoutMinutes}
+                  onChangeText={(text) => setSettings((prev) => ({ ...prev, timeoutMinutes: text }))}
+                  onBlur={handleTimeoutBlur}
+                />
+              }
+            />
+          </Card>
+        </View>
+      </ScrollView>
+
+      <Sheet visible={showAdapterPicker} onClose={() => setShowAdapterPicker(false)}>
+        {adapterList.map((item) => (
+          <ListRow
+            key={item}
+            title={humanize(item)}
+            trailing={
+              item === settings.selectedAdapter ? <Icon name="check" size={16} color={colors.ink} /> : null
+            }
+            onPress={() => void handleAdapterChange(item)}
+          />
         ))}
+      </Sheet>
 
-        <View style={styles.addRepoContainer}>
-          <TextInput
-            testID="add-repo-url-input"
-            style={styles.addRepoInput}
-            placeholder="https://... or git@..."
-            placeholderTextColor="#999"
-            value={addRepoUrl}
-            onChangeText={setAddRepoUrl}
+      <Sheet visible={showModelPicker} onClose={() => setShowModelPicker(false)}>
+        {modelList.map((item) => (
+          <ListRow
+            key={item}
+            title={humanize(item)}
+            trailing={
+              item === settings.selectedModel ? <Icon name="check" size={16} color={colors.ink} /> : null
+            }
+            onPress={() => void handleModelChange(item)}
           />
-          <Pressable
-            testID="add-repo-button"
-            onPress={handleAddRepo}
-            style={styles.addRepoButton}
-          >
-            <Text style={styles.addRepoButtonText}>Add</Text>
-          </Pressable>
-        </View>
-        {addRepoError ? (
-          <Text testID="add-repo-error" style={styles.errorText}>
-            {addRepoError}
-          </Text>
-        ) : null}
-        {removeRepoError ? (
-          <Text testID="remove-repo-error" style={styles.errorText}>
-            {removeRepoError}
-          </Text>
-        ) : null}
-      </View>
+        ))}
+      </Sheet>
 
-      {/* Defaults Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Defaults</Text>
-
-        <View style={styles.pickerRow}>
-          <Text style={styles.label}>Adapter</Text>
-          <Pressable
-            testID="adapter-picker"
-            onPress={() => setShowAdapterPicker(true)}
-            style={styles.pickerButton}
-          >
-            <Text style={styles.pickerButtonText}>{settings.selectedAdapter}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.pickerRow}>
-          <Text style={styles.label}>Model</Text>
-          <Pressable
-            testID="model-picker"
-            onPress={() => setShowModelPicker(true)}
-            style={styles.pickerButton}
-          >
-            <Text style={styles.pickerButtonText}>{settings.selectedModel}</Text>
-          </Pressable>
-        </View>
-
-        {patchError ? (
-          <Text testID="patch-error" style={styles.errorText}>
-            {patchError}
-          </Text>
-        ) : null}
-      </View>
-
-      {/* Advanced Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Advanced</Text>
-
-        <View style={styles.advancedRow}>
-          <Text style={styles.label}>Concurrency</Text>
-          <View style={styles.stepperContainer}>
-            <Pressable
-              testID="concurrency-decrement"
-              onPress={handleConcurrencyDecrement}
-              style={styles.stepperButton}
-            >
-              <Text style={styles.stepperButtonText}>−</Text>
-            </Pressable>
-            <Text style={styles.stepperValue}>{settings.concurrency}</Text>
-            <Pressable
-              testID="concurrency-increment"
-              onPress={handleConcurrencyIncrement}
-              style={styles.stepperButton}
-            >
-              <Text style={styles.stepperButtonText}>+</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.advancedRow}>
-          <Text style={styles.label}>Timeout (minutes)</Text>
-          <TextInput
-            testID="timeout-minutes-input"
-            style={styles.timeoutInput}
-            keyboardType="numeric"
-            value={settings.timeoutMinutes}
-            onChangeText={(text) => setSettings((prev) => ({ ...prev, timeoutMinutes: text }))}
-            onBlur={handleTimeoutBlur}
-          />
-        </View>
-      </View>
-
-      {/* Adapter Picker Modal */}
-      <Modal
-        visible={showAdapterPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowAdapterPicker(false)}
+      <Dialog
+        visible={repoToRemove !== null}
+        title="Remove repository?"
+        onClose={() => setRepoToRemove(null)}
+        confirm={{
+          label: 'Remove',
+          destructive: true,
+          onPress: confirmRemoveRepo,
+          testID: 'remove-repo-confirm',
+        }}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowAdapterPicker(false)}
-        >
-          <View style={styles.modalContent}>
-            <FlatList
-              data={adapterList}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => void handleAdapterChange(item)}
-                  style={styles.modalItem}
-                >
-                  <Text style={[
-                    styles.modalItemText,
-                    item === settings.selectedAdapter && styles.modalItemTextSelected,
-                  ]}>
-                    {item}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* Model Picker Modal */}
-      <Modal
-        visible={showModelPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowModelPicker(false)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowModelPicker(false)}
-        >
-          <View style={styles.modalContent}>
-            <FlatList
-              data={modelList}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => void handleModelChange(item)}
-                  style={styles.modalItem}
-                >
-                  <Text style={[
-                    styles.modalItemText,
-                    item === settings.selectedModel && styles.modalItemTextSelected,
-                  ]}>
-                    {item}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
-    </ScrollView>
+        <Text style={[type.body, { color: colors.inkMuted }]}>
+          {`${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
+        </Text>
+      </Dialog>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    padding: 16,
+  skeletons: {
+    padding: space.lg,
+    gap: space.lg,
   },
-  center: {
-    flex: 1,
+  content: {
+    padding: space.lg,
+    gap: space.xxl,
+  },
+  section: {
+    gap: space.sm,
+  },
+  sectionTitle: {
+    letterSpacing: 1.2,
+  },
+  sectionCard: {
+    gap: space.sm,
+  },
+  removeButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  section: {
-    marginBottom: 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#000',
-  },
-  repoItem: {
+  addRepoRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  repoInfo: {
-    flex: 1,
-  },
-  repoName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#000',
-    marginBottom: 4,
-  },
-  repoUrl: {
-    fontSize: 12,
-    color: '#666',
-  },
-  removeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-    backgroundColor: '#ff3b30',
-  },
-  removeButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  addRepoContainer: {
-    flexDirection: 'row',
-    marginTop: 12,
-    gap: 8,
+    gap: space.sm,
   },
   addRepoInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#000',
   },
-  addRepoButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-  },
-  addRepoButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  errorText: {
-    color: '#ff3b30',
-    fontSize: 12,
-    marginTop: 8,
-  },
-  pickerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  label: {
-    fontSize: 14,
-    color: '#000',
-    fontWeight: '500',
-  },
-  pickerButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#f0f0f0',
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  pickerButtonText: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
-  advancedRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  stepperContainer: {
+  stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: space.sm,
   },
   stepperButton: {
     width: 36,
     height: 36,
-    borderRadius: 6,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
+    borderRadius: radius.sm + 2,
     alignItems: 'center',
-  },
-  stepperButtonText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#007AFF',
+    justifyContent: 'center',
   },
   stepperValue: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
-    minWidth: 30,
+    minWidth: 24,
     textAlign: 'center',
   },
   timeoutInput: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#000',
-    width: 100,
+    borderRadius: radius.sm + 2,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    width: 72,
     textAlign: 'right',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    maxHeight: '60%',
-  },
-  modalItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  modalItemText: {
-    fontSize: 16,
-    color: '#000',
-  },
-  modalItemTextSelected: {
-    color: '#007AFF',
-    fontWeight: '600',
   },
 })
