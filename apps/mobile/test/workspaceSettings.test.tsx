@@ -175,6 +175,58 @@ describe('Workspace settings screen', () => {
 
       alertSpy.mockRestore()
     })
+
+    test('add repo failure shows inline error and keeps the url input', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockAddRepo.mockRejectedValueOnce(new ApiError(500, { error: 'clone failed' }))
+
+      await renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByText('repo-a')).toBeTruthy()
+      })
+
+      const urlInput = screen.getByTestId('add-repo-url-input')
+      await fireEvent.changeText(urlInput, 'https://github.com/user/new-repo.git')
+
+      const addButton = screen.getByTestId('add-repo-button')
+      await fireEvent.press(addButton)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('add-repo-error')).toBeTruthy()
+        expect(screen.getByTestId('add-repo-error').props.children).toBe('clone failed')
+      })
+
+      expect(screen.getByTestId('add-repo-url-input').props.value).toBe(
+        'https://github.com/user/new-repo.git',
+      )
+    })
+
+    test('remove repo failure shows inline error', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_, __, buttons) => {
+        const confirmBtn = buttons?.find((b) => b.text === 'Remove')
+        confirmBtn?.onPress?.()
+      })
+      const { ApiError } = require('../src/api/client')
+      mockRemoveRepo.mockRejectedValueOnce(new ApiError(500, { error: 'remove failed' }))
+
+      await renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByText('repo-a')).toBeTruthy()
+      })
+
+      const removeButton = screen.getByTestId('remove-repo-repo-a')
+      await fireEvent.press(removeButton)
+
+      await waitFor(() => {
+        expect(mockRemoveRepo).toHaveBeenCalledWith(1, 'repo-a')
+        expect(screen.getByTestId('remove-repo-error')).toBeTruthy()
+        expect(screen.getByTestId('remove-repo-error').props.children).toBe('remove failed')
+      })
+
+      alertSpy.mockRestore()
+    })
   })
 
   describe('Defaults section', () => {
@@ -331,6 +383,44 @@ describe('Workspace settings screen', () => {
         const updated = screen.getByTestId('timeout-minutes-input')
         expect(updated.props.value).toBe('10')
       })
+    })
+
+    test('blurring an empty timeout input resets to the last-saved value', async () => {
+      await renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('timeout-minutes-input')).toBeTruthy()
+      })
+
+      const timeoutInput = screen.getByTestId('timeout-minutes-input')
+      // workspace() fixture has timeoutMs 300_000 => 5 minutes displayed
+      expect(timeoutInput.props.value).toBe('5')
+
+      await fireEvent.changeText(timeoutInput, '')
+      await fireEvent(timeoutInput, 'blur')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('timeout-minutes-input').props.value).toBe('5')
+      })
+      expect(mockPatchWorkspace).not.toHaveBeenCalled()
+    })
+
+    test('blurring a non-numeric timeout input resets to the last-saved value', async () => {
+      await renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('timeout-minutes-input')).toBeTruthy()
+      })
+
+      const timeoutInput = screen.getByTestId('timeout-minutes-input')
+
+      await fireEvent.changeText(timeoutInput, 'abc')
+      await fireEvent(timeoutInput, 'blur')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('timeout-minutes-input').props.value).toBe('5')
+      })
+      expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
   })
 

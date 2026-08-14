@@ -26,6 +26,7 @@ export default function WorkspaceSettings() {
 
   const [addRepoUrl, setAddRepoUrl] = useState('')
   const [addRepoError, setAddRepoError] = useState('')
+  const [removeRepoError, setRemoveRepoError] = useState('')
   const [patchError, setPatchError] = useState('')
 
   const [showAdapterPicker, setShowAdapterPicker] = useState(false)
@@ -94,6 +95,7 @@ export default function WorkspaceSettings() {
 
   const handleAddRepo = () => {
     setAddRepoError('')
+    setRemoveRepoError('')
 
     if (!addRepoUrl.trim()) {
       setAddRepoError('URL cannot be empty')
@@ -107,6 +109,11 @@ export default function WorkspaceSettings() {
 
     void addRepo.mutateAsync(addRepoUrl).then(() => {
       setAddRepoUrl('')
+    }).catch((err) => {
+      const apiErr = err as ApiError
+      setAddRepoError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
+        ? String((apiErr.body as Record<string, unknown>).error)
+        : 'Failed to add repo')
     })
   }
 
@@ -116,7 +123,13 @@ export default function WorkspaceSettings() {
       {
         text: 'Remove',
         onPress: () => {
-          void removeRepo.mutateAsync(repoName)
+          setRemoveRepoError('')
+          void removeRepo.mutateAsync(repoName).catch((err) => {
+            const apiErr = err as ApiError
+            setRemoveRepoError(typeof apiErr.body === 'object' && apiErr.body !== null && 'error' in apiErr.body
+              ? String((apiErr.body as Record<string, unknown>).error)
+              : 'Failed to remove repo')
+          })
         },
         style: 'destructive',
       },
@@ -185,6 +198,11 @@ export default function WorkspaceSettings() {
       const timeoutMs = minutes * 60_000
       setPatchError('')
       void patchWorkspace.mutateAsync({ timeoutMs })
+    } else {
+      // Reset to last-saved value if input is invalid
+      if (workspace) {
+        setSettings((prev) => ({ ...prev, timeoutMinutes: String(workspace.timeoutMs / 60_000) }))
+      }
     }
   }
 
@@ -233,6 +251,11 @@ export default function WorkspaceSettings() {
         {addRepoError ? (
           <Text testID="add-repo-error" style={styles.errorText}>
             {addRepoError}
+          </Text>
+        ) : null}
+        {removeRepoError ? (
+          <Text testID="remove-repo-error" style={styles.errorText}>
+            {removeRepoError}
           </Text>
         ) : null}
       </View>
