@@ -77,7 +77,12 @@ export default function RootLayout() {
     <ConnectionProvider>
       <PushSetup />
       <AppQueryProvider>
-        <Stack />
+        {/*
+          Every group under here (/workspaces, /tickets, /runs) has its own
+          Stack that renders the visible header. Without this the root Stack
+          draws a second header above it titled after the group segment.
+        */}
+        <Stack screenOptions={{ headerShown: false }} />
         <ToastHost />
       </AppQueryProvider>
     </ConnectionProvider>

@@ -5,7 +5,7 @@ import { ConnectionProvider } from '../src/ConnectionContext'
 const mockRedirect = jest.fn((_props: { href: string }) => null)
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: string }) => mockRedirect(props),
-  Stack: () => null,
+  Stack: Object.assign(() => null, { Screen: () => null }),
 }))
 
 jest.mock('../src/settings', () => ({

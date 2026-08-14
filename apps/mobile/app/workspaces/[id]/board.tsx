@@ -1,5 +1,5 @@
 import type { ApiTicket } from '@tada/shared'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useBoard, useCreateTicket, useWorkspace } from '../../../src/api/queries'
@@ -66,10 +66,14 @@ export default function Board() {
   const handleMemoryPress = () => router.push(`/workspaces/${wsId}/memory`)
   const handleSettingsPress = () => router.push(`/workspaces/${wsId}/settings`)
 
+  // Replaces the layout's placeholder title now that the name is loaded.
+  const screenTitle = <Stack.Screen options={{ title: workspace.name }} />
+
   if (isWide) {
     const columnWidth = (width - COLUMN_MARGIN) / columns.length
     return (
       <>
+        {screenTitle}
         <View style={styles.header}>
           <View style={styles.headerButtons}>
             <Pressable
@@ -110,6 +114,7 @@ export default function Board() {
   const columnWidth = width - COLUMN_MARGIN
   return (
     <>
+      {screenTitle}
       <View style={styles.header}>
         <View style={styles.headerButtons}>
           <Pressable

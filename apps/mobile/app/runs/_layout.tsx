@@ -9,5 +9,9 @@ import { useConnection } from '../../src/ConnectionContext'
 export default function RunsLayout() {
   const { connection } = useConnection()
   if (!connection) return <Redirect href="/connect" />
-  return <Stack />
+  return (
+    <Stack>
+      <Stack.Screen name="[id]" options={{ title: 'Run' }} />
+    </Stack>
+  )
 }

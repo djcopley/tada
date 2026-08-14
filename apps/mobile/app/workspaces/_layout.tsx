@@ -11,5 +11,15 @@ import { useConnection } from '../../src/ConnectionContext'
 export default function WorkspacesLayout() {
   const { connection } = useConnection()
   if (!connection) return <Redirect href="/connect" />
-  return <Stack />
+  return (
+    <Stack>
+      {/* The list screen draws its own "Workspaces" heading. */}
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      {/* Board overrides this with the workspace name once it loads. */}
+      <Stack.Screen name="[id]/board" options={{ title: 'Board' }} />
+      <Stack.Screen name="[id]/settings" options={{ title: 'Settings' }} />
+      <Stack.Screen name="[id]/memory/index" options={{ title: 'Memory' }} />
+      <Stack.Screen name="[id]/memory/[file]" options={{ title: 'Note' }} />
+    </Stack>
+  )
 }
