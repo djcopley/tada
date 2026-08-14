@@ -63,6 +63,74 @@ describe('buildApp', () => {
     expect(res.json()).toEqual({ ok: true })
   })
 
+  test('cross-origin GET /health carries an allow-origin header', async () => {
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'http://localhost:8081' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081')
+  })
+
+  test('cross-origin authenticated GET carries an allow-origin header', async () => {
+    const config = loadConfig()
+    const app = buildApp(makeAppDeps(makeDb(), config))
+    app.get('/whoami', async () => ({ ok: true }))
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/whoami',
+      headers: {
+        origin: 'http://localhost:8081',
+        authorization: `Bearer ${config.bearerToken}`,
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081')
+  })
+
+  test('preflight OPTIONS is answered without auth (browsers never send credentials on it)', async () => {
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
+    app.get('/whoami', async () => ({ ok: true }))
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/whoami',
+      headers: {
+        origin: 'http://localhost:8081',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization,content-type',
+      },
+    })
+    expect(res.statusCode).toBeLessThan(300)
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081')
+    expect(String(res.headers['access-control-allow-headers']).toLowerCase()).toContain(
+      'authorization',
+    )
+  })
+
+  // CORS answers every OPTIONS request itself, so an unauthenticated one can never reach a route
+  // handler. The server defines no OPTIONS routes of its own, so nothing is shadowed by this.
+  test('an unauthenticated OPTIONS request never reaches the route handler', async () => {
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
+    let handlerRan = false
+    app.options('/whoami', async () => {
+      handlerRan = true
+      return { secret: 'leaked' }
+    })
+    await app.ready()
+
+    const res = await app.inject({ method: 'OPTIONS', url: '/whoami' })
+    expect(handlerRan).toBe(false)
+    expect(res.body).not.toContain('leaked')
+  })
+
   test('paths merely prefixed with /mcp (not /mcp or /mcp/...) still require bearer auth', async () => {
     const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     app.get('/mcpadmin', async () => ({ ok: true }))

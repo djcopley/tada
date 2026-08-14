@@ -1,3 +1,4 @@
+import fastifyCors from '@fastify/cors'
 import fastifyWebsocket from '@fastify/websocket'
 import fastify, { type FastifyInstance } from 'fastify'
 import type { Adapter } from './adapters/types.js'
@@ -39,19 +40,34 @@ export function buildApp({
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
   registerMcpRoute(app, db)
-  app.addHook('onRequest', async (req, reply) => {
-    const path = req.url.split('?', 1)[0]
-    if (
-      path === '/health' ||
-      path === '/mcp' ||
-      path?.startsWith('/mcp/') ||
-      path === '/ws' ||
-      path?.startsWith('/ws/')
-    )
-      return
-    if (req.headers.authorization !== `Bearer ${config.bearerToken}`) {
-      await reply.code(401).send({ error: 'unauthorized' })
-    }
+
+  // The web build runs from a different origin than the server (Expo's dev server, or wherever the
+  // static bundle is hosted), so every browser request is cross-origin and needs CORS. Reflecting
+  // any origin is safe here: the only credential is a bearer token the client attaches explicitly,
+  // never an ambient cookie, so a hostile page reflecting past CORS still has nothing to send.
+  void app.register(fastifyCors, { origin: true, credentials: false })
+
+  // Registered inside `.after()` so it lands *behind* the CORS hook: `.register()` defers plugin
+  // boot to the avvio phase, and hooks run in the order they were added. Added synchronously here
+  // the auth hook would run first, so a preflight (which browsers send with no Authorization
+  // header) would 401 before CORS could answer it, and a genuine 401 would go back without
+  // allow-origin headers - the browser would then report a network error and the client would say
+  // "could not reach server" instead of "invalid token".
+  app.after(() => {
+    app.addHook('onRequest', async (req, reply) => {
+      const path = req.url.split('?', 1)[0]
+      if (
+        path === '/health' ||
+        path === '/mcp' ||
+        path?.startsWith('/mcp/') ||
+        path === '/ws' ||
+        path?.startsWith('/ws/')
+      )
+        return
+      if (req.headers.authorization !== `Bearer ${config.bearerToken}`) {
+        await reply.code(401).send({ error: 'unauthorized' })
+      }
+    })
   })
 
   // registerWsRoute must run only after the websocket plugin has finished loading: `.register()`
