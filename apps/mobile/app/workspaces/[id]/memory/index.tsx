@@ -87,10 +87,15 @@ export default function MemoryList() {
     setNameError('')
 
     // Create the note with empty body
-    void putMemory.mutateAsync({ file: fileName, body: '' }).then(() => {
-      showToast(`Created ${fileName}`)
-      router.push(`/workspaces/${wsId}/memory/${encodeURIComponent(fileName)}`)
-    })
+    void putMemory
+      .mutateAsync({ file: fileName, body: '' })
+      .then(() => {
+        showToast(`Created ${fileName}`)
+        router.push(`/workspaces/${wsId}/memory/${encodeURIComponent(fileName)}`)
+      })
+      .catch(() => {
+        // The global mutation error handler already surfaces a toast.
+      })
   }
 
   return (

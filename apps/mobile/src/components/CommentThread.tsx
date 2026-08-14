@@ -70,7 +70,11 @@ export function CommentThread({
   sending,
 }: {
   comments: ApiComment[]
-  onSend: (body: string) => void
+  /** May resolve/reject to report the outcome; the draft is only cleared on
+   * success so a failed send leaves the user's text in place to retry. A
+   * fire-and-forget `void`-returning `onSend` is also accepted, in which
+   * case the draft clears immediately (unchanged from prior behavior). */
+  onSend: (body: string) => void | Promise<void>
   sending?: boolean
 }) {
   const [draft, setDraft] = useState('')
@@ -79,8 +83,12 @@ export function CommentThread({
   const send = () => {
     const trimmed = draft.trim()
     if (!trimmed) return
-    onSend(trimmed)
-    setDraft('')
+    Promise.resolve(onSend(trimmed))
+      .then(() => setDraft(''))
+      .catch(() => {
+        // Keep the draft text so the user can retry; the global mutation
+        // error handler already surfaces a toast for the failure.
+      })
   }
 
   return (

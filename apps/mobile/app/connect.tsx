@@ -18,7 +18,11 @@ export default function Connect() {
     setConnecting(true)
     try {
       const client = new TadaClient({ baseUrl, token })
+      // /health is auth-exempt on the server, so it only proves the server
+      // is reachable — it can't catch a bad token. listWorkspaces is an
+      // authenticated route; a 401 there means the token itself is wrong.
       await client.health()
+      await client.listWorkspaces()
       await connect({ baseUrl, token })
       router.replace('/workspaces')
     } catch (err) {

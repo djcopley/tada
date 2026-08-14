@@ -132,6 +132,30 @@ describe('Workspaces screen', () => {
     expect(mockPush).toHaveBeenCalledWith('/workspaces/42/board')
   })
 
+  test('a failing createWorkspace does not crash and leaves the modal open to retry', async () => {
+    mockListWorkspaces.mockResolvedValueOnce([])
+    mockCreateWorkspace.mockRejectedValueOnce(new Error('network down'))
+
+    await renderWorkspaces()
+
+    await waitFor(() => {
+      expect(screen.getByText('No workspaces yet — create one to get started.')).toBeTruthy()
+    })
+
+    await fireEvent.press(screen.getByTestId('create-workspace-button'))
+    await fireEvent.changeText(screen.getByTestId('workspace-name-input'), 'New One')
+    await fireEvent.press(screen.getByTestId('workspace-create-button'))
+
+    await waitFor(() => {
+      expect(mockCreateWorkspace).toHaveBeenCalledWith('New One')
+    })
+    // No navigation and the modal stays open — an unhandled rejection here
+    // would fail the test via jest's global handler even without a
+    // navigation assertion, so the absence of a crash is itself coverage.
+    expect(mockPush).not.toHaveBeenCalled()
+    expect(screen.getByTestId('workspace-name-input')).toBeTruthy()
+  })
+
   test('pull-to-refresh refetches the workspace list', async () => {
     mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'Alpha' })])
 

@@ -22,9 +22,14 @@ export default function Workspaces() {
   const onCreate = async () => {
     const trimmed = name.trim()
     if (!trimmed) return
-    const workspace = await createWorkspace.mutateAsync(trimmed)
-    setModalVisible(false)
-    router.push(`/workspaces/${workspace.id}/board`)
+    try {
+      const workspace = await createWorkspace.mutateAsync(trimmed)
+      setModalVisible(false)
+      router.push(`/workspaces/${workspace.id}/board`)
+    } catch {
+      // Swallow here — the global mutation error handler already surfaces a
+      // toast. Leave the modal open so the user can retry.
+    }
   }
 
   const workspaces = data ?? []

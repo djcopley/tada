@@ -1,9 +1,10 @@
 import type { ApiRun, ApiTicket } from '@tada/shared'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Alert } from 'react-native'
 import RunActivity from '../app/runs/[id]'
 import { ConnectionProvider } from '../src/ConnectionContext'
+import { useWorkspaceSocket as mockUseWorkspaceSocket } from '../src/api/useWorkspaceSocket'
 
 const mockSearchParams = { id: '30', ticketId: '1' }
 jest.mock('expo-router', () => ({
@@ -171,6 +172,49 @@ describe('Run activity screen', () => {
       expect(screen.getByTestId('transcript-text')).toHaveTextContent('{"line":1} {"line":2}')
     })
     expect(mockTranscript).toHaveBeenCalledWith(30)
+  })
+
+  test('a WS run_event triggers a refetch instead of ingesting the event directly, so it renders exactly once', async () => {
+    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
+    const wsEvent = {
+      id: 5,
+      runId: 30,
+      type: 'text' as const,
+      payload: { text: 'hello from ws' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    // First poll (on mount) sees nothing yet; the WS message arrives, the
+    // screen refetches, and this second page is where the server event
+    // actually shows up — with its real id, not a synthetic one.
+    mockRunEvents.mockResolvedValueOnce([]).mockResolvedValueOnce([wsEvent])
+
+    await renderScreen()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-status')).toHaveTextContent('running')
+    })
+    await waitFor(() => {
+      expect(mockRunEvents).toHaveBeenCalledTimes(1)
+    })
+
+    const socketMock = mockUseWorkspaceSocket as unknown as jest.Mock
+    const lastCall = socketMock.mock.calls[socketMock.mock.calls.length - 1] as [unknown, { onRunEvent?: (msg: unknown) => void }]
+    const onRunEvent = lastCall[1].onRunEvent
+    expect(onRunEvent).toBeDefined()
+
+    await act(async () => {
+      onRunEvent?.({ type: 'run_event', runId: 30, event: { type: 'text', payload: { text: 'hello from ws' } } })
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(mockRunEvents).toHaveBeenCalledTimes(2)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('event-text-5')).toHaveTextContent('hello from ws')
+    })
+    expect(screen.queryAllByTestId(/^event-text-/)).toHaveLength(1)
   })
 
   test('View transcript shows "No transcript" on a 404', async () => {

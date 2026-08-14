@@ -4,7 +4,17 @@ import { type ReactNode, useEffect, useMemo } from 'react'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
-import { ToastHost } from '../src/toast'
+import { showToast, ToastHost } from '../src/toast'
+
+const GENERIC_MUTATION_ERROR = 'Something went wrong'
+
+function errorMessage(error: unknown): string {
+  if (error instanceof ApiError && typeof error.body === 'object' && error.body !== null && 'error' in error.body) {
+    const value = (error.body as Record<string, unknown>).error
+    if (typeof value === 'string') return value
+  }
+  return GENERIC_MUTATION_ERROR
+}
 
 /**
  * Registers this device for push once per connection (the effect re-runs
@@ -42,9 +52,20 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
         void disconnect()
       }
     }
+    // Mutations get an extra fallback: any ApiError/network failure that
+    // isn't a 401 (handled above by the global disconnect) and isn't a 409
+    // (screens that care about conflicts already show their own specific
+    // toast — surfacing this one too would double-toast) shows a generic
+    // toast, so a failing mutation is never silent just because a screen
+    // didn't bother wiring its own onError.
+    const onMutationError = (error: unknown) => {
+      onError(error)
+      if (error instanceof ApiError && (error.status === 401 || error.status === 409)) return
+      showToast(errorMessage(error))
+    }
     return new QueryClient({
       queryCache: new QueryCache({ onError }),
-      mutationCache: new MutationCache({ onError }),
+      mutationCache: new MutationCache({ onError: onMutationError }),
     })
   }, [disconnect])
 

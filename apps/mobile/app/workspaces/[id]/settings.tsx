@@ -179,7 +179,9 @@ export default function WorkspaceSettings() {
       const newValue = settings.concurrency + 1
       setSettings((prev) => ({ ...prev, concurrency: newValue }))
       setPatchError('')
-      void patchWorkspace.mutateAsync({ concurrency: newValue })
+      // The global mutation error handler already surfaces a toast on
+      // failure; nothing local to do here.
+      void patchWorkspace.mutateAsync({ concurrency: newValue }).catch(() => {})
     }
   }
 
@@ -188,7 +190,7 @@ export default function WorkspaceSettings() {
       const newValue = settings.concurrency - 1
       setSettings((prev) => ({ ...prev, concurrency: newValue }))
       setPatchError('')
-      void patchWorkspace.mutateAsync({ concurrency: newValue })
+      void patchWorkspace.mutateAsync({ concurrency: newValue }).catch(() => {})
     }
   }
 
@@ -197,7 +199,7 @@ export default function WorkspaceSettings() {
     if (!Number.isNaN(minutes) && minutes > 0) {
       const timeoutMs = minutes * 60_000
       setPatchError('')
-      void patchWorkspace.mutateAsync({ timeoutMs })
+      void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => {})
     } else {
       // Reset to last-saved value if input is invalid
       if (workspace) {

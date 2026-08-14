@@ -9,6 +9,7 @@ import { keys, useTicket } from '../../src/api/queries'
 import { useRunEvents } from '../../src/api/useRunEvents'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { EventFeed } from '../../src/components/EventFeed'
+import { showToast } from '../../src/toast'
 
 const ACTIVE_RUN_STATUSES: ReadonlySet<ApiRun['status']> = new Set(['queued', 'running'])
 
@@ -42,11 +43,15 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
   const run = data?.runs.find((r) => r.id === runId)
 
   const live = run ? ACTIVE_RUN_STATUSES.has(run.status) : false
-  const { events, ingest } = useRunEvents(runId, { live })
+  const { events, refetch } = useRunEvents(runId, { live })
 
   useWorkspaceSocket(data?.ticket.workspaceId, {
     onRunEvent: (msg) => {
-      if (msg.runId === runId) ingest({ type: msg.event.type, payload: msg.event.payload })
+      // The WS payload carries no server id, so don't append it directly —
+      // that produced a synthetic-id row duplicating the one the next poll
+      // fetched with its real id. Trigger an immediate refetch instead; it
+      // goes through the same dedupe-by-server-id path as the 2s poll.
+      if (msg.runId === runId) void refetch()
     },
   })
 
@@ -61,9 +66,14 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
         text: 'Cancel run',
         style: 'destructive',
         onPress: () => {
+          // client.cancelRun is a plain client call, not a react-query
+          // mutation, so it never reaches the global mutation error
+          // handler — show the toast here instead of leaving a failure
+          // silent (and unhandled-rejection-prone).
           void client
             .cancelRun(runId)
             .then(() => qc.invalidateQueries({ queryKey: keys.ticket(ticketId) }))
+            .catch(() => showToast('Could not cancel run'))
         },
       },
     ])

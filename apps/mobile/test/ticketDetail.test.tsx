@@ -284,6 +284,27 @@ describe('Ticket detail screen', () => {
     expect(screen.getByTestId('comment-input').props.value).toBe('')
   })
 
+  test('a failed comment send keeps the draft text instead of clearing it', async () => {
+    mockTicket.mockResolvedValueOnce({ ticket: ticket(), comments: [], runs: [] })
+    mockComment.mockRejectedValueOnce(new Error('network down'))
+
+    await renderScreen()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('comment-input')).toBeTruthy()
+    })
+
+    await fireEvent.changeText(screen.getByTestId('comment-input'), 'will fail')
+    await fireEvent.press(screen.getByTestId('comment-send'))
+
+    await waitFor(() => {
+      expect(mockComment).toHaveBeenCalledWith(1, 'will fail')
+    })
+    // The send rejected — the draft should still hold what the user typed
+    // rather than being cleared as if it had gone through.
+    expect(screen.getByTestId('comment-input').props.value).toBe('will fail')
+  })
+
   test('View PR button opens Linking with the run prUrl', async () => {
     mockTicket.mockResolvedValueOnce({
       ticket: ticket(),

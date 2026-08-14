@@ -87,32 +87,50 @@ describe('useRunEvents', () => {
     }
   })
 
-  test('ingest appends WS-delivered events with decreasing synthetic ids and never dedupes them', async () => {
-    mockRunEvents.mockResolvedValue([])
+  test('refetch pulls new events through the same deduped path as the poll, with no synthetic-id rows', async () => {
+    const e1 = evt({ id: 1 })
+    const e2 = evt({ id: 2 })
+    // live: false so only an explicit refetch() call fetches — isolates the
+    // WS-triggered-refetch behavior from the 2s poll.
+    mockRunEvents.mockResolvedValueOnce([e1]).mockResolvedValueOnce([e2])
 
     const { result, unmount } = await renderHook(() => useRunEvents(7, { live: false }), { wrapper })
     try {
       await waitFor(() => {
-        expect(mockRunEvents).toHaveBeenCalled()
+        expect(result.current.events).toEqual([e1])
       })
 
       await act(async () => {
-        result.current.ingest({ type: 'text', payload: { text: 'hello from ws' } })
-      })
-      await act(async () => {
-        result.current.ingest({ type: 'text', payload: { text: 'hello from ws' } })
+        await result.current.refetch()
       })
 
       await waitFor(() => {
-        expect(result.current.events).toHaveLength(2)
+        expect(result.current.events).toEqual([e1, e2])
       })
-      const first = result.current.events[0]
-      const second = result.current.events[1]
-      expect(first).toBeDefined()
-      expect(second).toBeDefined()
-      expect(first?.id).toBeLessThan(0)
-      expect(second?.id).toBeLessThan(first?.id ?? 0)
-      expect(first?.runId).toBe(7)
+      expect(result.current.events.every((e) => e.id > 0)).toBe(true)
+      expect(mockRunEvents).toHaveBeenCalledTimes(2)
+      expect(mockRunEvents).toHaveBeenNthCalledWith(2, 7, 1)
+    } finally {
+      await unmount()
+    }
+  })
+
+  test('refetch returning an already-seen event does not duplicate it', async () => {
+    const e1 = evt({ id: 1 })
+    mockRunEvents.mockResolvedValueOnce([e1]).mockResolvedValueOnce([e1])
+
+    const { result, unmount } = await renderHook(() => useRunEvents(7, { live: false }), { wrapper })
+    try {
+      await waitFor(() => {
+        expect(result.current.events).toEqual([e1])
+      })
+
+      await act(async () => {
+        await result.current.refetch()
+      })
+
+      // The repeated page shouldn't grow the list past one row for e1.
+      expect(result.current.events).toEqual([e1])
     } finally {
       await unmount()
     }

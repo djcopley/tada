@@ -1,38 +1,29 @@
 import type { ApiRunEvent } from '@tada/shared'
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useClient } from './ClientContext'
 
-export interface WsRunEvent {
-  type: ApiRunEvent['type']
-  payload: unknown
-}
-
 /**
- * Accumulates the run activity feed from two independent sources that share
- * one growing list:
+ * Polls `runEvents(runId, after)` every 2s while `live` is true, always
+ * passing the highest server event id seen so far as `after` so each page
+ * only contains events we haven't appended yet. Dedupe-by-id guards this
+ * specifically: a page can legitimately repeat an id we've already
+ * appended, e.g. after a refetch race.
  *
- *  - Polling: while `live` is true, refetches `runEvents(runId, after)`
- *    every 2s, always passing the highest server event id seen so far as
- *    `after` so each page only contains events we haven't appended yet.
- *    Dedupe-by-id guards this path specifically (a page can legitimately
- *    repeat an id we've already appended, e.g. after a refetch race).
- *
- *  - `ingest(evt)`: for WS-delivered events (wired in Task 10). These
- *    arrive as `{ type, payload }` with no id from the server, so each one
- *    is assigned a synthetic, strictly-decreasing negative id — negative
- *    so it can never collide with a real (positive) server id. Dedupe does
- *    NOT apply to this path: ingest has no server id to compare against,
- *    so every call appends a new row.
+ * There is no separate WS-ingest path. WS `run_event` messages carry no
+ * server id, so appending them directly used to produce a second,
+ * synthetic-id row for the same event the next poll fetched with its real
+ * id — every event rendered twice whenever the socket was healthy. Callers
+ * that receive a WS event should call the returned `refetch` instead, which
+ * pulls the same event down through the deduped polling path.
  */
 export function useRunEvents(runId: number, { live }: { live: boolean }) {
   const client = useClient()
   const [events, setEvents] = useState<ApiRunEvent[]>([])
   const seenServerIds = useRef<Set<number>>(new Set())
   const lastServerId = useRef<number | undefined>(undefined)
-  const nextSyntheticId = useRef(0)
 
-  useQuery({
+  const { refetch } = useQuery({
     queryKey: ['runEvents', runId],
     queryFn: async () => {
       const page = await client.runEvents(runId, lastServerId.current)
@@ -48,20 +39,5 @@ export function useRunEvents(runId: number, { live }: { live: boolean }) {
     refetchInterval: live ? 2000 : false,
   })
 
-  const ingest = useCallback(
-    (evt: WsRunEvent) => {
-      nextSyntheticId.current -= 1
-      const event: ApiRunEvent = {
-        id: nextSyntheticId.current,
-        runId,
-        type: evt.type,
-        payload: evt.payload,
-        createdAt: new Date().toISOString(),
-      }
-      setEvents((prev) => [...prev, event])
-    },
-    [runId],
-  )
-
-  return { events, ingest }
+  return { events, refetch }
 }

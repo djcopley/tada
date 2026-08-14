@@ -14,6 +14,7 @@ jest.mock('../src/settings', () => ({
 }))
 
 const mockHealth = jest.fn()
+const mockListWorkspaces = jest.fn()
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
     status: number
@@ -27,7 +28,7 @@ jest.mock('../src/api/client', () => {
   }
   return {
     ApiError: FakeApiError,
-    TadaClient: jest.fn().mockImplementation(() => ({ health: mockHealth })),
+    TadaClient: jest.fn().mockImplementation(() => ({ health: mockHealth, listWorkspaces: mockListWorkspaces })),
   }
 })
 
@@ -54,6 +55,7 @@ describe('Connect screen', () => {
 
   test('successful health probe saves the connection and navigates to /workspaces', async () => {
     mockHealth.mockResolvedValueOnce({ ok: true })
+    mockListWorkspaces.mockResolvedValueOnce([])
     await renderConnect()
 
     await fillForm()
@@ -92,6 +94,39 @@ describe('Connect screen', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('connect-error')).toHaveTextContent('Invalid token')
+    })
+    expect(saveConnection).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  test('a typo\'d token: health succeeds (server is reachable) but listWorkspaces 401s — shows Invalid token and saves nothing', async () => {
+    // /health is auth-exempt server-side, so a bad token still passes it.
+    // The 401 only surfaces on an authenticated route.
+    mockHealth.mockResolvedValueOnce({ ok: true })
+    mockListWorkspaces.mockRejectedValueOnce(new ApiError(401, { error: 'unauthorized' }))
+    await renderConnect()
+
+    await fillForm()
+    await fireEvent.press(screen.getByTestId('connect-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-error')).toHaveTextContent('Invalid token')
+    })
+    expect(mockListWorkspaces).toHaveBeenCalled()
+    expect(saveConnection).not.toHaveBeenCalled()
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  test('listWorkspaces failing for a non-auth reason shows "Could not reach server"', async () => {
+    mockHealth.mockResolvedValueOnce({ ok: true })
+    mockListWorkspaces.mockRejectedValueOnce(new Error('network down'))
+    await renderConnect()
+
+    await fillForm()
+    await fireEvent.press(screen.getByTestId('connect-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-error')).toHaveTextContent('Could not reach server')
     })
     expect(saveConnection).not.toHaveBeenCalled()
     expect(mockReplace).not.toHaveBeenCalled()

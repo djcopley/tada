@@ -90,9 +90,13 @@ function TicketDetailBody({
     )
   }
 
-  const sendComment = (body: string) => {
-    comment.mutate(body)
-  }
+  const sendComment = (body: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      comment.mutate(body, {
+        onSuccess: () => resolve(),
+        onError: (error) => reject(error),
+      })
+    })
 
   const column = board?.columns.find((c) => c.id === ticket.columnId)
   const adapter = ticket.adapterOverride ?? workspace?.defaultAdapter ?? '—'

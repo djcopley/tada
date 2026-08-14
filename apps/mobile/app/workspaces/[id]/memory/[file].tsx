@@ -61,11 +61,16 @@ export default function MemoryEditor() {
   const isDirty = editedBody !== originalBody
 
   const handleSave = () => {
-    void putMemory.mutateAsync({ file, body: editedBody }).then(() => {
-      showToast('Saved')
-      // After save succeeds, update lastFileRef to mark this content as saved
-      // The isDirty will become false since editedBody now equals originalBody
-    })
+    void putMemory
+      .mutateAsync({ file, body: editedBody })
+      .then(() => {
+        showToast('Saved')
+        // After save succeeds, update lastFileRef to mark this content as saved
+        // The isDirty will become false since editedBody now equals originalBody
+      })
+      .catch(() => {
+        // The global mutation error handler already surfaces a toast.
+      })
   }
 
   const handleContentChange = (text: string) => {
