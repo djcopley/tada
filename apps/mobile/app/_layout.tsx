@@ -1,8 +1,21 @@
+import {
+  Barlow_400Regular,
+  Barlow_500Medium,
+  Barlow_600SemiBold,
+} from '@expo-google-fonts/barlow'
+import { BarlowSemiCondensed_600SemiBold } from '@expo-google-fonts/barlow-semi-condensed'
+import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useFonts } from 'expo-font'
 import { Stack } from 'expo-router'
+import { StatusBar } from 'expo-status-bar'
 import { type ReactNode, useEffect, useMemo } from 'react'
+import { StyleSheet } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { ThemeProvider } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { showToast, ToastHost } from '../src/toast'
 
@@ -73,18 +86,41 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
 }
 
 export default function RootLayout() {
+  // Screens design their own type with these faces; hold rendering one frame
+  // until they're ready so nothing flashes in the system font.
+  const [fontsLoaded] = useFonts({
+    Barlow_400Regular,
+    Barlow_500Medium,
+    Barlow_600SemiBold,
+    BarlowSemiCondensed_600SemiBold,
+    IBMPlexMono_400Regular,
+    IBMPlexMono_500Medium,
+  })
+  if (!fontsLoaded) return null
+
   return (
-    <ConnectionProvider>
-      <PushSetup />
-      <AppQueryProvider>
-        {/*
-          Every group under here (/workspaces, /tickets, /runs) has its own
-          Stack that renders the visible header. Without this the root Stack
-          draws a second header above it titled after the group segment.
-        */}
-        <Stack screenOptions={{ headerShown: false }} />
-        <ToastHost />
-      </AppQueryProvider>
-    </ConnectionProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <StatusBar style="auto" />
+          <ConnectionProvider>
+            <PushSetup />
+            <AppQueryProvider>
+              {/*
+                Every group under here (/workspaces, /tickets, /runs) has its own
+                Stack. Headers are drawn by the shared AppHeader component inside
+                each screen, so every native header stays hidden.
+              */}
+              <Stack screenOptions={{ headerShown: false }} />
+              <ToastHost />
+            </AppQueryProvider>
+          </ConnectionProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+})

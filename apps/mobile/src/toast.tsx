@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTheme } from './design/ThemeContext'
+import { radius, space, type } from './design/tokens'
 
 /**
  * Minimal cross-platform toast: a module-level pub/sub so any code
@@ -20,6 +24,8 @@ const TOAST_DURATION_MS = 3000
 
 export function ToastHost() {
   const [message, setMessage] = useState<string | null>(null)
+  const { colors, shadow } = useTheme()
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     const listener: Listener = (msg) => setMessage(msg)
@@ -38,12 +44,21 @@ export function ToastHost() {
   if (message === null) return null
 
   return (
-    <View pointerEvents="none" style={styles.container}>
-      <View style={styles.toast}>
-        <Text testID="toast-message" style={styles.text}>
+    <View pointerEvents="none" style={[styles.container, { bottom: insets.bottom + space.xxl }]}>
+      <Animated.View
+        entering={FadeInDown.duration(180)}
+        exiting={FadeOutDown.duration(180)}
+        style={[
+          styles.toast,
+          // Inverted surface so the toast reads above either theme.
+          { backgroundColor: colors.ink },
+          shadow.lifted,
+        ]}
+      >
+        <Text testID="toast-message" style={[type.body, { color: colors.onInk }]}>
           {message}
         </Text>
-      </View>
+      </Animated.View>
     </View>
   )
 }
@@ -53,18 +68,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 40,
     alignItems: 'center',
   },
   toast: {
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radius.md,
     maxWidth: '90%',
-  },
-  text: {
-    color: '#fff',
-    fontSize: 14,
   },
 })

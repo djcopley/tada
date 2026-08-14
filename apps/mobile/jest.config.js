@@ -1,6 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   preset: 'jest-expo',
+  setupFiles: ['react-native-gesture-handler/jestSetup.js', './test/jest.setup.js'],
   // Matches jest-expo's own default (jest-expo/jest-preset.js), reproduced
   // here so pnpm's `.pnpm/<pkg>/node_modules/<pkg>` layout still transforms
   // React Native / Expo packages that ship untranspiled ESM.
