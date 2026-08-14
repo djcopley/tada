@@ -64,19 +64,29 @@ export default function Board() {
   )
 
   const handleMemoryPress = () => router.push(`/workspaces/${wsId}/memory`)
+  const handleSettingsPress = () => router.push(`/workspaces/${wsId}/settings`)
 
   if (isWide) {
     const columnWidth = (width - COLUMN_MARGIN) / columns.length
     return (
       <>
         <View style={styles.header}>
-          <Pressable
-            testID="board-memory-button"
-            onPress={handleMemoryPress}
-            style={styles.memoryButton}
-          >
-            <Text style={styles.memoryButtonText}>Memory</Text>
-          </Pressable>
+          <View style={styles.headerButtons}>
+            <Pressable
+              testID="board-memory-button"
+              onPress={handleMemoryPress}
+              style={styles.headerButton}
+            >
+              <Text style={styles.headerButtonText}>Memory</Text>
+            </Pressable>
+            <Pressable
+              testID="board-settings-button"
+              onPress={handleSettingsPress}
+              style={styles.headerButton}
+            >
+              <Text style={styles.headerButtonText}>Settings</Text>
+            </Pressable>
+          </View>
         </View>
         <View testID="board-wide" style={styles.wideContainer}>
           {columns.map((column) => (
@@ -101,13 +111,22 @@ export default function Board() {
   return (
     <>
       <View style={styles.header}>
-        <Pressable
-          testID="board-memory-button"
-          onPress={handleMemoryPress}
-          style={styles.memoryButton}
-        >
-          <Text style={styles.memoryButtonText}>Memory</Text>
-        </Pressable>
+        <View style={styles.headerButtons}>
+          <Pressable
+            testID="board-memory-button"
+            onPress={handleMemoryPress}
+            style={styles.headerButton}
+          >
+            <Text style={styles.headerButtonText}>Memory</Text>
+          </Pressable>
+          <Pressable
+            testID="board-settings-button"
+            onPress={handleSettingsPress}
+            style={styles.headerButton}
+          >
+            <Text style={styles.headerButtonText}>Settings</Text>
+          </Pressable>
+        </View>
       </View>
       <FlatList
         testID="board-paged"
@@ -144,13 +163,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e5e5',
   },
-  memoryButton: {
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
     backgroundColor: '#f0f0f0',
   },
-  memoryButtonText: {
+  headerButtonText: {
     fontSize: 14,
     fontWeight: '500',
     color: '#007AFF',
