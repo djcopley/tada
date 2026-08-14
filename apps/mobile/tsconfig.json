@@ -5,5 +5,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["jest"]
   },
-  "include": ["app", "test", "*.d.ts", "metro.config.js"]
+  "include": ["app", "src", "test", "*.d.ts", "metro.config.js"]
 }
