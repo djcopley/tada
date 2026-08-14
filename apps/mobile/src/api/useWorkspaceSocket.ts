@@ -25,9 +25,12 @@ export interface UseWorkspaceSocketOptions {
  *    event feed. This hook does no run-specific bookkeeping itself.
  *
  * Reconnects on close/error with capped backoff (1s, 2s, 4s, 8s, 10s, then
- * holds at 10s) as long as the component stays mounted. `wsId` may be
- * `undefined` (e.g. a ticket screen before its workspaceId has loaded) — in
- * that case no socket is opened.
+ * holds at 10s) as long as the component stays mounted. The backoff attempt
+ * counter resets to 0 on a successful `onopen`, so a brief connectivity blip
+ * during an otherwise long healthy session starts its next reconnect back at
+ * 1s rather than staying escalated at 10s. `wsId` may be `undefined` (e.g. a
+ * ticket screen before its workspaceId has loaded) — in that case no socket
+ * is opened.
  */
 export function useWorkspaceSocket(
   wsId: number | undefined,
@@ -52,6 +55,10 @@ export function useWorkspaceSocket(
     const connect = () => {
       if (cancelled) return
       socket = new WebSocketCtor(client.wsUrl(wsId))
+
+      socket.onopen = () => {
+        attempt = 0
+      }
 
       socket.onmessage = (event) => {
         let msg: WsMessage
@@ -89,6 +96,7 @@ export function useWorkspaceSocket(
       cancelled = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (socket) {
+        socket.onopen = null
         socket.onclose = null
         socket.onerror = null
         socket.onmessage = null

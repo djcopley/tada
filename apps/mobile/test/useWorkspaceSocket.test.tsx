@@ -9,6 +9,7 @@ import { useWorkspaceSocket } from '../src/api/useWorkspaceSocket'
 class FakeWebSocket {
   static instances: FakeWebSocket[] = []
   url: string
+  onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -21,6 +22,10 @@ class FakeWebSocket {
 
   close() {
     this.closed = true
+  }
+
+  emitOpen() {
+    this.onopen?.()
   }
 
   emitMessage(data: unknown) {
@@ -126,6 +131,40 @@ describe('useWorkspaceSocket', () => {
 
       FakeWebSocket.instances[1]?.emitClose()
       jest.advanceTimersByTime(1999)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+      jest.advanceTimersByTime(1)
+      expect(FakeWebSocket.instances).toHaveLength(3)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a successful reconnect resets the backoff so the next drop starts back at 1s', async () => {
+    jest.useFakeTimers()
+    try {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+      await renderHook(
+        () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+        { wrapper: makeWrapper(queryClient) },
+      )
+
+      expect(FakeWebSocket.instances).toHaveLength(1)
+
+      // First drop: reconnects at 1s (attempt 0 -> delay 1000ms).
+      FakeWebSocket.instances[0]?.emitClose()
+      jest.advanceTimersByTime(1000)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+
+      // The reconnected socket opens successfully, which should reset the
+      // backoff attempt counter back to 0.
+      FakeWebSocket.instances[1]?.emitOpen()
+
+      // Second drop, long after the first: without the reset this would
+      // require the escalated 2000ms delay. With the reset it must fire at
+      // 1000ms again.
+      FakeWebSocket.instances[1]?.emitClose()
+      jest.advanceTimersByTime(999)
       expect(FakeWebSocket.instances).toHaveLength(2)
       jest.advanceTimersByTime(1)
       expect(FakeWebSocket.instances).toHaveLength(3)
