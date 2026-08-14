@@ -49,7 +49,7 @@ export default function MemoryList() {
   ]
 
   const handleFilePress = (fileName: string) => {
-    router.push(`/workspaces/${wsId}/memory/${fileName}`)
+    router.push(`/workspaces/${wsId}/memory/${encodeURIComponent(fileName)}`)
   }
 
   const isValidName = (name: string): boolean => {
@@ -89,7 +89,7 @@ export default function MemoryList() {
     // Create the note with empty body
     void putMemory.mutateAsync({ file: fileName, body: '' }).then(() => {
       showToast(`Created ${fileName}`)
-      router.push(`/workspaces/${wsId}/memory/${fileName}`)
+      router.push(`/workspaces/${wsId}/memory/${encodeURIComponent(fileName)}`)
     })
   }
 

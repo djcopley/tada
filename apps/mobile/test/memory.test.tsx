@@ -64,6 +64,23 @@ async function renderMemoryList() {
   )
 }
 
+async function renderMemoryEditor(file: string) {
+  mockUseLocalSearchParams.mockReturnValue({ id: '1', file })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const MemoryEditor = require('../app/workspaces/[id]/memory/[file]').default
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { ToastHost } = require('../src/toast')
+  await render(
+    <QueryClientProvider client={queryClient}>
+      <ConnectionProvider>
+        <MemoryEditor />
+        <ToastHost />
+      </ConnectionProvider>
+    </QueryClientProvider>,
+  )
+}
+
 describe('Memory screens', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -104,6 +121,23 @@ describe('Memory screens', () => {
 
       await fireEvent.press(screen.getByTestId('memory-file-AGENTS.md'))
       expect(mockPush).toHaveBeenCalledWith('/workspaces/1/memory/AGENTS.md')
+    })
+
+    test('tapping a file with spaces encodes the filename in the route', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({
+          notes: [{ name: 'my note.md', body: 'content' }],
+        }),
+      )
+
+      await renderMemoryList()
+
+      await waitFor(() => {
+        expect(screen.getByText('my note.md')).toBeTruthy()
+      })
+
+      await fireEvent.press(screen.getByTestId('memory-file-my note.md'))
+      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/memory/my%20note.md')
     })
 
     test('new note flow opens name prompt', async () => {
@@ -178,6 +212,99 @@ describe('Memory screens', () => {
       await waitFor(() => {
         expect(mockPutMemory).toHaveBeenCalledWith(1, 'notes.md', '')
       })
+    })
+  })
+
+  describe('Editor screen', () => {
+    test('renders seeded body for AGENTS.md', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({ agentsMd: 'Custom agent content' }),
+      )
+
+      await renderMemoryEditor('AGENTS.md')
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Custom agent content')).toBeTruthy()
+      })
+      expect(screen.getByText('AGENTS.md')).toBeTruthy()
+    })
+
+    test('renders seeded body for a note', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({ notes: [{ name: 'test.md', body: 'Test note content' }] }),
+      )
+
+      await renderMemoryEditor('test.md')
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Test note content')).toBeTruthy()
+      })
+      expect(screen.getByText('test.md')).toBeTruthy()
+    })
+
+    test('save button is disabled until content changes', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({ notes: [{ name: 'test.md', body: 'Original content' }] }),
+      )
+
+      await renderMemoryEditor('test.md')
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Original content')).toBeTruthy()
+      })
+
+      // Button should be disabled initially (verify by checking accessibility state)
+      const saveButton = screen.getByTestId('memory-save-button')
+      const accessibilityState = saveButton.props.accessibilityState
+      expect(accessibilityState?.disabled).toBe(true)
+    })
+
+    test('editing enables save button', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({ notes: [{ name: 'test.md', body: 'Original' }] }),
+      )
+
+      await renderMemoryEditor('test.md')
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Original')).toBeTruthy()
+      })
+
+      const input = screen.getByTestId('memory-editor-input')
+      await fireEvent.changeText(input, 'Modified content')
+
+      const saveButton = screen.getByTestId('memory-save-button')
+      const accessibilityState = saveButton.props.accessibilityState
+      expect(accessibilityState?.disabled).toBe(false)
+    })
+
+    test('save calls putMemory with edited body and shows toast', async () => {
+      mockMemory.mockResolvedValueOnce(
+        memory({ notes: [{ name: 'test.md', body: 'Original' }] }),
+      )
+      mockPutMemory.mockResolvedValueOnce(undefined)
+
+      await renderMemoryEditor('test.md')
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Original')).toBeTruthy()
+      })
+
+      const input = screen.getByTestId('memory-editor-input')
+      await fireEvent.changeText(input, 'Updated content')
+
+      const saveButton = screen.getByTestId('memory-save-button')
+      await fireEvent.press(saveButton)
+
+      await waitFor(() => {
+        expect(mockPutMemory).toHaveBeenCalledWith(1, 'test.md', 'Updated content')
+      })
+
+      // Wait for toast to appear
+      await waitFor(() => {
+        expect(screen.getByTestId('toast-message')).toBeTruthy()
+      })
+      expect(screen.getByTestId('toast-message')).toHaveTextContent('Saved')
     })
   })
 })
