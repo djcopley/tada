@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useBoard, useCreateTicket, useWorkspace } from '../../../src/api/queries'
+import { useWorkspaceSocket } from '../../../src/api/useWorkspaceSocket'
 import { ColumnView } from '../../../src/components/ColumnView'
 import { TicketActions } from '../../../src/components/TicketActions'
 
@@ -24,6 +25,8 @@ export default function Board() {
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(wsId)
   const createTicket = useCreateTicket()
   const [selectedTicket, setSelectedTicket] = useState<ApiTicket | null>(null)
+
+  useWorkspaceSocket(Number.isNaN(wsId) ? undefined : wsId)
 
   if (Number.isNaN(wsId)) {
     return (

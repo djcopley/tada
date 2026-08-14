@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
 import { keys, useBoard, useComment, usePatchTicket, useTicket, useWorkspace } from '../../src/api/queries'
+import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { CommentThread } from '../../src/components/CommentThread'
 import { RunRow } from '../../src/components/RunRow'
 import { TicketActions } from '../../src/components/TicketActions'
@@ -47,6 +48,8 @@ function TicketDetailBody({
   const router = useRouter()
   const qc = useQueryClient()
   const { ticket, comments, runs } = data
+
+  useWorkspaceSocket(ticket.workspaceId)
 
   const { data: board } = useBoard(ticket.workspaceId)
   const { data: workspace } = useWorkspace(ticket.workspaceId)

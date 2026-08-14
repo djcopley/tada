@@ -16,6 +16,10 @@ jest.mock('../src/settings', () => ({
   clearConnection: jest.fn(async () => undefined),
 }))
 
+jest.mock('../src/api/useWorkspaceSocket', () => ({
+  useWorkspaceSocket: jest.fn(),
+}))
+
 const mockBoard = jest.fn()
 const mockGetWorkspace = jest.fn()
 const mockCreateTicket = jest.fn()
@@ -36,6 +40,7 @@ jest.mock('../src/api/client', () => {
       board: mockBoard,
       getWorkspace: mockGetWorkspace,
       createTicket: mockCreateTicket,
+      wsUrl: () => 'wss://example.com/ws',
     })),
   }
 })

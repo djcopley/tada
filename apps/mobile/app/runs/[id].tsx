@@ -7,6 +7,7 @@ import { ApiError } from '../../src/api/client'
 import { useClient } from '../../src/api/ClientContext'
 import { keys, useTicket } from '../../src/api/queries'
 import { useRunEvents } from '../../src/api/useRunEvents'
+import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { EventFeed } from '../../src/components/EventFeed'
 
 const ACTIVE_RUN_STATUSES: ReadonlySet<ApiRun['status']> = new Set(['queued', 'running'])
@@ -41,7 +42,13 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
   const run = data?.runs.find((r) => r.id === runId)
 
   const live = run ? ACTIVE_RUN_STATUSES.has(run.status) : false
-  const { events } = useRunEvents(runId, { live })
+  const { events, ingest } = useRunEvents(runId, { live })
+
+  useWorkspaceSocket(data?.ticket.workspaceId, {
+    onRunEvent: (msg) => {
+      if (msg.runId === runId) ingest({ type: msg.event.type, payload: msg.event.payload })
+    },
+  })
 
   const [transcriptVisible, setTranscriptVisible] = useState(false)
   const [transcript, setTranscript] = useState<string | null>(null)

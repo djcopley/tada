@@ -16,6 +16,10 @@ jest.mock('../src/settings', () => ({
   clearConnection: jest.fn(async () => undefined),
 }))
 
+jest.mock('../src/api/useWorkspaceSocket', () => ({
+  useWorkspaceSocket: jest.fn(),
+}))
+
 const mockTicket = jest.fn()
 const mockRunEvents = jest.fn()
 const mockCancelRun = jest.fn()
@@ -39,6 +43,7 @@ jest.mock('../src/api/client', () => {
       runEvents: mockRunEvents,
       cancelRun: mockCancelRun,
       transcript: mockTranscript,
+      wsUrl: () => 'wss://example.com/ws',
     })),
   }
 })

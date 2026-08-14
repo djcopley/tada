@@ -1,0 +1,174 @@
+import type { WsMessage } from '@tada/shared'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook } from '@testing-library/react-native'
+import type { ReactNode } from 'react'
+import { ClientProvider } from '../src/api/ClientContext'
+import { keys } from '../src/api/queries'
+import { useWorkspaceSocket } from '../src/api/useWorkspaceSocket'
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  url: string
+  onmessage: ((event: { data: string }) => void) | null = null
+  onclose: (() => void) | null = null
+  onerror: (() => void) | null = null
+  closed = false
+
+  constructor(url: string) {
+    this.url = url
+    FakeWebSocket.instances.push(this)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  emitMessage(data: unknown) {
+    this.onmessage?.({ data: typeof data === 'string' ? data : JSON.stringify(data) })
+  }
+
+  emitClose() {
+    this.onclose?.()
+  }
+
+  emitError() {
+    this.onerror?.()
+  }
+}
+
+const fakeClient = {
+  wsUrl: (wsId: number) => `wss://example.test/ws?workspaceId=${wsId}`,
+} as unknown as import('../src/api/client').TadaClient
+
+function makeWrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ClientProvider client={fakeClient}>{children}</ClientProvider>
+      </QueryClientProvider>
+    )
+  }
+}
+
+describe('useWorkspaceSocket', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+  })
+
+  test('board_changed invalidates board and workspaces (and ticket-prefixed) queries', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const spy = jest.spyOn(queryClient, 'invalidateQueries')
+
+    await renderHook(
+      () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+      { wrapper: makeWrapper(queryClient) },
+    )
+
+    const socket = FakeWebSocket.instances[0]
+    expect(socket).toBeDefined()
+    const msg: WsMessage = { type: 'board_changed', workspaceId: 1 }
+    socket?.emitMessage(msg)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.board(1) })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.workspaces })
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['ticket'] })
+  })
+
+  test('run_event is forwarded to onRunEvent', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onRunEvent = jest.fn()
+
+    await renderHook(
+      () =>
+        useWorkspaceSocket(1, { onRunEvent }, FakeWebSocket as unknown as typeof WebSocket),
+      { wrapper: makeWrapper(queryClient) },
+    )
+
+    const socket = FakeWebSocket.instances[0]
+    const msg: WsMessage = { type: 'run_event', runId: 42, event: { type: 'text', payload: { text: 'hi' } } }
+    socket?.emitMessage(msg)
+
+    expect(onRunEvent).toHaveBeenCalledWith(msg)
+  })
+
+  test('malformed message is ignored without throwing', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const spy = jest.spyOn(queryClient, 'invalidateQueries')
+
+    await renderHook(
+      () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+      { wrapper: makeWrapper(queryClient) },
+    )
+
+    const socket = FakeWebSocket.instances[0]
+    expect(() => socket?.emitMessage('{ not valid json')).not.toThrow()
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  test('close schedules a reconnect with growing backoff delays', async () => {
+    jest.useFakeTimers()
+    try {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+      await renderHook(
+        () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+        { wrapper: makeWrapper(queryClient) },
+      )
+
+      expect(FakeWebSocket.instances).toHaveLength(1)
+
+      FakeWebSocket.instances[0]?.emitClose()
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      jest.advanceTimersByTime(999)
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      jest.advanceTimersByTime(1)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+
+      FakeWebSocket.instances[1]?.emitClose()
+      jest.advanceTimersByTime(1999)
+      expect(FakeWebSocket.instances).toHaveLength(2)
+      jest.advanceTimersByTime(1)
+      expect(FakeWebSocket.instances).toHaveLength(3)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('unmount closes the socket and cancels any pending reconnect', async () => {
+    jest.useFakeTimers()
+    try {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+      const { unmount } = await renderHook(
+        () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+        { wrapper: makeWrapper(queryClient) },
+      )
+
+      const socket = FakeWebSocket.instances[0]
+      expect(socket).toBeDefined()
+
+      await unmount()
+
+      expect(socket?.closed).toBe(true)
+
+      // Even a close event firing after unmount (or advancing time) must not
+      // create a new socket — the timer was cancelled and onclose detached.
+      socket?.emitClose()
+      jest.advanceTimersByTime(20000)
+      expect(FakeWebSocket.instances).toHaveLength(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('undefined wsId does not construct a socket', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    await renderHook(
+      () => useWorkspaceSocket(undefined, undefined, FakeWebSocket as unknown as typeof WebSocket),
+      { wrapper: makeWrapper(queryClient) },
+    )
+
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+})
