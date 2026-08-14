@@ -1,6 +1,37 @@
-import type { ApiTicket, ApiWorkspace } from '@tada/shared'
+import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClient } from './ClientContext'
+
+/**
+ * Applies a move/reorder to a cached board snapshot so the card lands
+ * instantly; the server round-trip then reconciles via invalidation.
+ */
+function moveInBoard(
+  board: ApiBoard,
+  ticketId: number,
+  to: { columnId?: number; position: number },
+): ApiBoard {
+  let moved: ApiTicket | undefined
+  const stripped = board.columns.map((column) => {
+    const ticket = column.tickets.find((t) => t.id === ticketId)
+    if (!ticket) return column
+    moved = ticket
+    return { ...column, tickets: column.tickets.filter((t) => t.id !== ticketId) }
+  })
+  if (!moved) return board
+  const targetId = to.columnId ?? moved.columnId
+  return {
+    ...board,
+    columns: stripped.map((column) =>
+      column.id === targetId
+        ? {
+            ...column,
+            tickets: [...column.tickets, { ...moved!, columnId: targetId, position: to.position }],
+          }
+        : column,
+    ),
+  }
+}
 
 export const keys = {
   workspaces: ['workspaces'] as const,
@@ -41,7 +72,18 @@ export function useMoveTicket(wsId: number) {
   return useMutation({
     mutationFn: (vars: { id: number; to: { columnId: number; position: number } }) =>
       client.moveTicket(vars.id, vars.to),
-    onSuccess: () => {
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: keys.board(wsId) })
+      const previous = qc.getQueryData<ApiBoard>(keys.board(wsId))
+      if (previous) {
+        qc.setQueryData(keys.board(wsId), moveInBoard(previous, vars.id, vars.to))
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) qc.setQueryData(keys.board(wsId), context.previous)
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: keys.board(wsId) })
       void qc.invalidateQueries({ queryKey: keys.workspaces })
     },
@@ -81,7 +123,21 @@ export function usePatchTicket(wsId: number) {
         Pick<ApiTicket, 'title' | 'description' | 'position' | 'adapterOverride' | 'modelOverride'>
       >
     }) => client.patchTicket(vars.id, vars.patch),
-    onSuccess: (_data, vars) => {
+    onMutate: async (vars) => {
+      // Only position changes (reorders) get an optimistic board update;
+      // other patches are edited in place on the detail screen.
+      if (vars.patch.position === undefined) return {}
+      await qc.cancelQueries({ queryKey: keys.board(wsId) })
+      const previous = qc.getQueryData<ApiBoard>(keys.board(wsId))
+      if (previous) {
+        qc.setQueryData(keys.board(wsId), moveInBoard(previous, vars.id, { position: vars.patch.position }))
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) qc.setQueryData(keys.board(wsId), context.previous)
+    },
+    onSettled: (_data, _err, vars) => {
       void qc.invalidateQueries({ queryKey: keys.ticket(vars.id) })
       void qc.invalidateQueries({ queryKey: keys.board(wsId) })
     },

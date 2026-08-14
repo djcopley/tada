@@ -1,12 +1,16 @@
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Button, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { ApiError, TadaClient } from '../src/api/client'
+import { Button, Input, Screen } from '../src/components/ui'
 import { useConnection } from '../src/ConnectionContext'
+import { useTheme } from '../src/design/ThemeContext'
+import { space, type } from '../src/design/tokens'
 
 export default function Connect() {
   const { connect } = useConnection()
   const router = useRouter()
+  const { colors } = useTheme()
 
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
@@ -33,49 +37,86 @@ export default function Connect() {
   }
 
   return (
-    <View style={styles.container}>
-      <TextInput
-        testID="base-url-input"
-        style={styles.input}
-        placeholder="Server URL"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        value={baseUrl}
-        onChangeText={setBaseUrl}
-      />
-      <TextInput
-        testID="token-input"
-        style={styles.input}
-        placeholder="Token"
-        secureTextEntry
-        value={token}
-        onChangeText={setToken}
-      />
-      <Button testID="connect-button" title="Connect" onPress={onConnect} disabled={connecting} />
-      {error != null && (
-        <Text testID="connect-error" style={styles.error}>
-          {error}
-        </Text>
-      )}
-    </View>
+    <Screen edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.body}
+      >
+        <View style={styles.wordmark}>
+          <View style={[styles.wordmarkFlag, { backgroundColor: colors.ink }]}>
+            <Text style={[type.display, styles.wordmarkText, { color: colors.onInk }]}>tada</Text>
+          </View>
+          <Text style={[type.monoSmall, { color: colors.inkMuted }]}>DISPATCH DESK FOR CODING AGENTS</Text>
+        </View>
+
+        <View style={styles.form}>
+          <Input
+            testID="base-url-input"
+            label="Server URL"
+            placeholder="https://tada.your-tailnet.ts.net"
+            mono
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            value={baseUrl}
+            onChangeText={setBaseUrl}
+          />
+          <Input
+            testID="token-input"
+            label="Token"
+            placeholder="Paste your server token"
+            mono
+            secureTextEntry
+            value={token}
+            onChangeText={setToken}
+          />
+          <Button
+            testID="connect-button"
+            label="Connect"
+            onPress={() => void onConnect()}
+            loading={connecting}
+          />
+          {error != null && (
+            <Text
+              testID="connect-error"
+              accessibilityRole="alert"
+              style={[type.caption, styles.error, { color: colors.signalRed }]}
+            >
+              {error}
+            </Text>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
+  body: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
-    gap: 12,
+    padding: space.xxl,
+    gap: space.huge,
   },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 6,
-    padding: 10,
+  wordmark: {
+    alignItems: 'center',
+    gap: space.md,
+  },
+  wordmarkFlag: {
+    paddingHorizontal: space.xl,
+    paddingVertical: space.sm,
+    borderRadius: 4,
+  },
+  wordmarkText: {
+    fontSize: 34,
+    lineHeight: 42,
+    letterSpacing: 2,
+    textTransform: 'lowercase',
+  },
+  form: {
+    gap: space.lg,
   },
   error: {
-    color: 'red',
+    textAlign: 'center',
   },
 })

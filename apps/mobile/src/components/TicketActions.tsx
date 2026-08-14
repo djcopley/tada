@@ -1,13 +1,17 @@
 import { canMoveCard } from '@tada/shared'
 import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
 import { useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
+import { useQueryClient } from '@tanstack/react-query'
 import { ADAPTERS } from '../adapters'
 import { ApiError } from '../api/client'
 import { keys, useMoveTicket, usePatchTicket } from '../api/queries'
-import { useQueryClient } from '@tanstack/react-query'
 import { positionBetween } from '../board/positions'
+import { useTheme } from '../design/ThemeContext'
+import { humanize } from '../design/status'
+import { space, type } from '../design/tokens'
 import { showToast } from '../toast'
+import { Button, Icon, ListRow, Sheet } from './ui'
 
 const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
 
@@ -39,6 +43,7 @@ export function TicketActions({
   onClose: () => void
 }) {
   const [view, setView] = useState<PickerView>('main')
+  const { colors } = useTheme()
   const qc = useQueryClient()
   const moveTicket = useMoveTicket(workspace.id)
   const patchTicket = usePatchTicket(workspace.id)
@@ -125,166 +130,153 @@ export function TicketActions({
   )
 
   return (
-    <Modal
-      testID="ticket-actions-sheet"
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={close}
-    >
-      <Pressable style={styles.overlay} onPress={close}>
-        <Pressable style={styles.sheet} onPress={() => undefined}>
-          <Text style={styles.title}>{ticket.title}</Text>
+    <Sheet visible={visible} onClose={close} testID="ticket-actions-sheet">
+      <View style={styles.titleBlock}>
+        <Text numberOfLines={2} style={[type.title, { color: colors.ink }]}>
+          {ticket.title}
+        </Text>
+        <Text style={[type.monoSmall, { color: colors.inkFaint }]}>{`#${ticket.id}`}</Text>
+      </View>
 
-          {view === 'main' && (
-            <View style={styles.section}>
-              {ticket.queueState !== 'queued' && readyColumn && (
-                <Pressable testID="action-send-to-ready" style={styles.row} onPress={sendToReady}>
-                  <Text style={styles.rowText}>Send to Ready</Text>
-                </Pressable>
-              )}
-
-              {moveTargets.map((c) => (
-                <Pressable
-                  key={c.id}
-                  testID={`action-move-${c.id}`}
-                  style={styles.row}
-                  onPress={() => moveTo(c)}
-                >
-                  <Text style={styles.rowText}>{`Move to ${c.title}`}</Text>
-                </Pressable>
-              ))}
-
-              <View style={styles.reorderRow}>
-                <Pressable
-                  testID="action-reorder-up"
-                  style={[styles.reorderButton, !canReorderUp && styles.disabled]}
-                  disabled={!canReorderUp}
-                  onPress={reorderUp}
-                >
-                  <Text style={styles.rowText}>▲ Move up</Text>
-                </Pressable>
-                <Pressable
-                  testID="action-reorder-down"
-                  style={[styles.reorderButton, !canReorderDown && styles.disabled]}
-                  disabled={!canReorderDown}
-                  onPress={reorderDown}
-                >
-                  <Text style={styles.rowText}>▼ Move down</Text>
-                </Pressable>
-              </View>
-
-              {runActive ? (
-                <View style={styles.row}>
-                  <Text style={styles.rowText}>{`Agent: ${currentAdapter} · ${currentModel}`}</Text>
-                  <Text testID="action-agent-hint" style={styles.hint}>
-                    Run in progress — cancel it to change the agent or model.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <Pressable testID="action-agent" style={styles.row} onPress={() => setView('agent')}>
-                    <Text style={styles.rowText}>{`Agent: ${currentAdapter}`}</Text>
-                  </Pressable>
-                  <Pressable testID="action-model" style={styles.row} onPress={() => setView('model')}>
-                    <Text style={styles.rowText}>{`Model: ${currentModel}`}</Text>
-                  </Pressable>
-                </>
-              )}
-
-              <Pressable testID="action-close" style={styles.row} onPress={close}>
-                <Text style={styles.rowText}>Close</Text>
-              </Pressable>
-            </View>
+      {view === 'main' && (
+        <View style={styles.section}>
+          {ticket.queueState !== 'queued' && readyColumn && (
+            <ListRow
+              testID="action-send-to-ready"
+              icon="send"
+              title="Send to Ready"
+              subtitle="Queue this ticket for an agent"
+              onPress={sendToReady}
+            />
           )}
 
-          {view === 'agent' && (
-            <View style={styles.section}>
-              {Object.keys(ADAPTERS).map((adapter) => (
-                <Pressable
-                  key={adapter}
-                  testID={`action-agent-${adapter}`}
-                  style={styles.row}
-                  onPress={() => chooseAdapter(adapter)}
-                >
-                  <Text style={styles.rowText}>{adapter}</Text>
-                </Pressable>
-              ))}
-              <Pressable testID="action-back" style={styles.row} onPress={() => setView('main')}>
-                <Text style={styles.rowText}>Back</Text>
-              </Pressable>
+          {moveTargets.map((c) => (
+            <ListRow
+              key={c.id}
+              testID={`action-move-${c.id}`}
+              icon="arrow-right"
+              title={`Move to ${c.title}`}
+              onPress={() => moveTo(c)}
+            />
+          ))}
+
+          <View style={styles.reorderRow}>
+            <Button
+              testID="action-reorder-up"
+              variant="secondary"
+              icon="arrow-up"
+              label="Move up"
+              onPress={reorderUp}
+              disabled={!canReorderUp}
+              small
+              style={styles.reorderButton}
+            />
+            <Button
+              testID="action-reorder-down"
+              variant="secondary"
+              icon="arrow-down"
+              label="Move down"
+              onPress={reorderDown}
+              disabled={!canReorderDown}
+              small
+              style={styles.reorderButton}
+            />
+          </View>
+
+          {runActive ? (
+            <View style={styles.hintBlock}>
+              <ListRow
+                icon="cpu"
+                title={`${humanize(currentAdapter)} · ${humanize(currentModel)}`}
+                trailing={<Icon name="lock" size={14} color={colors.inkFaint} />}
+              />
+              <Text testID="action-agent-hint" style={[type.caption, styles.hint, { color: colors.inkMuted }]}>
+                Run in progress — cancel it to change the agent or model.
+              </Text>
             </View>
+          ) : (
+            <>
+              <ListRow
+                testID="action-agent"
+                icon="cpu"
+                title="Agent"
+                trailing={
+                  <Text style={[type.mono, { color: colors.inkMuted }]}>{humanize(currentAdapter)}</Text>
+                }
+                onPress={() => setView('agent')}
+              />
+              <ListRow
+                testID="action-model"
+                icon="layers"
+                title="Model"
+                trailing={
+                  <Text style={[type.mono, { color: colors.inkMuted }]}>{humanize(currentModel)}</Text>
+                }
+                onPress={() => setView('model')}
+              />
+            </>
           )}
 
-          {view === 'model' && (
-            <View style={styles.section}>
-              {(ADAPTERS[currentAdapter] ?? []).map((model) => (
-                <Pressable
-                  key={model}
-                  testID={`action-model-${model}`}
-                  style={styles.row}
-                  onPress={() => chooseModel(model)}
-                >
-                  <Text style={styles.rowText}>{model}</Text>
-                </Pressable>
-              ))}
-              <Pressable testID="action-back" style={styles.row} onPress={() => setView('main')}>
-                <Text style={styles.rowText}>Back</Text>
-              </Pressable>
-            </View>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+          <Button testID="action-close" variant="ghost" label="Close" onPress={close} small />
+        </View>
+      )}
+
+      {view === 'agent' && (
+        <View style={styles.section}>
+          {Object.keys(ADAPTERS).map((adapter) => (
+            <ListRow
+              key={adapter}
+              testID={`action-agent-${adapter}`}
+              title={humanize(adapter)}
+              trailing={
+                adapter === currentAdapter ? <Icon name="check" size={16} color={colors.ink} /> : null
+              }
+              onPress={() => chooseAdapter(adapter)}
+            />
+          ))}
+          <ListRow testID="action-back" icon="chevron-left" title="Back" onPress={() => setView('main')} />
+        </View>
+      )}
+
+      {view === 'model' && (
+        <View style={styles.section}>
+          {(ADAPTERS[currentAdapter] ?? []).map((model) => (
+            <ListRow
+              key={model}
+              testID={`action-model-${model}`}
+              title={humanize(model)}
+              trailing={model === currentModel ? <Icon name="check" size={16} color={colors.ink} /> : null}
+              onPress={() => chooseModel(model)}
+            />
+          ))}
+          <ListRow testID="action-back" icon="chevron-left" title="Back" onPress={() => setView('main')} />
+        </View>
+      )}
+    </Sheet>
   )
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    padding: 20,
-    gap: 8,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 8,
+  titleBlock: {
+    gap: space.xs,
+    marginBottom: space.md,
   },
   section: {
-    gap: 4,
-  },
-  row: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ddd',
-  },
-  rowText: {
-    fontSize: 15,
-  },
-  hint: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 4,
+    gap: space.xs,
   },
   reorderRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: space.md,
+    marginVertical: space.xs,
   },
   reorderButton: {
     flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
   },
-  disabled: {
-    opacity: 0.4,
+  hintBlock: {
+    gap: 0,
+  },
+  hint: {
+    paddingHorizontal: space.xs,
+    paddingBottom: space.sm,
   },
 })

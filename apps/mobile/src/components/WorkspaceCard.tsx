@@ -1,5 +1,8 @@
 import type { ApiWorkspaceListItem } from '@tada/shared'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
+import { useTheme } from '../design/ThemeContext'
+import { space, type } from '../design/tokens'
+import { Card, FlipStrip, Icon } from './ui'
 
 export function WorkspaceCard({
   workspace,
@@ -8,60 +11,53 @@ export function WorkspaceCard({
   workspace: ApiWorkspaceListItem
   onPress: () => void
 }) {
+  const { colors } = useTheme()
+  const idle = workspace.runningCount === 0 && workspace.needsReviewCount === 0
+
   return (
-    <Pressable
-      testID={`workspace-card-${workspace.id}`}
-      style={styles.card}
-      onPress={onPress}
-    >
-      <Text style={styles.name}>{workspace.name}</Text>
-      <View style={styles.badges}>
-        {workspace.runningCount > 0 && (
-          <Text testID={`workspace-running-${workspace.id}`} style={[styles.badge, styles.runningBadge]}>
-            {workspace.runningCount} running
-          </Text>
-        )}
-        {workspace.needsReviewCount > 0 && (
-          <Text testID={`workspace-review-${workspace.id}`} style={[styles.badge, styles.reviewBadge]}>
-            {workspace.needsReviewCount} to review
-          </Text>
-        )}
+    <Card testID={`workspace-card-${workspace.id}`} onPress={onPress} style={styles.card}>
+      <View style={styles.titleRow}>
+        <Text numberOfLines={1} style={[type.title, styles.name, { color: colors.ink }]}>
+          {workspace.name}
+        </Text>
+        <Icon name="chevron-right" size={16} color={colors.inkFaint} />
       </View>
-    </Pressable>
+      {idle ? (
+        <Text style={[type.monoSmall, { color: colors.inkFaint }]}>ALL QUIET</Text>
+      ) : (
+        <View style={styles.badges}>
+          {workspace.runningCount > 0 && (
+            <View testID={`workspace-running-${workspace.id}`}>
+              <FlipStrip items={[{ label: 'Running', count: workspace.runningCount, signal: 'green' }]} />
+            </View>
+          )}
+          {workspace.needsReviewCount > 0 && (
+            <View testID={`workspace-review-${workspace.id}`}>
+              <FlipStrip items={[{ label: 'Review', count: workspace.needsReviewCount, signal: 'violet' }]} />
+            </View>
+          )}
+        </View>
+      )}
+    </Card>
   )
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 8,
-    padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 6,
-    gap: 8,
+    marginHorizontal: space.lg,
+    marginVertical: space.xs + 2,
+    gap: space.sm,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
   },
   name: {
-    fontSize: 17,
-    fontWeight: '600',
+    flex: 1,
   },
   badges: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  badge: {
-    fontSize: 13,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    overflow: 'hidden',
-  },
-  runningBadge: {
-    backgroundColor: '#e0f0ff',
-    color: '#1565c0',
-  },
-  reviewBadge: {
-    backgroundColor: '#fff4e0',
-    color: '#b35c00',
+    gap: space.sm,
   },
 })

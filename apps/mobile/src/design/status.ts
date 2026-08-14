@@ -30,7 +30,8 @@ export function queueStateVisual(state: QueueState): StatusVisual | null {
     case 'queued':
       return { label: 'Queued', signal: 'amber' }
     case 'held':
-      return { label: 'Held', signal: 'red' }
+      // A held ticket is a failed run waiting on a human re-queue.
+      return { label: 'Failed', signal: 'red' }
     default:
       return null
   }

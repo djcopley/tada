@@ -1,8 +1,10 @@
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Button, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, StyleSheet, View } from 'react-native'
 import { useCreateWorkspace, useWorkspaces } from '../../src/api/queries'
+import { AppHeader, Dialog, EmptyState, Input, Screen, Skeleton } from '../../src/components/ui'
 import { WorkspaceCard } from '../../src/components/WorkspaceCard'
+import { space } from '../../src/design/tokens'
 
 export default function Workspaces() {
   const router = useRouter()
@@ -35,21 +37,32 @@ export default function Workspaces() {
   const workspaces = data ?? []
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Workspaces</Text>
-        <Pressable testID="create-workspace-button" style={styles.addButton} onPress={openCreateModal}>
-          <Text style={styles.addButtonText}>+</Text>
-        </Pressable>
-      </View>
+    <Screen>
+      <AppHeader
+        title="Dispatch"
+        actions={[
+          { icon: 'plus', label: 'New workspace', onPress: openCreateModal, testID: 'create-workspace-button' },
+        ]}
+      />
 
-      {!isLoading && workspaces.length === 0 ? (
-        <Text style={styles.empty}>No workspaces yet — create one to get started.</Text>
+      {isLoading ? (
+        <View style={styles.skeletons}>
+          <Skeleton height={84} />
+          <Skeleton height={84} />
+          <Skeleton height={84} />
+        </View>
+      ) : workspaces.length === 0 ? (
+        <EmptyState
+          icon="inbox"
+          message="No workspaces yet — create one to start dispatching work."
+          action={{ label: 'New workspace', onPress: openCreateModal }}
+        />
       ) : (
         <FlatList
           testID="workspaces-list"
           data={workspaces}
           keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
             <WorkspaceCard
               workspace={item}
@@ -61,95 +74,36 @@ export default function Workspaces() {
         />
       )}
 
-      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={closeCreateModal}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New workspace</Text>
-            <TextInput
-              testID="workspace-name-input"
-              style={styles.input}
-              placeholder="Name"
-              autoFocus
-              value={name}
-              onChangeText={setName}
-            />
-            <View style={styles.modalActions}>
-              <Button testID="workspace-cancel-button" title="Cancel" onPress={closeCreateModal} />
-              <Button
-                testID="workspace-create-button"
-                title="Create"
-                onPress={onCreate}
-                disabled={createWorkspace.isPending || name.trim().length === 0}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
+      <Dialog
+        visible={modalVisible}
+        title="New workspace"
+        onClose={closeCreateModal}
+        confirm={{
+          label: 'Create',
+          onPress: () => void onCreate(),
+          disabled: createWorkspace.isPending || name.trim().length === 0,
+          loading: createWorkspace.isPending,
+          testID: 'workspace-create-button',
+        }}
+      >
+        <Input
+          testID="workspace-name-input"
+          placeholder="Name"
+          autoFocus
+          value={name}
+          onChangeText={setName}
+        />
+      </Dialog>
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  skeletons: {
+    padding: space.lg,
+    gap: space.md,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1565c0',
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 20,
-    lineHeight: 22,
-  },
-  empty: {
-    flex: 1,
-    textAlign: 'center',
-    marginTop: 48,
-    paddingHorizontal: 32,
-    color: '#666',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCard: {
-    width: '85%',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    gap: 12,
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#888',
-    borderRadius: 6,
-    padding: 10,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
+  listContent: {
+    paddingVertical: space.sm,
   },
 })
