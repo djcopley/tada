@@ -1,7 +1,9 @@
 import type { WebSocket } from '@fastify/websocket'
+import type { WsMessage } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { AdapterEvent } from './adapters/types.js'
+import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
 import { agentRuns, tickets } from './db/schema.js'
 
@@ -9,10 +11,6 @@ interface Subscription {
   socket: WebSocket
   workspaceId: number
 }
-
-type OutMessage =
-  | { type: 'run_event'; runId: number; event: AdapterEvent }
-  | { type: 'board_changed'; workspaceId: number }
 
 /**
  * Tracks websocket clients subscribed to a workspace and pushes events to them.
@@ -56,7 +54,7 @@ export class BroadcastHub {
     return row?.workspaceId
   }
 
-  private send(workspaceId: number, message: OutMessage): void {
+  private send(workspaceId: number, message: WsMessage): void {
     const json = JSON.stringify(message)
     for (const sub of this.subs) {
       if (sub.workspaceId === workspaceId && sub.socket.readyState === sub.socket.OPEN) {
@@ -66,9 +64,18 @@ export class BroadcastHub {
   }
 }
 
-export function registerWsRoute(app: FastifyInstance, hub: BroadcastHub): void {
+export function registerWsRoute(app: FastifyInstance, hub: BroadcastHub, config: Config): void {
   app.get('/ws', { websocket: true }, (socket, req) => {
     const query = req.query as Record<string, unknown>
+
+    const authHeader = req.headers.authorization
+    const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+    const authorized = query.token === config.bearerToken || headerToken === config.bearerToken
+    if (!authorized) {
+      socket.close(1008, 'unauthorized')
+      return
+    }
+
     const workspaceId = Number(query.workspaceId)
     if (!Number.isInteger(workspaceId)) {
       socket.close(1008, 'workspaceId query param required')

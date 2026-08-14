@@ -41,14 +41,28 @@ export function buildApp({
   registerMcpRoute(app, db)
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?', 1)[0]
-    if (path === '/health' || path === '/mcp' || path?.startsWith('/mcp/')) return
+    if (
+      path === '/health' ||
+      path === '/mcp' ||
+      path?.startsWith('/mcp/') ||
+      path === '/ws' ||
+      path?.startsWith('/ws/')
+    )
+      return
     if (req.headers.authorization !== `Bearer ${config.bearerToken}`) {
       await reply.code(401).send({ error: 'unauthorized' })
     }
   })
 
+  // registerWsRoute must run only after the websocket plugin has finished loading: `.register()`
+  // defers plugin boot to the avvio phase, so calling registerWsRoute synchronously right after
+  // would add the /ws route before the plugin's onRoute hook (which wraps the handler for
+  // websocket upgrades) is installed - the handler would then run as a plain (request, reply)
+  // HTTP handler instead of (socket, request). `.after()` waits for prior registrations first.
   void app.register(fastifyWebsocket)
-  registerWsRoute(app, broadcastHub)
+  app.after(() => {
+    registerWsRoute(app, broadcastHub, config)
+  })
 
   const routeDeps = { db, wm, scheduler, hub: broadcastHub, adapters }
   registerWorkspaceRoutes(app, routeDeps)

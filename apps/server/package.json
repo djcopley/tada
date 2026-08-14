@@ -24,7 +24,9 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "ws": "^8.21.3"
   }
 }

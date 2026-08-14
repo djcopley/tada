@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import type { ApiBoard, ApiWorkspaceListItem } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, InjectOptions } from 'fastify'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -125,6 +126,16 @@ describe('REST API + WebSocket events', () => {
     expect(created.status).toBe(201)
     const wsId = (created.body as { id: number }).id
 
+    // DTO drift guard: a typed assignment from a real GET /workspaces response makes the server
+    // suite fail to compile if ApiWorkspaceListItem drifts from what this route actually returns.
+    const listRes = await json(app, config, { method: 'GET', url: '/workspaces' })
+    const list: ApiWorkspaceListItem[] = listRes.body
+    const listedWs = list.find((w) => w.id === wsId)
+    if (!listedWs) throw new Error('created workspace missing from GET /workspaces')
+    if (typeof listedWs.createdAt !== 'string') {
+      throw new Error(`expected createdAt to be an ISO string, got ${typeof listedWs.createdAt}`)
+    }
+
     const repoAdded = await json(app, config, {
       method: 'POST',
       url: `/workspaces/${wsId}/repos`,
@@ -140,6 +151,16 @@ describe('REST API + WebSocket events', () => {
     expect(patched.status).toBe(200)
 
     const boardBefore = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` })
+    // DTO drift guard: typed assignment from a real board response makes the server suite fail
+    // to compile if ApiBoard drifts from what this route actually returns.
+    const apiBoard: ApiBoard = boardBefore.body
+    const firstCol = apiBoard.columns[0]
+    if (!firstCol) throw new Error('expected at least one column in board response')
+    if (typeof firstCol.createdAt !== 'string') {
+      throw new Error(
+        `expected column.createdAt to be an ISO string, got ${typeof firstCol.createdAt}`,
+      )
+    }
     const board = boardBefore.body as BoardPayload
     const readyColId = columnIdFor(board, 'ready')
     const inReviewColId = columnIdFor(board, 'in_review')
