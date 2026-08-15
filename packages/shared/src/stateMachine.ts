@@ -9,7 +9,7 @@ const RUN_TRANSITIONS: Record<RunStatus, readonly RunStatus[]> = {
 }
 
 export const canTransitionRun = (from: RunStatus, to: RunStatus): boolean =>
-  RUN_TRANSITIONS[from].includes(to)
+  RUN_TRANSITIONS[from]!.includes(to)
 
 const ORCHESTRATOR_MOVES: ReadonlyArray<readonly [ColumnKind, ColumnKind]> = [
   ['ready', 'in_progress'],

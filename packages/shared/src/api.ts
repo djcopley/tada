@@ -1,12 +1,12 @@
 // DTO shapes as they cross the wire (integer ids, ISO-string dates).
-import type { ColumnKind, QueueState, RunStatus } from './domain.js'
+import type { ColumnKind, QueueState, RunStatus, TicketOrigin, ProposalState, CommentKind, MemoryScope, NoteState, SourceType, ActivityType } from './domain.js'
 
 export interface ApiWorkspace {
   id: number
   name: string
-  path: string
   defaultAdapter: string
   defaultModel: string
+  defaultEffort: string
   concurrency: number
   timeoutMs: number
   createdAt: string
@@ -15,6 +15,20 @@ export interface ApiWorkspace {
 export interface ApiWorkspaceListItem extends ApiWorkspace {
   runningCount: number
   needsReviewCount: number
+  queuedCount: number
+  sourceCount: number
+}
+
+export interface ApiSource {
+  type: SourceType
+  name: string
+  url?: string
+  defaultBranch?: string
+  path?: string
+}
+
+export interface ApiWorkspaceDetail extends ApiWorkspace {
+  sources: ApiSource[]
 }
 
 export interface ApiColumn {
@@ -23,7 +37,6 @@ export interface ApiColumn {
   kind: ColumnKind
   title: string
   position: number
-  createdAt: string
 }
 
 export interface ApiTicket {
@@ -36,6 +49,10 @@ export interface ApiTicket {
   queueState: QueueState
   adapterOverride: string | null
   modelOverride: string | null
+  effortOverride: string | null
+  origin: TicketOrigin
+  proposalState: ProposalState
+  followUpOfTicketId: number | null
   createdAt: string
 }
 
@@ -43,6 +60,7 @@ export interface ApiComment {
   id: number
   ticketId: number
   author: 'human' | 'agent'
+  kind: CommentKind
   body: string
   createdAt: string
 }
@@ -52,38 +70,104 @@ export interface ApiRun {
   ticketId: number
   adapter: string
   model: string
+  effort: string
+  attemptNumber: number
   status: RunStatus
   branch: string | null
   prUrl: string | null
   summary: string | null
-  createdAt: string
+  diffAdditions: number | null
+  diffDeletions: number | null
+  testsPassed: number | null
   startedAt: string | null
   finishedAt: string | null
+  createdAt: string
+}
+
+export interface ApiRunDetail extends ApiRun {
+  ticketTitle: string
+  workspaceId: number
+}
+
+export interface ApiTicketDetail extends ApiTicket {
+  comments: ApiComment[]
+  runs: ApiRun[]
+  followUps: { id: number; title: string; proposalState: ProposalState }[]
 }
 
 export interface ApiBoard {
-  columns: Array<ApiColumn & { tickets: ApiTicket[] }>
+  columns: (ApiColumn & { tickets: ApiTicket[] })[]
+}
+
+export interface ApiActivity {
+  id: number
+  workspaceId: number
+  ticketId: number | null
+  runId: number | null
+  type: ActivityType
+  ticketTitle: string | null
+  message: string
+  createdAt: string
+}
+
+export interface ApiMemoryNote {
+  id: number
+  scope: MemoryScope
+  workspaceId: number | null
+  file: string
+  title: string
+  author: 'human' | 'agent'
+  runId: number | null
+  state: NoteState
+  body: string
+  updatedAt: string
+}
+
+export interface ApiMemory {
+  agentsMd: string
+  notes: ApiMemoryNote[]
+}
+
+export interface ApiAdapterInfo {
+  id: string
+  label: string
+  available: boolean
+  models: string[]
+  efforts: string[]
+  supportsInjection: boolean
+}
+
+export interface ApiHealth {
+  ok: true
+  version: string
+}
+
+export interface ApiStatus {
+  ok: true
+  version: string
+  workspaces: string[]
+  agents: { id: string; available: boolean }[]
 }
 
 export interface ApiRunEvent {
   id: number
   runId: number
-  type: 'status' | 'tool_use' | 'text' | 'error'
+  type: string
   payload: unknown
   createdAt: string
 }
 
-export interface ApiMemory {
-  agentsMd: string
-  notes: Array<{ name: string; body: string }>
+export interface ApiKnownRepo {
+  url: string
+  name: string
 }
 
-export interface ApiRepo {
-  name: string
-  url: string
-  defaultBranch: string
+export interface ApiNameCheck {
+  id: string
+  available: boolean
 }
 
 export type WsMessage =
-  | { type: 'run_event'; runId: number; event: { type: ApiRunEvent['type']; payload: unknown } }
+  | { type: 'run_event'; runId: number; event: { type: string; payload: unknown } }
   | { type: 'board_changed'; workspaceId: number }
+  | { type: 'activity'; workspaceId: number }
