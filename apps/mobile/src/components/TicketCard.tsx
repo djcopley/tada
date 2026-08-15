@@ -1,60 +1,275 @@
-import type { ApiTicket, ApiWorkspace, ColumnKind } from '@tada/shared'
+import type { ApiComment, ApiRun, ApiTicket, ApiWorkspaceDetail, ColumnKind } from '@tada/shared'
 import * as Haptics from 'expo-haptics'
 import { useEffect, useRef } from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { runOnJS } from 'react-native-reanimated'
+import Animated, {
+  cancelAnimation,
+  runOnJS,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
+import {
+  agentWellText,
+  doneMeta,
+  followUpOfLabel,
+  isProposalTicket,
+  minimalCardMeta,
+  nextUpMeta,
+  reviewMeta,
+  retryMeta,
+} from '../board/cardMeta'
 import { measureInWindow, useBoardDnD } from '../board/dnd'
+import { elapsedLabel } from '../control'
 import { useTheme } from '../design/ThemeContext'
-import { queueStateVisual, humanize, type StatusVisual } from '../design/status'
-import { space, type } from '../design/tokens'
+import { radius, space, type } from '../design/tokens'
+import { Badge } from './ui/Badge'
+import { Button } from './ui/Button'
 import { Card } from './ui/Card'
-import { StatusTag } from './ui/StatusTag'
+import { TadaStar } from './ui/TadaStar'
 
-/**
- * Status precedence: an explicit queueState (queued/held) always wins over
- * the column-derived hint, since it reflects the ticket's own state rather
- * than a guess based on where it currently sits.
- */
-function ticketStatus(ticket: ApiTicket, columnKind: ColumnKind): StatusVisual | null {
-  const fromQueue = queueStateVisual(ticket.queueState)
-  if (fromQueue) return fromQueue
-  if (columnKind === 'in_progress') return { label: 'Live', signal: 'live', live: true }
-  if (columnKind === 'in_review') return { label: 'Your turn', signal: 'ok' }
-  return null
+/** The slice of a ticket's detail (comments + runs) a board card needs — a structural subset of
+ * `useTicket`'s `{ ticket, comments, runs, followUps }` response. */
+export type TicketDetail = { comments: ApiComment[]; runs: ApiRun[] }
+
+/** Per-card callbacks/state the board screen supplies for whichever actions its column kind
+ * exposes. Omitting a handler simply hides that control (e.g. the drag-overlay preview passes
+ * no `actions` at all). */
+export type BoardCardActions = {
+  onWatchLive?: () => void
+  onAccept?: () => void
+  accepting?: boolean
+  celebrate?: boolean
+  onSendBack?: () => void
+  onKeep?: () => void
+  onDismiss?: () => void
+  keeping?: boolean
+  dismissing?: boolean
 }
 
-export function TicketCardBody({
+type BodyProps = {
+  ticket: ApiTicket
+  workspace: ApiWorkspaceDetail
+  columnKind: ColumnKind
+  /** Ticking clock for elapsed/age labels — see `useNowTick`. */
+  now: number
+  detail?: TicketDetail
+  /** The first queued ticket in Queued reads "next up" instead of its age. */
+  isTopQueued?: boolean
+  /** Resolved title of `followUpOfTicketId`, when that parent is on this board. */
+  parentTitle?: string
+  actions?: BoardCardActions
+}
+
+/** A pulsing `▮` — the one glyph that pulses inside running-card mono meta, per the artboard
+ * (`ii-pulse`, distinct from the header StatusDot). */
+function PulseGlyph({ color }: { color: string }) {
+  const reducedMotion = useReducedMotion()
+  const opacity = useSharedValue(1)
+
+  useEffect(() => {
+    if (reducedMotion) {
+      opacity.value = 1
+      return
+    }
+    opacity.value = withRepeat(withSequence(withTiming(0.25, { duration: 800 }), withTiming(1, { duration: 800 })), -1)
+    return () => cancelAnimation(opacity)
+  }, [reducedMotion, opacity])
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+  return <Animated.Text style={[{ color }, style]}>{'▮'}</Animated.Text>
+}
+
+/** Recessed one-line agent well on the running card: pulsing glyph + the agent's latest word,
+ * ellipsized. */
+function AgentWell({ text, testID }: { text: string | undefined; testID?: string }) {
+  const { colors } = useTheme()
+  return (
+    <View testID={testID} style={[styles.well, { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge }]}>
+      <Text numberOfLines={1} style={[type.monoSmall, { color: colors.liveText }]}>
+        <PulseGlyph color={colors.liveText} />
+        {' '}
+        {text ?? 'working…'}
+      </Text>
+    </View>
+  )
+}
+
+function MinimalBody({ title, meta, liveMeta }: { title: string; meta: string; liveMeta?: boolean }) {
+  const { colors } = useTheme()
+  return (
+    <View style={styles.body}>
+      <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
+        {title}
+      </Text>
+      <Text numberOfLines={1} style={[type.monoSmall, { color: liveMeta ? colors.liveText : colors.textFaintSolid }]}>
+        {meta}
+      </Text>
+    </View>
+  )
+}
+
+function ProposalBody({
   ticket,
-  workspace,
-  columnKind,
+  parentTitle,
+  actions,
 }: {
   ticket: ApiTicket
-  workspace: ApiWorkspace
-  columnKind: ColumnKind
+  parentTitle?: string
+  actions?: BoardCardActions
 }) {
   const { colors } = useTheme()
-  const adapter = ticket.adapterOverride ?? workspace.defaultAdapter
-  const model = ticket.modelOverride ?? workspace.defaultModel
-  const status = ticketStatus(ticket, columnKind)
+  const followUp = followUpOfLabel(parentTitle)
+  return (
+    <View style={styles.body}>
+      <Text style={[type.monoCaps, styles.upper, { color: colors.liveText }]}>Proposed by agent</Text>
+      <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
+        {ticket.title}
+      </Text>
+      {followUp ? (
+        <Text numberOfLines={1} style={[type.monoSmall, { color: colors.textFaintSolid }]}>
+          {followUp}
+        </Text>
+      ) : null}
+      {actions ? (
+        <View style={styles.actionRow}>
+          <Button
+            testID={`proposal-keep-${ticket.id}`}
+            variant="secondary"
+            small
+            label="Keep"
+            loading={actions.keeping}
+            onPress={actions.onKeep ?? (() => {})}
+          />
+          <Button
+            testID={`proposal-dismiss-${ticket.id}`}
+            variant="ghost"
+            small
+            label="Dismiss"
+            loading={actions.dismissing}
+            onPress={actions.onDismiss ?? (() => {})}
+          />
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+function RunningBody({ ticket, workspace, now, detail, actions }: BodyProps) {
+  const { colors } = useTheme()
+  const source = workspace.sources[0]?.name
+  const runningRun = detail?.runs.find((r) => r.status === 'running') ?? detail?.runs[detail.runs.length - 1]
+  const elapsed = elapsedLabel(runningRun?.startedAt, now)
+  const agentText = agentWellText(detail)
 
   return (
     <View style={styles.body}>
       <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
         {ticket.title}
       </Text>
-      <View style={styles.metaRow}>
-        <Text numberOfLines={1} style={[type.monoSmall, styles.agent, { color: colors.textFaintSolid }]}>
-          {`#${ticket.id} · ${humanize(adapter).toLowerCase()} · ${humanize(model).toLowerCase()}`}
-        </Text>
-        {status ? (
-          <View testID={`ticket-glyph-${ticket.id}`}>
-            <StatusTag status={status} />
-          </View>
-        ) : null}
-      </View>
+      <Text numberOfLines={1} style={[type.monoSmall, { color: colors.textFaintSolid }]}>
+        {source ? `${source} · ` : ''}
+        <Text style={{ color: colors.liveText }}>{elapsed}</Text>
+      </Text>
+      <AgentWell text={agentText} testID={`ticket-agent-well-${ticket.id}`} />
+      {actions?.onWatchLive ? (
+        <Button
+          testID={`watch-live-${ticket.id}`}
+          variant="ghost"
+          small
+          label="Watch live"
+          onPress={actions.onWatchLive}
+          style={styles.selfStart}
+        />
+      ) : null}
     </View>
   )
+}
+
+function ReviewBody({ ticket, detail, actions }: BodyProps) {
+  const { colors } = useTheme()
+  const latestRun = detail?.runs[detail.runs.length - 1]
+  const meta = reviewMeta(latestRun)
+
+  return (
+    <View style={styles.body}>
+      <View style={styles.metaRow}>
+        <Badge status="accepted" label="your turn" />
+        {actions?.celebrate ? <TadaStar play testID={`ticket-tada-${ticket.id}`} /> : null}
+      </View>
+      <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
+        {ticket.title}
+      </Text>
+      {meta ? (
+        <Text numberOfLines={1} style={[type.monoSmall, { color: colors.textFaintSolid }]}>
+          {meta}
+        </Text>
+      ) : null}
+      {actions ? (
+        <View style={styles.actionRow}>
+          <Button
+            testID={`accept-${ticket.id}`}
+            variant="primary"
+            small
+            label="Accept"
+            loading={actions.accepting}
+            onPress={actions.onAccept ?? (() => {})}
+          />
+          <Button
+            testID={`send-back-${ticket.id}`}
+            variant="ghost"
+            small
+            label="Send back"
+            onPress={actions.onSendBack ?? (() => {})}
+          />
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+function DoneBody({ ticket, workspace, detail, now }: BodyProps) {
+  const { colors } = useTheme()
+  const latestRun = detail?.runs[detail.runs.length - 1]
+  const meta = doneMeta(workspace, latestRun, ticket, now)
+  return (
+    <View style={styles.body}>
+      <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
+        {ticket.title}
+      </Text>
+      <Text numberOfLines={1} style={[type.monoSmall, { color: colors.textFaintSolid }]}>
+        {meta}
+      </Text>
+    </View>
+  )
+}
+
+/** Dispatches to the right card body for a ticket's origin/column-kind — used both by the live
+ * `TicketCard` and, unadorned (no `actions`), as the floating drag-overlay clone. */
+export function TicketCardBody(props: BodyProps) {
+  const { ticket, workspace, columnKind, now, detail, isTopQueued, parentTitle, actions } = props
+
+  if (isProposalTicket(ticket)) {
+    return <ProposalBody ticket={ticket} parentTitle={parentTitle} actions={actions} />
+  }
+  if (columnKind === 'in_progress') {
+    return <RunningBody {...props} />
+  }
+  if (columnKind === 'in_review') {
+    return <ReviewBody {...props} />
+  }
+  if (columnKind === 'done') {
+    return <DoneBody {...props} />
+  }
+
+  const latestRun = detail?.runs[detail.runs.length - 1]
+  const heldRetry = ticket.queueState === 'held' ? retryMeta(latestRun) : null
+  const meta = heldRetry ?? (isTopQueued ? nextUpMeta(workspace) : minimalCardMeta(workspace, ticket, now))
+  return <MinimalBody title={ticket.title} meta={meta} liveMeta={Boolean(heldRetry)} />
 }
 
 /** Drag activates after a short hold; a plain tap still opens the ticket. */
@@ -64,17 +279,21 @@ export function TicketCard({
   ticket,
   workspace,
   columnKind,
+  now,
+  detail,
+  isTopQueued,
+  parentTitle,
+  actions,
   onPress,
   onLongPress,
-}: {
-  ticket: ApiTicket
-  workspace: ApiWorkspace
-  columnKind: ColumnKind
+}: BodyProps & {
   onPress: () => void
   onLongPress?: () => void
 }) {
   const dnd = useBoardDnD()
+  const { colors } = useTheme()
   const cardRef = useRef<View>(null)
+  const proposal = isProposalTicket(ticket)
 
   useEffect(() => {
     if (!dnd || !cardRef.current) return
@@ -110,16 +329,28 @@ export function TicketCard({
         testID={`ticket-card-${ticket.id}`}
         onPress={onPress}
         onLongPress={onLongPress}
-        style={styles.card}
+        style={proposal ? [styles.card, { borderStyle: 'dashed', borderColor: colors.borderStrong }] : styles.card}
       >
-        <TicketCardBody ticket={ticket} workspace={workspace} columnKind={columnKind} />
+        <TicketCardBody
+          ticket={ticket}
+          workspace={workspace}
+          columnKind={columnKind}
+          now={now}
+          detail={detail}
+          isTopQueued={isTopQueued}
+          parentTitle={parentTitle}
+          actions={actions}
+        />
       </Card>
     </View>
   )
 
-  if (!dnd) return card
+  // Not draggable: a pending proposal isn't part of the normal move flow (Keep/Dismiss decide
+  // its fate instead), so it never gets the pan gesture attached.
+  if (!dnd || proposal) return card
 
   const pan = Gesture.Pan()
+    .withTestId(`ticket-drag-${ticket.id}`)
     .activateAfterLongPress(DRAG_HOLD_MS)
     // eslint-disable-next-line react-hooks/refs -- `lift` reads cardRef inside a gesture handler, not during render
     .onStart((e) => {
@@ -153,13 +384,25 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 18,
   },
+  upper: {
+    textTransform: 'uppercase',
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: space.sm,
   },
-  agent: {
-    flexShrink: 1,
+  actionRow: {
+    flexDirection: 'row',
+    gap: space.xs + 2,
+  },
+  selfStart: {
+    alignSelf: 'flex-start',
+  },
+  well: {
+    borderRadius: radius.control,
+    borderWidth: 1,
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: space.xs + 3,
   },
 })

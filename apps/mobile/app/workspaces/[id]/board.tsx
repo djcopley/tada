@@ -3,10 +3,22 @@ import type { ApiBoard, ApiTicket, ColumnKind } from '@tada/shared'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { FlatList, Platform, StyleSheet, View, useWindowDimensions } from 'react-native'
+import { FlatList, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
+import { useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../../src/api/client'
-import { keys, useBoard, useCreateTicket, useMoveTicket, usePatchTicket, useWorkspace } from '../../../src/api/queries'
+import {
+  keys,
+  useAccept,
+  useBoard,
+  useCreateTicket,
+  useMoveTicket,
+  usePatchTicket,
+  useProposal,
+  useSendBack,
+  useTicketDetails,
+  useWorkspace,
+} from '../../../src/api/queries'
 import { useWorkspaceSocket } from '../../../src/api/useWorkspaceSocket'
 import {
   BoardDnDProvider,
@@ -18,25 +30,27 @@ import {
 import { positionBetween } from '../../../src/board/positions'
 import { ColumnView } from '../../../src/components/ColumnView'
 import { TicketActions } from '../../../src/components/TicketActions'
+import type { BoardCardActions, TicketDetail } from '../../../src/components/TicketCard'
 import { TicketCardBody } from '../../../src/components/TicketCard'
-import { AppHeader, EmptyState, FlipStrip, Screen, Skeleton } from '../../../src/components/ui'
+import { AppHeader, BottomStrip, Button, Dialog, EmptyState, Input, Rail, Screen, Skeleton } from '../../../src/components/ui'
+import { openWorkspaceSwitcher } from '../../../src/components/WorkspaceSwitcher'
+import { useNowTick } from '../../../src/control'
 import { useTheme } from '../../../src/design/ThemeContext'
-import { radius, space } from '../../../src/design/tokens'
+import { motion, radius, space, type } from '../../../src/design/tokens'
+import { useLayout } from '../../../src/layout'
 import { showToast } from '../../../src/toast'
-import { useQueryClient } from '@tanstack/react-query'
 import type { View as RNView } from 'react-native'
 
-/**
- * At or above this width there's room to show every column side-by-side
- * without paging (roughly a tablet-in-landscape or web breakpoint). Below
- * it, columns page horizontally one-at-a-time like a phone board view.
- */
-const WIDE_BREAKPOINT = 900
+/** Fixed width of the web Rail (see src/components/ui/Rail.tsx) — subtracted from the window
+ * width so the wide 5-column grid sizes against the actual content area, not the whole screen. */
+const RAIL_WIDTH = 188
 const COLUMN_MARGIN = 32
 /** Finger within this many px of a screen edge pages the board while dragging. */
 const EDGE_ZONE = 56
 const EDGE_DWELL_MS = 350
 const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
+/** How long the accept-run TadaStar plays before the celebration flag clears. */
+const TADA_LIFETIME_MS = motion.tada + 400
 
 type BoardColumn = ApiBoard['columns'][number]
 
@@ -49,15 +63,21 @@ export default function Board() {
   const wsId = Number(id)
   const router = useRouter()
   const { width } = useWindowDimensions()
+  const { wide } = useLayout()
   const { colors, shadow } = useTheme()
   const qc = useQueryClient()
+  const now = useNowTick()
 
   const { data: board, isLoading: boardLoading } = useBoard(wsId)
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(wsId)
   const createTicket = useCreateTicket()
   const moveTicket = useMoveTicket(wsId)
   const patchTicket = usePatchTicket(wsId)
+  const accept = useAccept()
+  const sendBack = useSendBack()
+  const proposal = useProposal()
   const [selectedTicket, setSelectedTicket] = useState<ApiTicket | null>(null)
+  const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
 
   useWorkspaceSocket(Number.isNaN(wsId) ? undefined : wsId)
 
@@ -85,8 +105,34 @@ export default function Board() {
     () => (board ? [...board.columns].sort((a, b) => a.position - b.position) : []),
     [board],
   )
-  const isWide = width >= WIDE_BREAKPOINT
-  const columnWidth = isWide ? (width - COLUMN_MARGIN) / Math.max(columns.length, 1) : width - COLUMN_MARGIN
+  const contentWidth = wide ? width - RAIL_WIDTH : width
+  const columnWidth = wide ? (contentWidth - COLUMN_MARGIN) / Math.max(columns.length, 1) : width - COLUMN_MARGIN
+
+  // ---------------------------------------------------------------- card context
+  const allTickets = columns.flatMap((c) => c.tickets)
+  const parentTitleById = new Map<number, string>()
+  for (const t of allTickets) parentTitleById.set(t.id, t.title)
+
+  const readyColumn = columns.find((c) => c.kind === 'ready')
+  const topQueuedId = readyColumn
+    ? [...readyColumn.tickets]
+        .filter((t) => t.queueState === 'queued')
+        .sort((a, b) => a.position - b.position)[0]?.id
+    : undefined
+
+  const detailIds = Array.from(
+    new Set(
+      allTickets
+        .filter((t) => {
+          const kind = columns.find((c) => c.id === t.columnId)?.kind
+          return t.queueState === 'held' || kind === 'in_progress' || kind === 'in_review' || kind === 'done'
+        })
+        .map((t) => t.id),
+    ),
+  )
+  const details = useTicketDetails(detailIds)
+  const detailById = new Map<number, TicketDetail | undefined>()
+  detailIds.forEach((id, i) => detailById.set(id, details[i]?.data))
 
   const invalidateRects = useCallback(() => {
     columnRects.current.clear()
@@ -139,7 +185,7 @@ export default function Board() {
 
   const maybePageAtEdge = useCallback(
     (absX: number) => {
-      if (isWide) return
+      if (wide) return
       const dir = absX < EDGE_ZONE ? -1 : absX > width - EDGE_ZONE ? 1 : 0
       if (dir === 0) {
         if (edgeTimer.current) clearTimeout(edgeTimer.current)
@@ -152,7 +198,7 @@ export default function Board() {
         pageTo(pageRef.current + dir)
       }, EDGE_DWELL_MS)
     },
-    [isWide, width, pageTo],
+    [wide, width, pageTo],
   )
 
   const resolveTarget = useCallback(
@@ -305,6 +351,71 @@ export default function Board() {
     ],
   }))
 
+  // ---------------------------------------------------------------- review-action wiring
+  const celebrate = (ticketId: number) => {
+    setCelebratingIds((prev) => new Set(prev).add(ticketId))
+    setTimeout(() => {
+      setCelebratingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(ticketId)
+        return next
+      })
+    }, TADA_LIFETIME_MS)
+  }
+
+  const [sendBackTicket, setSendBackTicket] = useState<ApiTicket | null>(null)
+  const [sendBackFeedback, setSendBackFeedback] = useState('')
+  const closeSendBack = () => {
+    setSendBackTicket(null)
+    setSendBackFeedback('')
+  }
+  const confirmSendBack = () => {
+    if (!sendBackTicket || !sendBackFeedback.trim()) return
+    sendBack.mutate(
+      { ticketId: sendBackTicket.id, feedback: sendBackFeedback.trim() },
+      { onSuccess: closeSendBack, onError: handle409 },
+    )
+  }
+
+  const [newTicketVisible, setNewTicketVisible] = useState(false)
+  const [newTicketTitle, setNewTicketTitle] = useState('')
+  const closeNewTicket = () => {
+    setNewTicketVisible(false)
+    setNewTicketTitle('')
+  }
+  const confirmNewTicket = () => {
+    const title = newTicketTitle.trim()
+    if (!title) return
+    createTicket.mutate({ workspaceId: wsId, title }, { onSuccess: closeNewTicket })
+  }
+
+  const actionsFor = (ticket: ApiTicket, columnKind: ColumnKind): BoardCardActions | undefined => {
+    if (ticket.origin === 'agent' && ticket.proposalState === 'pending') {
+      return {
+        onKeep: () => proposal.mutate({ ticketId: ticket.id, action: 'keep' }),
+        onDismiss: () => proposal.mutate({ ticketId: ticket.id, action: 'dismiss' }),
+        keeping:
+          proposal.isPending && proposal.variables?.ticketId === ticket.id && proposal.variables.action === 'keep',
+        dismissing:
+          proposal.isPending && proposal.variables?.ticketId === ticket.id && proposal.variables.action === 'dismiss',
+      }
+    }
+    if (columnKind === 'in_progress') {
+      const detail = detailById.get(ticket.id)
+      const runningRun = detail?.runs.find((r) => r.status === 'running') ?? detail?.runs[detail.runs.length - 1]
+      return { onWatchLive: runningRun ? () => router.push(`/runs/${runningRun.id}`) : undefined }
+    }
+    if (columnKind === 'in_review') {
+      return {
+        onAccept: () => accept.mutate(ticket.id, { onSuccess: () => celebrate(ticket.id), onError: handle409 }),
+        accepting: accept.isPending && accept.variables === ticket.id,
+        celebrate: celebratingIds.has(ticket.id),
+        onSendBack: () => setSendBackTicket(ticket),
+      }
+    }
+    return undefined
+  }
+
   // ---------------------------------------------------------------- rendering
   if (Number.isNaN(wsId)) {
     return (
@@ -326,12 +437,6 @@ export default function Board() {
     )
   }
 
-  const allTickets = columns.flatMap((c) => c.tickets)
-  const queuedCount = allTickets.filter((t) => t.queueState === 'queued').length
-  const heldCount = allTickets.filter((t) => t.queueState === 'held').length
-  const runningCount = columns.filter((c) => c.kind === 'in_progress').flatMap((c) => c.tickets).length
-  const reviewCount = columns.filter((c) => c.kind === 'in_review').flatMap((c) => c.tickets).length
-
   const onTicketPress = (ticket: ApiTicket) => router.push(`/tickets/${ticket.id}`)
   const onTicketLongPress = (ticket: ApiTicket) => setSelectedTicket(ticket)
   const onCreateTicket = (title: string) => {
@@ -344,6 +449,11 @@ export default function Board() {
       column={column}
       workspace={workspace}
       width={columnWidth}
+      now={now}
+      detailById={detailById}
+      parentTitleById={parentTitleById}
+      topQueuedId={topQueuedId}
+      actionsFor={actionsFor}
       onTicketPress={onTicketPress}
       onTicketLongPress={onTicketLongPress}
       onCreateTicket={column.kind === 'backlog' ? onCreateTicket : undefined}
@@ -352,85 +462,170 @@ export default function Board() {
     />
   )
 
-  return (
-    <BoardDnDProvider value={dnd}>
-      <Screen>
-        <AppHeader
-          title={workspace.name}
-          back
-          actions={[
-            {
-              icon: 'book-open',
-              label: 'Memory',
-              onPress: () => router.push(`/workspaces/${wsId}/memory`),
-              testID: 'board-memory-button',
-            },
-            {
-              icon: 'settings',
-              label: 'Settings',
-              onPress: () => router.push(`/workspaces/${wsId}/settings`),
-              testID: 'board-settings-button',
-            },
+  const dialogs = (
+    <>
+      <Dialog
+        visible={sendBackTicket !== null}
+        title="Send back"
+        onClose={closeSendBack}
+        testID="send-back-dialog"
+        confirm={{
+          label: 'Send back',
+          onPress: confirmSendBack,
+          disabled: sendBack.isPending || sendBackFeedback.trim().length === 0,
+          loading: sendBack.isPending,
+          testID: 'send-back-confirm',
+        }}
+      >
+        <Text style={[type.caption, { color: colors.textMuted }]}>
+          What should the agent change before its next attempt?
+        </Text>
+        <Input
+          testID="send-back-feedback-input"
+          label="Feedback"
+          placeholder="What needs to change?"
+          multiline
+          autoFocus
+          value={sendBackFeedback}
+          onChangeText={setSendBackFeedback}
+        />
+      </Dialog>
+
+      <Dialog
+        visible={newTicketVisible}
+        title="New ticket"
+        onClose={closeNewTicket}
+        testID="new-ticket-dialog"
+        confirm={{
+          label: 'Create ticket',
+          onPress: confirmNewTicket,
+          disabled: createTicket.isPending || newTicketTitle.trim().length === 0,
+          loading: createTicket.isPending,
+          testID: 'new-ticket-confirm',
+        }}
+      >
+        <Input
+          testID="new-ticket-title-input"
+          label="Title"
+          placeholder="What should the agent do?"
+          autoFocus
+          value={newTicketTitle}
+          onChangeText={setNewTicketTitle}
+        />
+      </Dialog>
+    </>
+  )
+
+  const actionsSheet = selectedTicket && (
+    <TicketActions
+      ticket={selectedTicket}
+      columns={board.columns}
+      workspace={workspace}
+      visible
+      onClose={() => setSelectedTicket(null)}
+    />
+  )
+
+  const overlay = (
+    <View ref={overlayRef} collapsable={false} pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {drag ? (
+        <Animated.View
+          style={[
+            styles.floatingCard,
+            { width: drag.width, backgroundColor: colors.raised, borderColor: colors.borderStrong },
+            shadow.lifted,
+            overlayStyle,
           ]}
         >
-          <FlipStrip
-            testID="board-strip"
-            items={[
-              { label: 'Queued', count: queuedCount, signal: 'neutral' },
-              { label: 'Live', count: runningCount, signal: 'live' },
-              { label: 'Yours', count: reviewCount, signal: 'ok' },
-              ...(heldCount > 0 ? [{ label: 'Failed', count: heldCount, signal: 'fail' as const }] : []),
-            ]}
-          />
-        </AppHeader>
-
-        {isWide ? (
-          <View testID="board-wide" style={styles.wideContainer}>
-            {columns.map(renderColumn)}
-          </View>
-        ) : (
-          <FlatList
-            ref={pagerRef}
-            testID="board-paged"
-            horizontal
-            snapToInterval={columnWidth}
-            decelerationRate="fast"
-            scrollEnabled={!drag}
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => {
-              pageRef.current = Math.round(e.nativeEvent.contentOffset.x / columnWidth)
-            }}
-            data={columns}
-            keyExtractor={(c) => String(c.id)}
-            renderItem={({ item }) => renderColumn(item)}
-          />
-        )}
-
-        {selectedTicket && (
-          <TicketActions
-            ticket={selectedTicket}
-            columns={board.columns}
+          <TicketCardBody
+            ticket={drag.ticket}
             workspace={workspace}
-            visible
-            onClose={() => setSelectedTicket(null)}
+            columnKind={drag.fromColumnKind}
+            now={now}
+            detail={detailById.get(drag.ticket.id)}
+            isTopQueued={drag.ticket.id === topQueuedId}
+            parentTitle={
+              drag.ticket.followUpOfTicketId !== null
+                ? parentTitleById.get(drag.ticket.followUpOfTicketId)
+                : undefined
+            }
           />
-        )}
+        </Animated.View>
+      ) : null}
+    </View>
+  )
 
-        {/* Floating drag overlay: a lifted clone of the card follows the finger. */}
-        <View ref={overlayRef} collapsable={false} pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {drag ? (
-            <Animated.View
-              style={[
-                styles.floatingCard,
-                { width: drag.width, backgroundColor: colors.raised, borderColor: colors.borderStrong },
-                shadow.lifted,
-                overlayStyle,
-              ]}
-            >
-              <TicketCardBody ticket={drag.ticket} workspace={workspace} columnKind={drag.fromColumnKind} />
-            </Animated.View>
-          ) : null}
+  const workspaceSwitcherTrigger = (
+    <Button
+      testID="board-workspace-switcher"
+      variant="secondary"
+      small
+      label={`${workspace.name} ▾`}
+      onPress={openWorkspaceSwitcher}
+    />
+  )
+
+  if (wide) {
+    return (
+      <BoardDnDProvider value={dnd}>
+        <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="board-wide">
+          <Rail
+            active="board"
+            workspaceId={wsId}
+            workspaceName={workspace.name}
+            sourceCount={workspace.sources.length}
+            testID="board-rail"
+          />
+          <View style={styles.wideContent}>
+            <View style={styles.headerRow}>
+              <Text style={[type.display, { color: colors.text }]}>Board</Text>
+              {workspaceSwitcherTrigger}
+              <View style={styles.spacer} />
+              <Button testID="board-new-ticket" variant="primary" label="New ticket" onPress={() => setNewTicketVisible(true)} />
+            </View>
+            <View style={styles.columnsRow}>{columns.map(renderColumn)}</View>
+          </View>
+          {actionsSheet}
+          {overlay}
+          {dialogs}
         </View>
+      </BoardDnDProvider>
+    )
+  }
+
+  return (
+    <BoardDnDProvider value={dnd}>
+      <Screen edges={['top']} testID="board-narrow">
+        <View style={styles.narrowHeader}>
+          <Text style={[type.title, { color: colors.text }]}>Board</Text>
+          {workspaceSwitcherTrigger}
+          <View style={styles.spacer} />
+          <Button testID="board-new-ticket" variant="primary" small label="New ticket" onPress={() => setNewTicketVisible(true)} />
+        </View>
+
+        <FlatList
+          ref={pagerRef}
+          testID="board-paged"
+          horizontal
+          snapToInterval={columnWidth}
+          decelerationRate="fast"
+          scrollEnabled={!drag}
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            pageRef.current = Math.round(e.nativeEvent.contentOffset.x / columnWidth)
+          }}
+          data={columns}
+          keyExtractor={(c) => String(c.id)}
+          renderItem={({ item }) => renderColumn(item)}
+        />
+
+        <View style={styles.bottomStripWrap}>
+          <BottomStrip active="board" workspaceId={wsId} testID="board-bottom-strip" />
+        </View>
+
+        {actionsSheet}
+        {overlay}
+        {dialogs}
       </Screen>
     </BoardDnDProvider>
   )
@@ -441,10 +636,37 @@ const styles = StyleSheet.create({
     padding: space.lg,
     flex: 1,
   },
-  wideContainer: {
+  wideRoot: {
     flex: 1,
     flexDirection: 'row',
-    paddingHorizontal: space.sm,
+  },
+  wideContent: {
+    flex: 1,
+    padding: space.xl,
+    gap: space.lg,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  spacer: {
+    flex: 1,
+  },
+  columnsRow: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  narrowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+    paddingBottom: space.sm,
+  },
+  bottomStripWrap: {
+    padding: space.md,
   },
   floatingCard: {
     position: 'absolute',

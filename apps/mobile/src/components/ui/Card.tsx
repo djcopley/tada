@@ -7,7 +7,7 @@ type Props = {
   children: ReactNode
   onPress?: () => void
   onLongPress?: () => void
-  style?: ViewStyle
+  style?: ViewStyle | ViewStyle[]
   testID?: string
 }
 

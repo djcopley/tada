@@ -1,18 +1,54 @@
-import type { ApiColumn, ApiTicket, ApiWorkspace } from '@tada/shared'
+import type { ApiColumn, ApiTicket, ApiWorkspaceDetail, ColumnKind } from '@tada/shared'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { useBoardDnD } from '../board/dnd'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
+import type { BoardCardActions, TicketDetail } from './TicketCard'
 import { TicketCard } from './TicketCard'
 import { Button } from './ui/Button'
 import { Dialog } from './ui/Dialog'
 import { Input } from './ui/Input'
 
+/** 8px status dot in a column header — pulses while `pulse` is true (Running only; In review's
+ * dot is a static "ok" marker per the artboard). */
+function HeaderDot({ color, pulse, testID }: { color: string; pulse: boolean; testID?: string }) {
+  const reducedMotion = useReducedMotion()
+  const opacity = useSharedValue(1)
+  const live = pulse && !reducedMotion
+
+  useEffect(() => {
+    if (live) {
+      opacity.value = withRepeat(withSequence(withTiming(0.25, { duration: 700 }), withTiming(1, { duration: 700 })), -1)
+    } else {
+      cancelAnimation(opacity)
+      opacity.value = 1
+    }
+    return () => cancelAnimation(opacity)
+  }, [live, opacity])
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+  return <Animated.View testID={testID} style={[styles.headerDot, { backgroundColor: color }, style]} />
+}
+
 export function ColumnView({
   column,
   workspace,
   width,
+  now,
+  detailById,
+  parentTitleById,
+  topQueuedId,
+  actionsFor,
   onTicketPress,
   onTicketLongPress,
   onCreateTicket,
@@ -21,8 +57,15 @@ export function ColumnView({
   dropIndex,
 }: {
   column: ApiColumn & { tickets: ApiTicket[] }
-  workspace: ApiWorkspace
+  workspace: ApiWorkspaceDetail
   width: number
+  /** Ticking clock for elapsed/age labels — see `useNowTick`. */
+  now: number
+  detailById: Map<number, TicketDetail | undefined>
+  parentTitleById: Map<number, string>
+  /** The first queued ticket in Queued — reads "next up" instead of its age. */
+  topQueuedId?: number
+  actionsFor: (ticket: ApiTicket, columnKind: ColumnKind) => BoardCardActions | undefined
   onTicketPress: (ticket: ApiTicket) => void
   onTicketLongPress?: (ticket: ApiTicket) => void
   onCreateTicket?: (title: string) => void
@@ -57,7 +100,8 @@ export function ColumnView({
 
   const hovering = dropIndex !== null && dropIndex !== undefined
 
-  // Running and in-review columns carry their signal color in the header.
+  // Running and in-review columns carry their signal color in the header; Running's dot pulses,
+  // In review's is a static "ok" marker — only a live run gets the animation.
   const headerColor =
     column.kind === 'in_progress'
       ? colors.liveText
@@ -67,7 +111,10 @@ export function ColumnView({
   const indicator = <View style={[styles.indicator, { backgroundColor: colors.live }]} />
 
   return (
-    <View testID={`column-${column.id}`} style={[styles.column, { width }]}>
+    <View
+      testID={`column-${column.id}`}
+      style={[styles.column, { width }, column.kind === 'done' && styles.doneOpacity]}
+    >
       <View
         ref={laneRef}
         collapsable={false}
@@ -77,11 +124,15 @@ export function ColumnView({
         ]}
       >
         <View style={styles.header}>
-          {column.kind === 'in_progress' || column.kind === 'in_review' ? (
-            <View style={[styles.headerDot, { backgroundColor: headerColor }]} />
+          {column.kind === 'in_progress' ? (
+            <HeaderDot testID={`header-dot-${column.id}`} color={headerColor} pulse />
+          ) : column.kind === 'in_review' ? (
+            <HeaderDot testID={`header-dot-${column.id}`} color={headerColor} pulse={false} />
           ) : null}
           <Text style={[type.monoCaps, styles.upper, { color: headerColor }]}>{column.title}</Text>
-          <Text style={[type.monoCaps, { color: colors.textFaintSolid }]}>{tickets.length}</Text>
+          <Text testID={`column-count-${column.id}`} style={[type.monoCaps, { color: colors.textFaintSolid }]}>
+            {tickets.length}
+          </Text>
         </View>
         <ScrollView
           testID={`column-tickets-${column.id}`}
@@ -101,6 +152,13 @@ export function ColumnView({
                 ticket={ticket}
                 workspace={workspace}
                 columnKind={column.kind}
+                now={now}
+                detail={detailById.get(ticket.id)}
+                isTopQueued={ticket.id === topQueuedId}
+                parentTitle={
+                  ticket.followUpOfTicketId !== null ? parentTitleById.get(ticket.followUpOfTicketId) : undefined
+                }
+                actions={actionsFor(ticket, column.kind)}
                 onPress={() => onTicketPress(ticket)}
                 onLongPress={onTicketLongPress ? () => onTicketLongPress(ticket) : undefined}
               />
@@ -150,6 +208,9 @@ const styles = StyleSheet.create({
   column: {
     padding: space.sm,
   },
+  doneOpacity: {
+    opacity: 0.68,
+  },
   lane: {
     flex: 1,
     borderRadius: radius.card,
@@ -167,8 +228,8 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   headerDot: {
-    width: 7,
-    height: 7,
+    width: 8,
+    height: 8,
     borderRadius: 4,
   },
   list: {

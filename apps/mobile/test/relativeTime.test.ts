@@ -1,4 +1,4 @@
-import { relativeTime } from '../src/relativeTime'
+import { bareAge, relativeTime } from '../src/relativeTime'
 
 const NOW = new Date('2026-08-13T12:00:00.000Z')
 
@@ -26,5 +26,41 @@ describe('relativeTime', () => {
 
   test('days ago', () => {
     expect(relativeTime(new Date(NOW.getTime() - 2 * 24 * 60 * 60_000).toISOString())).toBe('2d ago')
+  })
+})
+
+describe('bareAge', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  test('just now for sub-minute ages', () => {
+    expect(bareAge(new Date(NOW.getTime() - 30_000).toISOString())).toBe('just now')
+  })
+
+  test('bare minutes, no "ago"', () => {
+    expect(bareAge(new Date(NOW.getTime() - 5 * 60_000).toISOString())).toBe('5m')
+  })
+
+  test('bare hours', () => {
+    expect(bareAge(new Date(NOW.getTime() - 3 * 60 * 60_000).toISOString())).toBe('3h')
+  })
+
+  test('bare days', () => {
+    expect(bareAge(new Date(NOW.getTime() - 2 * 24 * 60 * 60_000).toISOString())).toBe('2d')
+  })
+
+  test('weeks once a week has passed', () => {
+    expect(bareAge(new Date(NOW.getTime() - 9 * 24 * 60 * 60_000).toISOString())).toBe('1w')
+  })
+
+  test('accepts an explicit now instead of the system clock', () => {
+    const explicitNow = NOW.getTime() + 60 * 60_000
+    expect(bareAge(NOW.toISOString(), explicitNow)).toBe('1h')
   })
 })
