@@ -1,13 +1,22 @@
 import type {
+  ApiActivity,
+  ApiAdapterInfo,
   ApiBoard,
   ApiComment,
+  ApiHealth,
+  ApiKnownRepo,
   ApiMemory,
-  ApiRepo,
+  ApiNameCheck,
   ApiRun,
+  ApiRunDetail,
   ApiRunEvent,
+  ApiSource,
+  ApiStatus,
   ApiTicket,
   ApiWorkspace,
+  ApiWorkspaceDetail,
   ApiWorkspaceListItem,
+  ProposalState,
 } from '@tada/shared'
 import type { Connection } from '../settings'
 
@@ -20,6 +29,9 @@ export class ApiError extends Error {
     this.name = 'ApiError'
   }
 }
+
+/** POST /workspaces/:id/sources body — a repo clone or a bare local folder. */
+export type AddSourceBody = { type: 'repo'; url: string } | { type: 'folder'; path: string }
 
 export class TadaClient {
   private readonly fetchImpl: typeof fetch
@@ -67,8 +79,16 @@ export class TadaClient {
     return parsed as T
   }
 
-  health(): Promise<{ ok: boolean }> {
+  health(): Promise<ApiHealth> {
     return this.req('GET', '/health')
+  }
+
+  status(): Promise<ApiStatus> {
+    return this.req('GET', '/status')
+  }
+
+  adapters(): Promise<ApiAdapterInfo[]> {
+    return this.req('GET', '/adapters')
   }
 
   listWorkspaces(): Promise<ApiWorkspaceListItem[]> {
@@ -79,8 +99,16 @@ export class TadaClient {
     return this.req('POST', '/workspaces', { name })
   }
 
-  getWorkspace(id: number): Promise<ApiWorkspace & { repos: ApiRepo[] }> {
+  getWorkspace(id: number): Promise<ApiWorkspaceDetail> {
     return this.req('GET', `/workspaces/${id}`)
+  }
+
+  checkName(name: string): Promise<ApiNameCheck> {
+    return this.req('GET', `/workspaces/check-name?name=${encodeURIComponent(name)}`)
+  }
+
+  knownRepos(): Promise<ApiKnownRepo[]> {
+    return this.req('GET', '/repos/known')
   }
 
   patchWorkspace(
@@ -90,12 +118,12 @@ export class TadaClient {
     return this.req('PATCH', `/workspaces/${id}`, patch)
   }
 
-  async addRepo(wsId: number, url: string): Promise<void> {
-    await this.req('POST', `/workspaces/${wsId}/repos`, { url })
+  addSource(wsId: number, body: AddSourceBody): Promise<ApiSource[]> {
+    return this.req('POST', `/workspaces/${wsId}/sources`, body)
   }
 
-  async removeRepo(wsId: number, name: string): Promise<void> {
-    await this.req('DELETE', `/workspaces/${wsId}/repos/${encodeURIComponent(name)}`)
+  removeSource(wsId: number, name: string): Promise<ApiSource[]> {
+    return this.req('DELETE', `/workspaces/${wsId}/sources/${encodeURIComponent(name)}`)
   }
 
   board(wsId: number): Promise<ApiBoard> {
@@ -108,6 +136,30 @@ export class TadaClient {
 
   async putMemory(wsId: number, file: string, body: string): Promise<void> {
     await this.req('PUT', `/workspaces/${wsId}/memory/${encodeURIComponent(file)}`, { body })
+  }
+
+  async deleteMemory(wsId: number, file: string): Promise<void> {
+    await this.req('DELETE', `/workspaces/${wsId}/memory/${encodeURIComponent(file)}`)
+  }
+
+  globalMemory(): Promise<ApiMemory> {
+    return this.req('GET', '/memory')
+  }
+
+  async putGlobalMemory(file: string, body: string): Promise<void> {
+    await this.req('PUT', `/memory/${encodeURIComponent(file)}`, { body })
+  }
+
+  async deleteGlobalMemory(file: string): Promise<void> {
+    await this.req('DELETE', `/memory/${encodeURIComponent(file)}`)
+  }
+
+  async keepNote(id: number): Promise<void> {
+    await this.req('POST', `/memory-notes/${id}/keep`)
+  }
+
+  async discardNote(id: number): Promise<void> {
+    await this.req('POST', `/memory-notes/${id}/discard`)
   }
 
   createTicket(t: { workspaceId: number; title: string; description?: string }): Promise<ApiTicket> {
@@ -132,8 +184,24 @@ export class TadaClient {
     await this.req('POST', `/tickets/${id}/move`, to)
   }
 
+  accept(ticketId: number): Promise<ApiTicket> {
+    return this.req('POST', `/tickets/${ticketId}/accept`)
+  }
+
+  sendBack(ticketId: number, feedback: string): Promise<ApiTicket> {
+    return this.req('POST', `/tickets/${ticketId}/send-back`, { feedback })
+  }
+
+  proposal(ticketId: number, action: Exclude<ProposalState, null> | 'keep' | 'dismiss'): Promise<ApiTicket | undefined> {
+    return this.req('POST', `/tickets/${ticketId}/proposal`, { action })
+  }
+
   comment(ticketId: number, body: string): Promise<ApiComment> {
     return this.req('POST', `/tickets/${ticketId}/comments`, { body })
+  }
+
+  run(runId: number): Promise<ApiRunDetail> {
+    return this.req('GET', `/runs/${runId}`)
   }
 
   runEvents(runId: number, after?: number): Promise<ApiRunEvent[]> {
@@ -153,6 +221,18 @@ export class TadaClient {
 
   async cancelRun(runId: number): Promise<void> {
     await this.req('POST', `/runs/${runId}/cancel`)
+  }
+
+  nudge(runId: number, note: string): Promise<{ delivered: boolean }> {
+    return this.req('POST', `/runs/${runId}/nudge`, { note })
+  }
+
+  activity(workspaceId?: number | 'all', limit?: number): Promise<ApiActivity[]> {
+    const params = new URLSearchParams()
+    if (typeof workspaceId === 'number') params.set('workspaceId', String(workspaceId))
+    if (limit !== undefined) params.set('limit', String(limit))
+    const query = params.toString()
+    return this.req('GET', `/activity${query ? `?${query}` : ''}`)
   }
 
   async registerPushToken(token: string): Promise<void> {

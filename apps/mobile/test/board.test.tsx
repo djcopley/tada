@@ -1,4 +1,4 @@
-import type { ApiBoard, ApiRepo, ApiTicket, ApiWorkspace } from '@tada/shared'
+import type { ApiBoard, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react-native'
 import Board from '../app/workspaces/[id]/board'
@@ -46,19 +46,17 @@ jest.mock('../src/api/client', () => {
   }
 })
 
-function workspace(overrides: Partial<ApiWorkspace & { repos: ApiRepo[] }> = {}): ApiWorkspace & {
-  repos: ApiRepo[]
-} {
+function workspace(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorkspaceDetail {
   return {
     id: 1,
     name: 'Alpha',
-    path: '/repos/alpha',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
+    defaultEffort: 'default',
     concurrency: 1,
     timeoutMs: 60_000,
     createdAt: '2026-01-01T00:00:00.000Z',
-    repos: [],
+    sources: [],
     ...overrides,
   }
 }
@@ -74,6 +72,10 @@ function ticket(overrides: Partial<ApiTicket>): ApiTicket {
     queueState: null,
     adapterOverride: null,
     modelOverride: null,
+    effortOverride: null,
+    origin: 'human',
+    proposalState: null,
+    followUpOfTicketId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
@@ -82,11 +84,11 @@ function ticket(overrides: Partial<ApiTicket>): ApiTicket {
 function board(overrides: Partial<ApiBoard> = {}): ApiBoard {
   return {
     columns: [
-      { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 2, workspaceId: 1, kind: 'ready', title: 'Ready', position: 2, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
+      { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, tickets: [] },
+      { id: 2, workspaceId: 1, kind: 'ready', title: 'Ready', position: 2, tickets: [] },
+      { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, tickets: [] },
+      { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, tickets: [] },
+      { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, tickets: [] },
     ],
     ...overrides,
   }
@@ -133,7 +135,6 @@ describe('Board screen', () => {
             kind: 'backlog',
             title: 'Backlog',
             position: 1,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [
               ticket({ id: 10, title: 'Second', position: 2 }),
               ticket({ id: 11, title: 'First', position: 1 }),
@@ -164,7 +165,6 @@ describe('Board screen', () => {
             kind: 'backlog',
             title: 'Backlog',
             position: 1,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [ticket({ id: 20, title: 'Fallback ticket' })],
           },
         ],
@@ -189,7 +189,6 @@ describe('Board screen', () => {
             kind: 'backlog',
             title: 'Backlog',
             position: 1,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [
               ticket({ id: 21, title: 'Override ticket', adapterOverride: 'codex', modelOverride: 'gpt-5' }),
             ],
@@ -216,7 +215,6 @@ describe('Board screen', () => {
             kind: 'backlog',
             title: 'Backlog',
             position: 1,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [ticket({ id: 30, title: 'Queued ticket', queueState: 'queued' })],
           },
           {
@@ -225,7 +223,6 @@ describe('Board screen', () => {
             kind: 'ready',
             title: 'Ready',
             position: 2,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [ticket({ id: 31, title: 'Held ticket', queueState: 'held' })],
           },
           {
@@ -234,7 +231,6 @@ describe('Board screen', () => {
             kind: 'in_progress',
             title: 'In Progress',
             position: 3,
-            createdAt: '2026-01-01T00:00:00.000Z',
             tickets: [ticket({ id: 32, title: 'Running ticket', queueState: null })],
           },
         ],

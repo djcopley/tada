@@ -41,14 +41,16 @@ function workspace(overrides: Partial<ApiWorkspaceListItem>): ApiWorkspaceListIt
   return {
     id: 1,
     name: 'Alpha',
-    path: '/repos/alpha',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
+    defaultEffort: 'default',
     concurrency: 1,
     timeoutMs: 60_000,
     createdAt: '2026-01-01T00:00:00.000Z',
     runningCount: 0,
     needsReviewCount: 0,
+    queuedCount: 0,
+    sourceCount: 0,
     ...overrides,
   }
 }

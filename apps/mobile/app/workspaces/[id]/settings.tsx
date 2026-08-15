@@ -2,9 +2,17 @@ import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View, Pressable } from 'react-native'
 import { useConnection } from '../../../src/ConnectionContext'
-import { useRemoveRepo, useAddRepo, usePatchWorkspace, useWorkspace } from '../../../src/api/queries'
-import { ADAPTERS } from '../../../src/adapters'
+import { useRemoveSource, useAddSource, usePatchWorkspace, useWorkspace } from '../../../src/api/queries'
 import type { ApiError } from '../../../src/api/client'
+
+/**
+ * Temporary bridge: this screen is fully rebuilt in Task 14 against the
+ * server's `/adapters` discovery route (`useAdapters`) — not worth wiring
+ * that up here just to delete it again shortly. Mirrors the removed
+ * `src/adapters.ts` for now; the server is the real authority and rejects
+ * unknown adapter/model combinations with a 400.
+ */
+const ADAPTERS: Record<string, readonly string[]> = { claude: ['sonnet', 'opus', 'haiku'] }
 import {
   AppHeader,
   Button,
@@ -37,8 +45,8 @@ export default function WorkspaceSettings() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
   const { data: workspace, isLoading } = useWorkspace(wsId)
-  const removeRepo = useRemoveRepo(wsId)
-  const addRepo = useAddRepo(wsId)
+  const removeSource = useRemoveSource(wsId)
+  const addSource = useAddSource(wsId)
   const patchWorkspace = usePatchWorkspace(wsId)
 
   const [addRepoUrl, setAddRepoUrl] = useState('')
@@ -130,8 +138,8 @@ export default function WorkspaceSettings() {
       return
     }
 
-    void addRepo
-      .mutateAsync(addRepoUrl)
+    void addSource
+      .mutateAsync({ type: 'repo', url: addRepoUrl })
       .then(() => {
         setAddRepoUrl('')
       })
@@ -145,7 +153,7 @@ export default function WorkspaceSettings() {
     setRepoToRemove(null)
     if (!repoName) return
     setRemoveRepoError('')
-    void removeRepo.mutateAsync(repoName).catch((err) => {
+    void removeSource.mutateAsync(repoName).catch((err) => {
       setRemoveRepoError(apiErrorMessage(err, 'Failed to remove repo'))
     })
   }
@@ -236,24 +244,24 @@ export default function WorkspaceSettings() {
         <View style={styles.section}>
           {sectionTitle('SOURCES — THIS WORKSPACE ONLY')}
           <Card style={styles.sectionCard}>
-            {workspace.repos.length === 0 ? (
+            {workspace.sources.length === 0 ? (
               <Text style={[type.caption, { color: colors.textFaintSolid }]}>
                 No repositories — agents will run without a codebase.
               </Text>
             ) : (
-              workspace.repos.map((repo) => (
+              workspace.sources.map((source) => (
                 <ListRow
-                  key={repo.name}
+                  key={source.name}
                   icon="git-branch"
-                  title={repo.name}
-                  subtitle={repo.url}
+                  title={source.name}
+                  subtitle={source.url ?? source.path}
                   trailing={
                     <Pressable
-                      testID={`remove-repo-${repo.name}`}
+                      testID={`remove-repo-${source.name}`}
                       accessibilityRole="button"
-                      accessibilityLabel={`Remove ${repo.name}`}
+                      accessibilityLabel={`Remove ${source.name}`}
                       hitSlop={8}
-                      onPress={() => setRepoToRemove(repo.name)}
+                      onPress={() => setRepoToRemove(source.name)}
                       style={({ pressed }) => [styles.removeButton, pressed && { opacity: 0.6 }]}
                     >
                       <Icon name="trash-2" size={16} color={colors.failText} />

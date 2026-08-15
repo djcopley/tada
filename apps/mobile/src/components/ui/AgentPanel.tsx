@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native'
+import { useState, type ReactNode } from 'react'
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
 
@@ -9,6 +9,9 @@ type Props = {
   header?: string
   /** Trailing mono meta in the header row, e.g. "live · 12m". */
   meta?: string
+  /** Raw transcript tail, shown in a collapsible section below the narration — expanded by
+   * default, matching the artboard's live-run panel. */
+  rawOutput?: string
   style?: ViewStyle
   testID?: string
 }
@@ -18,8 +21,10 @@ type Props = {
  * in IBM Plex Mono, identical in both themes. Lines starting with the ▸
  * prompt are drawn by callers via <AgentLine>.
  */
-export function AgentPanel({ children, header, meta, style, testID }: Props) {
+export function AgentPanel({ children, header, meta, rawOutput, style, testID }: Props) {
   const { colors } = useTheme()
+  const [collapsed, setCollapsed] = useState(false)
+
   return (
     <View
       testID={testID}
@@ -41,6 +46,28 @@ export function AgentPanel({ children, header, meta, style, testID }: Props) {
         </View>
       ) : null}
       {children}
+      {rawOutput !== undefined ? (
+        <View style={[styles.rawSection, { borderTopColor: colors.agentSurfaceEdge }]}>
+          <Pressable
+            testID={testID ? `${testID}-raw-toggle` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={collapsed ? 'Expand raw output' : 'Collapse raw output'}
+            onPress={() => setCollapsed((c) => !c)}
+            style={styles.rawHeader}
+          >
+            <Text style={[type.monoCaps, styles.caps, { color: colors.agentTextMuted }]}>raw output</Text>
+            <View style={styles.spacer} />
+            <Text style={[type.monoCaps, styles.caps, { color: colors.agentTextMuted }]}>
+              {collapsed ? 'expand ▸' : 'collapse ▾'}
+            </Text>
+          </Pressable>
+          {collapsed ? null : (
+            <Text testID={testID ? `${testID}-raw-content` : undefined} style={[styles.rawText, { color: colors.agentTextMuted }]}>
+              {rawOutput}
+            </Text>
+          )}
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -95,5 +122,19 @@ const styles = StyleSheet.create({
   line: {
     // leading-mono is roomier than sans body.
     lineHeight: 22,
+  },
+  rawSection: {
+    marginTop: space.md,
+    paddingTop: space.sm + 2,
+    borderTopWidth: 1,
+    gap: space.xs,
+  },
+  rawHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rawText: {
+    fontSize: 11.5,
+    lineHeight: 17,
   },
 })

@@ -20,6 +20,10 @@ export interface UseWorkspaceSocketOptions {
  *    an extra lookup — every `['ticket', ...]` query as a blunt but correct
  *    freshness signal. Cheap: it's a prefix invalidation, not a refetch
  *    storm, and only fires on actual board-affecting changes.
+ *  - `activity` and `board_changed` both invalidate `keys.activity()` — the
+ *    bare `['activity']` key, which is a prefix of every scoped
+ *    `keys.activity(workspaceId)` variant, so one invalidation refreshes
+ *    the per-workspace feed and the cross-workspace "all" feed alike.
  *  - `run_event` is forwarded verbatim to `onRunEvent`, if given; screens
  *    that care (run activity) filter by runId and ingest into their own
  *    event feed. This hook does no run-specific bookkeeping itself.
@@ -71,6 +75,9 @@ export function useWorkspaceSocket(
           void queryClient.invalidateQueries({ queryKey: keys.board(wsId) })
           void queryClient.invalidateQueries({ queryKey: keys.workspaces })
           void queryClient.invalidateQueries({ queryKey: ['ticket'] })
+          void queryClient.invalidateQueries({ queryKey: keys.activity() })
+        } else if (msg.type === 'activity') {
+          void queryClient.invalidateQueries({ queryKey: keys.activity() })
         } else if (msg.type === 'run_event') {
           onRunEventRef.current?.(msg)
         }

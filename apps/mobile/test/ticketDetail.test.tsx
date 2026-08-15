@@ -1,4 +1,4 @@
-import type { ApiBoard, ApiComment, ApiRepo, ApiRun, ApiTicket, ApiWorkspace } from '@tada/shared'
+import type { ApiBoard, ApiComment, ApiRun, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Linking } from 'react-native'
@@ -53,19 +53,17 @@ jest.mock('../src/api/client', () => {
   }
 })
 
-function workspace(overrides: Partial<ApiWorkspace & { repos: ApiRepo[] }> = {}): ApiWorkspace & {
-  repos: ApiRepo[]
-} {
+function workspace(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorkspaceDetail {
   return {
     id: 1,
     name: 'Alpha',
-    path: '/repos/alpha',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
+    defaultEffort: 'default',
     concurrency: 1,
     timeoutMs: 60_000,
     createdAt: '2026-01-01T00:00:00.000Z',
-    repos: [],
+    sources: [],
     ...overrides,
   }
 }
@@ -81,6 +79,10 @@ function ticket(overrides: Partial<ApiTicket> = {}): ApiTicket {
     queueState: null,
     adapterOverride: null,
     modelOverride: null,
+    effortOverride: null,
+    origin: 'human',
+    proposalState: null,
+    followUpOfTicketId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
@@ -89,11 +91,11 @@ function ticket(overrides: Partial<ApiTicket> = {}): ApiTicket {
 function board(overrides: Partial<ApiBoard> = {}): ApiBoard {
   return {
     columns: [
-      { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 2, workspaceId: 1, kind: 'ready', title: 'Ready', position: 2, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-      { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
+      { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, tickets: [] },
+      { id: 2, workspaceId: 1, kind: 'ready', title: 'Ready', position: 2, tickets: [] },
+      { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, tickets: [] },
+      { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, tickets: [] },
+      { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, tickets: [] },
     ],
     ...overrides,
   }
@@ -104,6 +106,7 @@ function comment(overrides: Partial<ApiComment>): ApiComment {
     id: 1,
     ticketId: 1,
     author: 'human',
+    kind: 'note',
     body: 'hello',
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -116,10 +119,15 @@ function run(overrides: Partial<ApiRun>): ApiRun {
     ticketId: 1,
     adapter: 'claude',
     model: 'sonnet',
+    effort: 'default',
+    attemptNumber: 1,
     status: 'needs_review',
     branch: 'run-1',
     prUrl: null,
     summary: null,
+    diffAdditions: null,
+    diffDeletions: null,
+    testsPassed: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     startedAt: '2026-01-01T00:00:00.000Z',
     finishedAt: '2026-01-01T00:01:00.000Z',
@@ -343,7 +351,7 @@ describe('Ticket detail screen', () => {
 
     await fireEvent.press(screen.getByTestId('run-row-30'))
 
-    expect(mockPush).toHaveBeenCalledWith('/runs/30?ticketId=1')
+    expect(mockPush).toHaveBeenCalledWith('/runs/30')
   })
 
   test('editing is blocked while a run is queued or running', async () => {

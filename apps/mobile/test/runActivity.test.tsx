@@ -1,11 +1,11 @@
-import type { ApiRun, ApiTicket } from '@tada/shared'
+import type { ApiRunDetail } from '@tada/shared'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import RunActivity from '../app/runs/[id]'
 import { ConnectionProvider } from '../src/ConnectionContext'
 import { useWorkspaceSocket as mockUseWorkspaceSocket } from '../src/api/useWorkspaceSocket'
 
-const mockSearchParams = { id: '30', ticketId: '1' }
+const mockSearchParams = { id: '30' }
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockSearchParams,
   useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
@@ -21,7 +21,7 @@ jest.mock('../src/api/useWorkspaceSocket', () => ({
   useWorkspaceSocket: jest.fn(),
 }))
 
-const mockTicket = jest.fn()
+const mockRun = jest.fn()
 const mockRunEvents = jest.fn()
 const mockCancelRun = jest.fn()
 const mockTranscript = jest.fn()
@@ -40,7 +40,7 @@ jest.mock('../src/api/client', () => {
   return {
     ApiError: FakeApiError,
     TadaClient: jest.fn().mockImplementation(() => ({
-      ticket: mockTicket,
+      run: mockRun,
       runEvents: mockRunEvents,
       cancelRun: mockCancelRun,
       transcript: mockTranscript,
@@ -49,32 +49,23 @@ jest.mock('../src/api/client', () => {
   }
 })
 
-function ticket(overrides: Partial<ApiTicket> = {}): ApiTicket {
-  return {
-    id: 1,
-    workspaceId: 1,
-    columnId: 1,
-    title: 'Fix the bug',
-    description: 'It is broken',
-    position: 1,
-    queueState: null,
-    adapterOverride: null,
-    modelOverride: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    ...overrides,
-  }
-}
-
-function run(overrides: Partial<ApiRun> = {}): ApiRun {
+function run(overrides: Partial<ApiRunDetail> = {}): ApiRunDetail {
   return {
     id: 30,
     ticketId: 1,
+    ticketTitle: 'Fix the bug',
+    workspaceId: 1,
     adapter: 'claude',
     model: 'sonnet',
+    effort: 'default',
+    attemptNumber: 1,
     status: 'running',
     branch: 'run-30',
     prUrl: null,
     summary: null,
+    diffAdditions: null,
+    diffDeletions: null,
+    testsPassed: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     startedAt: '2026-01-01T00:00:00.000Z',
     finishedAt: null,
@@ -100,7 +91,7 @@ describe('Run activity screen', () => {
   })
 
   test('shows the run status and a Cancel button while the run is active', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
+    mockRun.mockResolvedValue(run({ status: 'running' }))
 
     await renderScreen()
 
@@ -111,7 +102,7 @@ describe('Run activity screen', () => {
   })
 
   test('hides the Cancel button once the run is no longer active', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'needs_review' })] })
+    mockRun.mockResolvedValue(run({ status: 'needs_review' }))
 
     await renderScreen()
 
@@ -122,7 +113,7 @@ describe('Run activity screen', () => {
   })
 
   test('cancel button confirms via dialog then calls cancelRun', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
+    mockRun.mockResolvedValue(run({ status: 'running' }))
     mockCancelRun.mockResolvedValue(undefined)
 
     await renderScreen()
@@ -139,7 +130,7 @@ describe('Run activity screen', () => {
   })
 
   test('does not cancel when the confirm dialog is dismissed', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
+    mockRun.mockResolvedValue(run({ status: 'running' }))
 
     await renderScreen()
 
@@ -154,7 +145,7 @@ describe('Run activity screen', () => {
   })
 
   test('View transcript fetches and renders the raw transcript', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'needs_review' })] })
+    mockRun.mockResolvedValue(run({ status: 'needs_review' }))
     mockTranscript.mockResolvedValue('{"line":1}\n{"line":2}')
 
     await renderScreen()
@@ -171,7 +162,7 @@ describe('Run activity screen', () => {
   })
 
   test('a WS run_event triggers a refetch instead of ingesting the event directly, so it renders exactly once', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'running' })] })
+    mockRun.mockResolvedValue(run({ status: 'running' }))
     const wsEvent = {
       id: 5,
       runId: 30,
@@ -214,7 +205,7 @@ describe('Run activity screen', () => {
   })
 
   test('View transcript shows "No transcript" on a 404', async () => {
-    mockTicket.mockResolvedValue({ ticket: ticket(), comments: [], runs: [run({ status: 'needs_review' })] })
+    mockRun.mockResolvedValue(run({ status: 'needs_review' }))
     const { ApiError } = jest.requireMock('../src/api/client') as { ApiError: new (s: number, b: unknown) => Error }
     mockTranscript.mockRejectedValue(new ApiError(404, 'not found'))
 

@@ -77,6 +77,23 @@ describe('useWorkspaceSocket', () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.board(1) })
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.workspaces })
     expect(spy).toHaveBeenCalledWith({ queryKey: ['ticket'] })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.activity() })
+  })
+
+  test('activity invalidates keys.activity()', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const spy = jest.spyOn(queryClient, 'invalidateQueries')
+
+    await renderHook(
+      () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
+      { wrapper: makeWrapper(queryClient) },
+    )
+
+    const socket = FakeWebSocket.instances[0]
+    const msg: WsMessage = { type: 'activity', workspaceId: 1 }
+    socket?.emitMessage(msg)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.activity() })
   })
 
   test('run_event is forwarded to onRunEvent', async () => {

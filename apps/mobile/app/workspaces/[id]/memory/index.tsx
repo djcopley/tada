@@ -46,7 +46,7 @@ export default function MemoryList() {
   const files: { name: string; isAgents: boolean }[] = [
     { name: 'AGENTS.md', isAgents: true },
     ...memoryData.notes
-      .map((n) => ({ name: n.name, isAgents: false }))
+      .map((n) => ({ name: n.file, isAgents: false }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   ]
 

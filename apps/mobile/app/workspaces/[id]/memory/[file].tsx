@@ -26,7 +26,7 @@ export default function MemoryEditor() {
     if (file === 'AGENTS.md') {
       return memoryData.agentsMd
     }
-    const note = memoryData.notes.find((n) => n.name === file)
+    const note = memoryData.notes.find((n) => n.file === file)
     return note?.body ?? ''
   }
 

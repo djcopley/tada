@@ -3,9 +3,8 @@ import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useQueryClient } from '@tanstack/react-query'
-import { ADAPTERS } from '../adapters'
 import { ApiError } from '../api/client'
-import { keys, useMoveTicket, usePatchTicket } from '../api/queries'
+import { keys, useAdapters, useMoveTicket, usePatchTicket } from '../api/queries'
 import { positionBetween } from '../board/positions'
 import { useTheme } from '../design/ThemeContext'
 import { humanize } from '../design/status'
@@ -50,6 +49,9 @@ export function TicketActions({
   const qc = useQueryClient()
   const moveTicket = useMoveTicket(workspace.id)
   const patchTicket = usePatchTicket(workspace.id)
+  const { data: adapters } = useAdapters()
+  const modelsForAdapter = (adapterId: string) =>
+    adapters?.find((a) => a.id === adapterId)?.models ?? []
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId)
   const readyColumn = columns.find((c) => c.kind === 'ready')
@@ -226,15 +228,15 @@ export function TicketActions({
 
       {view === 'agent' && (
         <View style={styles.section}>
-          {Object.keys(ADAPTERS).map((adapter) => (
+          {(adapters ?? []).map((adapter) => (
             <ListRow
-              key={adapter}
-              testID={`action-agent-${adapter}`}
-              title={humanize(adapter)}
+              key={adapter.id}
+              testID={`action-agent-${adapter.id}`}
+              title={adapter.label}
               trailing={
-                adapter === currentAdapter ? <Icon name="check" size={16} color={colors.text} /> : null
+                adapter.id === currentAdapter ? <Icon name="check" size={16} color={colors.text} /> : null
               }
-              onPress={() => chooseAdapter(adapter)}
+              onPress={() => chooseAdapter(adapter.id)}
             />
           ))}
           <ListRow testID="action-back" icon="chevron-left" title="Back" onPress={() => setView('main')} />
@@ -243,7 +245,7 @@ export function TicketActions({
 
       {view === 'model' && (
         <View style={styles.section}>
-          {(ADAPTERS[currentAdapter] ?? []).map((model) => (
+          {modelsForAdapter(currentAdapter).map((model) => (
             <ListRow
               key={model}
               testID={`action-model-${model}`}

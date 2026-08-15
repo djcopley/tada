@@ -212,7 +212,7 @@ function TicketDetailBody({
                 <RunRow
                   key={run.id}
                   run={run}
-                  onPress={() => router.push(`/runs/${run.id}?ticketId=${run.ticketId}`)}
+                  onPress={() => router.push(`/runs/${run.id}`)}
                 />
               ))
             )}

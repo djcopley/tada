@@ -18,6 +18,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { WorkspaceSwitcher } from '../src/components/WorkspaceSwitcher'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { showToast, ToastHost } from '../src/toast'
@@ -94,6 +95,17 @@ function ThemedStatusBar() {
   return <StatusBar style={scheme === 'day' ? 'dark' : 'light'} />
 }
 
+/**
+ * WorkspaceSwitcher needs a TadaClient (via useClient), which only exists
+ * once ConnectionProvider has a saved connection — guard its mount so the
+ * connect screen (no connection yet) never renders it.
+ */
+function ConnectedWorkspaceSwitcher() {
+  const { connection } = useConnection()
+  if (!connection) return null
+  return <WorkspaceSwitcher />
+}
+
 export default function RootLayout() {
   // Screens design their own type with these faces; hold rendering one frame
   // until they're ready so nothing flashes in the system font.
@@ -121,6 +133,7 @@ export default function RootLayout() {
                 each screen, so every native header stays hidden.
               */}
               <Stack screenOptions={{ headerShown: false }} />
+              <ConnectedWorkspaceSwitcher />
               <ToastHost />
             </AppQueryProvider>
           </ConnectionProvider>

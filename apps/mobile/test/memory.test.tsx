@@ -1,4 +1,4 @@
-import type { ApiMemory } from '@tada/shared'
+import type { ApiMemory, ApiMemoryNote } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { ConnectionProvider } from '../src/ConnectionContext'
@@ -40,12 +40,27 @@ jest.mock('../src/api/client', () => {
   }
 })
 
+function note(overrides: Partial<ApiMemoryNote> & { file: string }): ApiMemoryNote {
+  return {
+    id: 1,
+    scope: 'workspace',
+    workspaceId: 1,
+    title: overrides.file.replace(/\.md$/, ''),
+    author: 'human',
+    runId: null,
+    state: 'kept',
+    body: '',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
 function memory(overrides: Partial<ApiMemory> = {}): ApiMemory {
   return {
     agentsMd: '# Agents\n\nAgent docs here.',
     notes: [
-      { name: 'api-notes.md', body: 'API notes' },
-      { name: 'context.md', body: 'Context info' },
+      note({ file: 'api-notes.md', body: 'API notes' }),
+      note({ file: 'context.md', body: 'Context info' }),
     ],
     ...overrides,
   }
@@ -93,9 +108,9 @@ describe('Memory screens', () => {
         memory({
           agentsMd: '# Agents\n\nAgent docs here.',
           notes: [
-            { name: 'zebra.md', body: 'Z notes' },
-            { name: 'alpha.md', body: 'A notes' },
-            { name: 'beta.md', body: 'B notes' },
+            note({ file: 'zebra.md', body: 'Z notes' }),
+            note({ file: 'alpha.md', body: 'A notes' }),
+            note({ file: 'beta.md', body: 'B notes' }),
           ],
         }),
       )
@@ -127,7 +142,7 @@ describe('Memory screens', () => {
     test('tapping a file with spaces encodes the filename in the route', async () => {
       mockMemory.mockResolvedValueOnce(
         memory({
-          notes: [{ name: 'my note.md', body: 'content' }],
+          notes: [note({ file: 'my note.md', body: 'content' })],
         }),
       )
 
@@ -232,7 +247,7 @@ describe('Memory screens', () => {
 
     test('renders seeded body for a note', async () => {
       mockMemory.mockResolvedValueOnce(
-        memory({ notes: [{ name: 'test.md', body: 'Test note content' }] }),
+        memory({ notes: [note({ file: 'test.md', body: 'Test note content' })] }),
       )
 
       await renderMemoryEditor('test.md')
@@ -245,7 +260,7 @@ describe('Memory screens', () => {
 
     test('save button is disabled until content changes', async () => {
       mockMemory.mockResolvedValueOnce(
-        memory({ notes: [{ name: 'test.md', body: 'Original content' }] }),
+        memory({ notes: [note({ file: 'test.md', body: 'Original content' })] }),
       )
 
       await renderMemoryEditor('test.md')
@@ -262,7 +277,7 @@ describe('Memory screens', () => {
 
     test('editing enables save button', async () => {
       mockMemory.mockResolvedValueOnce(
-        memory({ notes: [{ name: 'test.md', body: 'Original' }] }),
+        memory({ notes: [note({ file: 'test.md', body: 'Original' })] }),
       )
 
       await renderMemoryEditor('test.md')
@@ -281,7 +296,7 @@ describe('Memory screens', () => {
 
     test('save calls putMemory with edited body and shows toast', async () => {
       mockMemory.mockResolvedValueOnce(
-        memory({ notes: [{ name: 'test.md', body: 'Original' }] }),
+        memory({ notes: [note({ file: 'test.md', body: 'Original' })] }),
       )
       mockPutMemory.mockResolvedValueOnce(undefined)
 

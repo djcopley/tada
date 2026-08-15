@@ -1,4 +1,4 @@
-import type { ApiRepo, ApiWorkspace } from '@tada/shared'
+import type { ApiSource, ApiWorkspaceDetail } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { ConnectionProvider } from '../src/ConnectionContext'
@@ -19,8 +19,8 @@ jest.mock('../src/settings', () => ({
 
 const mockGetWorkspace = jest.fn()
 const mockPatchWorkspace = jest.fn()
-const mockAddRepo = jest.fn()
-const mockRemoveRepo = jest.fn()
+const mockAddSource = jest.fn()
+const mockRemoveSource = jest.fn()
 
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
@@ -38,27 +38,29 @@ jest.mock('../src/api/client', () => {
     TadaClient: jest.fn().mockImplementation(() => ({
       getWorkspace: mockGetWorkspace,
       patchWorkspace: mockPatchWorkspace,
-      addRepo: mockAddRepo,
-      removeRepo: mockRemoveRepo,
+      addSource: mockAddSource,
+      removeSource: mockRemoveSource,
     })),
   }
 })
 
-function workspace(overrides: Partial<ApiWorkspace & { repos: ApiRepo[] }> = {}): ApiWorkspace & {
-  repos: ApiRepo[]
-} {
+function source(overrides: Partial<ApiSource> & { name: string }): ApiSource {
+  return { type: 'repo', ...overrides }
+}
+
+function workspace(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorkspaceDetail {
   return {
     id: 1,
     name: 'Alpha',
-    path: '/repos/alpha',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
+    defaultEffort: 'default',
     concurrency: 2,
     timeoutMs: 300_000,
     createdAt: '2026-01-01T00:00:00.000Z',
-    repos: [
-      { name: 'repo-a', url: 'https://github.com/user/repo-a.git', defaultBranch: 'main' },
-      { name: 'repo-b', url: 'git@github.com:user/repo-b.git', defaultBranch: 'develop' },
+    sources: [
+      source({ name: 'repo-a', url: 'https://github.com/user/repo-a.git', defaultBranch: 'main' }),
+      source({ name: 'repo-b', url: 'git@github.com:user/repo-b.git', defaultBranch: 'develop' }),
     ],
     ...overrides,
   }
@@ -83,8 +85,8 @@ describe('Workspace settings screen', () => {
     jest.clearAllMocks()
     mockGetWorkspace.mockResolvedValue(workspace())
     mockPatchWorkspace.mockResolvedValue(workspace())
-    mockAddRepo.mockResolvedValue(undefined)
-    mockRemoveRepo.mockResolvedValue(undefined)
+    mockAddSource.mockResolvedValue(undefined)
+    mockRemoveSource.mockResolvedValue(undefined)
   })
 
   describe('Repos section', () => {
@@ -113,7 +115,7 @@ describe('Workspace settings screen', () => {
       await fireEvent.press(addButton)
 
       await waitFor(() => {
-        expect(mockAddRepo).toHaveBeenCalledWith(1, 'https://github.com/user/new-repo.git')
+        expect(mockAddSource).toHaveBeenCalledWith(1, { type: 'repo', url: 'https://github.com/user/new-repo.git' })
       })
     })
 
@@ -131,7 +133,7 @@ describe('Workspace settings screen', () => {
       await fireEvent.press(addButton)
 
       await waitFor(() => {
-        expect(mockAddRepo).toHaveBeenCalledWith(1, 'git@github.com:user/new-repo.git')
+        expect(mockAddSource).toHaveBeenCalledWith(1, { type: 'repo', url: 'git@github.com:user/new-repo.git' })
       })
     })
 
@@ -149,7 +151,7 @@ describe('Workspace settings screen', () => {
       await fireEvent.press(addButton)
 
       expect(screen.getByTestId('add-repo-error')).toBeTruthy()
-      expect(mockAddRepo).not.toHaveBeenCalled()
+      expect(mockAddSource).not.toHaveBeenCalled()
     })
 
     test('remove repo confirms via dialog then calls client', async () => {
@@ -163,13 +165,13 @@ describe('Workspace settings screen', () => {
       await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
-        expect(mockRemoveRepo).toHaveBeenCalledWith(1, 'repo-a')
+        expect(mockRemoveSource).toHaveBeenCalledWith(1, 'repo-a')
       })
     })
 
     test('add repo failure shows inline error and keeps the url input', async () => {
       const { ApiError } = require('../src/api/client')
-      mockAddRepo.mockRejectedValueOnce(new ApiError(500, { error: 'clone failed' }))
+      mockAddSource.mockRejectedValueOnce(new ApiError(500, { error: 'clone failed' }))
 
       await renderSettings()
 
@@ -195,7 +197,7 @@ describe('Workspace settings screen', () => {
 
     test('remove repo failure shows inline error', async () => {
       const { ApiError } = require('../src/api/client')
-      mockRemoveRepo.mockRejectedValueOnce(new ApiError(500, { error: 'remove failed' }))
+      mockRemoveSource.mockRejectedValueOnce(new ApiError(500, { error: 'remove failed' }))
 
       await renderSettings()
 
@@ -207,7 +209,7 @@ describe('Workspace settings screen', () => {
       await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
-        expect(mockRemoveRepo).toHaveBeenCalledWith(1, 'repo-a')
+        expect(mockRemoveSource).toHaveBeenCalledWith(1, 'repo-a')
         expect(screen.getByTestId('remove-repo-error')).toBeTruthy()
         expect(screen.getByTestId('remove-repo-error').props.children).toBe('remove failed')
       })

@@ -120,6 +120,190 @@ describe('TadaClient', () => {
     const httpsClient = new TadaClient({ baseUrl: 'https://tada.example.com/', token: 't' })
     expect(httpsClient.wsUrl(9)).toBe('wss://tada.example.com/ws?workspaceId=9&token=t')
   })
+
+  test('accept issues a POST with no body', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 1 }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.accept(42)
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/tickets/42/accept')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+  })
+
+  test('sendBack issues a POST with the feedback body', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 1 }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.sendBack(42, 'ignored the filters')
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/tickets/42/send-back')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ feedback: 'ignored the filters' }))
+  })
+
+  test('proposal issues a POST with the action body', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 1 }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.proposal(42, 'keep')
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/tickets/42/proposal')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ action: 'keep' }))
+  })
+
+  test('nudge issues a POST with the note body', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { delivered: true }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.nudge(7, 'try the other branch')
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/runs/7/nudge')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ note: 'try the other branch' }))
+  })
+
+  test('run issues a GET for the run detail', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 7 }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.run(7)
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/runs/7')
+    expect(init.method).toBe('GET')
+  })
+
+  test('activity omits the workspaceId query param when not given, and includes it (plus limit) when given', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.activity()
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/activity')
+
+    await client.activity('all')
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://api.example.com/activity')
+
+    await client.activity(3, 10)
+    expect(fetchImpl.mock.calls[2][0]).toBe('https://api.example.com/activity?workspaceId=3&limit=10')
+  })
+
+  test('adapters issues a GET', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.adapters()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/adapters')
+    expect((fetchImpl.mock.calls[0][1] as RequestInit).method).toBe('GET')
+  })
+
+  test('status issues a GET', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { ok: true }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.status()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/status')
+  })
+
+  test('health issues a GET', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { ok: true, version: '1.0.0' }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.health()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/health')
+  })
+
+  test('globalMemory/putGlobalMemory/deleteGlobalMemory hit the top-level /memory routes', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { agentsMd: '', notes: [] }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.globalMemory()
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/memory')
+    expect((fetchImpl.mock.calls[0][1] as RequestInit).method).toBe('GET')
+
+    await client.putGlobalMemory('conventions.md', 'be nice')
+    const [putUrl, putInit] = fetchImpl.mock.calls[1] as [string, RequestInit]
+    expect(putUrl).toBe('https://api.example.com/memory/conventions.md')
+    expect(putInit.method).toBe('PUT')
+    expect(putInit.body).toBe(JSON.stringify({ body: 'be nice' }))
+
+    await client.deleteGlobalMemory('conventions.md')
+    const [delUrl, delInit] = fetchImpl.mock.calls[2] as [string, RequestInit]
+    expect(delUrl).toBe('https://api.example.com/memory/conventions.md')
+    expect(delInit.method).toBe('DELETE')
+  })
+
+  test('keepNote/discardNote hit /memory-notes/:id/keep|discard', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(204, null))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.keepNote(9)
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/memory-notes/9/keep')
+    expect((fetchImpl.mock.calls[0][1] as RequestInit).method).toBe('POST')
+
+    await client.discardNote(9)
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://api.example.com/memory-notes/9/discard')
+    expect((fetchImpl.mock.calls[1][1] as RequestInit).method).toBe('POST')
+  })
+
+  test('addSource issues a POST with the discriminated source body', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(201, []))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.addSource(4, { type: 'repo', url: 'https://github.com/user/repo.git' })
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/workspaces/4/sources')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ type: 'repo', url: 'https://github.com/user/repo.git' }))
+  })
+
+  test('removeSource issues a DELETE with the encoded source name', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.removeSource(4, 'my repo')
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/workspaces/4/sources/my%20repo')
+    expect(init.method).toBe('DELETE')
+  })
+
+  test('knownRepos issues a GET', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.knownRepos()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/repos/known')
+  })
+
+  test('checkName issues a GET with the encoded name query param', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 'my-name', available: true }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.checkName('my name')
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/workspaces/check-name?name=my%20name')
+  })
+
+  test('getWorkspace issues a GET for the workspace detail (with sources)', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { id: 4, sources: [] }))
+    const client = new TadaClient(conn, fetchImpl)
+
+    await client.getWorkspace(4)
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.example.com/workspaces/4')
+  })
 })
 
 describe('query key factory', () => {
@@ -128,8 +312,19 @@ describe('query key factory', () => {
     expect(keys.board(5)).toEqual(['board', 5])
     expect(keys.ticket(5)).toEqual(['ticket', 5])
     expect(keys.memory(5)).toEqual(['memory', 5])
+    expect(keys.globalMemory).toEqual(['memory', 'global'])
     expect(keys.workspace(5)).toEqual(['workspace', 5])
+    expect(keys.run(5)).toEqual(['run', 5])
+    expect(keys.adapters).toEqual(['adapters'])
+    expect(keys.status).toEqual(['status'])
+    expect(keys.knownRepos).toEqual(['knownRepos'])
+    expect(keys.checkName('parlor')).toEqual(['checkName', 'parlor'])
     expect(keys.board(5)).toEqual(keys.board(5))
     expect(keys.board(5)).not.toEqual(keys.ticket(5))
+  })
+
+  test('activity() is a prefix of activity(workspaceId), so a blunt invalidation of the bare key catches every scoped variant', () => {
+    expect(keys.activity()).toEqual(['activity'])
+    expect(keys.activity(3)).toEqual(['activity', 3])
   })
 })

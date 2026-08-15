@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
 import { useClient } from '../../src/api/ClientContext'
-import { keys, useTicket } from '../../src/api/queries'
+import { keys, useRun } from '../../src/api/queries'
 import { useRunEvents } from '../../src/api/useRunEvents'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { EventFeed } from '../../src/components/EventFeed'
@@ -18,19 +18,11 @@ import { showToast } from '../../src/toast'
 
 const ACTIVE_RUN_STATUSES: ReadonlySet<ApiRun['status']> = new Set(['queued', 'running'])
 
-/**
- * There's no GET /runs/:id route on the server, so this screen locates the
- * run inside its parent ticket's run list instead. That means it needs the
- * ticketId, which the route param alone doesn't carry (only `id`, the run
- * id) — the ticket detail screen's RunRow passes it along as a `ticketId`
- * query param when it navigates here.
- */
 export default function RunActivity() {
-  const { id, ticketId } = useLocalSearchParams<{ id: string; ticketId: string }>()
+  const { id } = useLocalSearchParams<{ id: string }>()
   const runId = Number(id)
-  const ticketIdNum = Number(ticketId)
 
-  if (Number.isNaN(runId) || Number.isNaN(ticketIdNum)) {
+  if (Number.isNaN(runId)) {
     return (
       <Screen>
         <AppHeader title="Run" back />
@@ -39,20 +31,19 @@ export default function RunActivity() {
     )
   }
 
-  return <RunActivityBody runId={runId} ticketId={ticketIdNum} />
+  return <RunActivityBody runId={runId} />
 }
 
-function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number }) {
+function RunActivityBody({ runId }: { runId: number }) {
   const client = useClient()
   const qc = useQueryClient()
   const { colors } = useTheme()
-  const { data } = useTicket(ticketId)
-  const run = data?.runs.find((r) => r.id === runId)
+  const { data: run } = useRun(runId)
 
   const live = run ? ACTIVE_RUN_STATUSES.has(run.status) : false
   const { events, refetch } = useRunEvents(runId, { live })
 
-  useWorkspaceSocket(data?.ticket.workspaceId, {
+  useWorkspaceSocket(run?.workspaceId, {
     onRunEvent: (msg) => {
       // The WS payload carries no server id, so don't append it directly —
       // that produced a synthetic-id row duplicating the one the next poll
@@ -74,7 +65,7 @@ function RunActivityBody({ runId, ticketId }: { runId: number; ticketId: number 
     // toast here instead of leaving a failure silent.
     void client
       .cancelRun(runId)
-      .then(() => qc.invalidateQueries({ queryKey: keys.ticket(ticketId) }))
+      .then(() => qc.invalidateQueries({ queryKey: keys.run(runId) }))
       .catch(() => showToast('Could not cancel run'))
   }
 

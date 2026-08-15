@@ -8,11 +8,13 @@ import { ToastHost } from '../src/toast'
 
 const mockMoveTicket = jest.fn()
 const mockPatchTicket = jest.fn()
+const mockAdapters = jest.fn()
 
 function makeClient() {
   return {
     moveTicket: mockMoveTicket,
     patchTicket: mockPatchTicket,
+    adapters: mockAdapters,
   } as unknown as import('../src/api/client').TadaClient
 }
 
@@ -20,9 +22,9 @@ function workspace(overrides: Partial<ApiWorkspace> = {}): ApiWorkspace {
   return {
     id: 1,
     name: 'Alpha',
-    path: '/repos/alpha',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
+    defaultEffort: 'default',
     concurrency: 1,
     timeoutMs: 60_000,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -41,6 +43,10 @@ function ticket(overrides: Partial<ApiTicket>): ApiTicket {
     queueState: null,
     adapterOverride: null,
     modelOverride: null,
+    effortOverride: null,
+    origin: 'human',
+    proposalState: null,
+    followUpOfTicketId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }
@@ -48,19 +54,18 @@ function ticket(overrides: Partial<ApiTicket>): ApiTicket {
 
 function columns(): ApiBoard['columns'] {
   return [
-    { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
+    { id: 1, workspaceId: 1, kind: 'backlog', title: 'Backlog', position: 1, tickets: [] },
     {
       id: 2,
       workspaceId: 1,
       kind: 'ready',
       title: 'Ready',
       position: 2,
-      createdAt: '2026-01-01T00:00:00.000Z',
       tickets: [ticket({ id: 200, columnId: 2, position: 5 })],
     },
-    { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-    { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
-    { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, createdAt: '2026-01-01T00:00:00.000Z', tickets: [] },
+    { id: 3, workspaceId: 1, kind: 'in_progress', title: 'In Progress', position: 3, tickets: [] },
+    { id: 4, workspaceId: 1, kind: 'in_review', title: 'In Review', position: 4, tickets: [] },
+    { id: 5, workspaceId: 1, kind: 'done', title: 'Done', position: 5, tickets: [] },
   ]
 }
 
@@ -94,6 +99,9 @@ describe('TicketActions sheet', () => {
     jest.clearAllMocks()
     mockMoveTicket.mockResolvedValue(undefined)
     mockPatchTicket.mockResolvedValue(ticket({}))
+    mockAdapters.mockResolvedValue([
+      { id: 'claude', label: 'Claude', available: true, models: ['sonnet', 'opus', 'haiku'], efforts: ['default'], supportsInjection: true },
+    ])
   })
 
   test('backlog ticket shows Send to Ready and move targets excluding in_progress', async () => {
