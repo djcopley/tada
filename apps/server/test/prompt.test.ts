@@ -7,6 +7,8 @@ describe('composePrompt', () => {
     comments: [],
     agentsMd: '# Agents\n\nAgent definitions here.',
     noteFiles: [] as string[],
+    globalAgentsMd: '# Global\n\nCross-workspace charter.',
+    globalNoteFiles: [] as string[],
     priorRunSummaries: [] as string[],
   }
 
@@ -81,16 +83,30 @@ describe('composePrompt', () => {
     expect(result).toContain('(none yet)')
   })
 
-  test('includes exact memory instruction sentence with ticket id interpolated', () => {
+  test('workspace memory instructs use of the write_memory_note tool, not direct file writes', () => {
+    const result = composePrompt(baseInput)
+    expect(result).toContain('write_memory_note')
+    expect(result).not.toContain('record it as a')
+    expect(result).not.toContain('new markdown note in ./memory/notes/.')
+  })
+
+  test('includes ## Global memory with agentsMd verbatim and note filenames', () => {
     const input = {
       ...baseInput,
-      ticket: { id: 42, title: 'Test', description: 'Test description' },
+      globalAgentsMd: '# Global Charter\n\nApplies everywhere.',
+      globalNoteFiles: ['global-quirk.md', 'shared-creds.md'],
     }
     const result = composePrompt(input)
-    // The exact sentence from the brief
-    expect(result).toContain(
-      'Read notes relevant to this task. If you learn something durable about this\nworkspace (a build quirk, credential location, API behavior), record it as a\nnew markdown note in ./memory/notes/.',
-    )
+    expect(result).toContain('## Global memory')
+    expect(result).toContain('# Global Charter')
+    expect(result).toContain('Applies everywhere.')
+    expect(result).toContain('global-quirk.md, shared-creds.md')
+  })
+
+  test('## Global memory shows (none yet) when globalNoteFiles is empty', () => {
+    const result = composePrompt(baseInput)
+    expect(result).toContain('## Global memory')
+    expect(result).toContain('(none yet)')
   })
 
   test('skips ## Previous attempts when priorRunSummaries is empty', () => {
@@ -178,6 +194,8 @@ describe('composePrompt', () => {
       ],
       agentsMd: '# Agents\n\nAgent list',
       noteFiles: ['jwt-config.md'],
+      globalAgentsMd: '# Global\n\nShared charter',
+      globalNoteFiles: ['global-note.md'],
       priorRunSummaries: ['Initial attempt failed'],
     }
     const result = composePrompt(input)
@@ -189,6 +207,9 @@ describe('composePrompt', () => {
     expect(result).toContain('**agent:** JWT implemented')
     expect(result).toContain('## Workspace charter')
     expect(result).toContain('# Agents')
+    expect(result).toContain('## Global memory')
+    expect(result).toContain('# Global')
+    expect(result).toContain('global-note.md')
     expect(result).toContain('## Workspace memory')
     expect(result).toContain('jwt-config.md')
     expect(result).toContain('## Previous attempts')
@@ -217,12 +238,14 @@ describe('composePrompt', () => {
     expect(result).toContain('first.md, second.md, third.md')
   })
 
-  test('maintains section order: heading, description, discussion, charter, memory, attempts, howtow', () => {
+  test('maintains section order: heading, description, discussion, charter, global memory, memory, attempts, howtow', () => {
     const input = {
       ticket: { id: 99, title: 'Test task', description: 'Test description' },
       comments: [{ author: 'human' as const, body: 'Comment', createdAt: new Date() }],
       agentsMd: 'Agents',
       noteFiles: ['note.md'],
+      globalAgentsMd: 'Global agents',
+      globalNoteFiles: ['global-note.md'],
       priorRunSummaries: ['Summary'],
     }
     const result = composePrompt(input)
@@ -231,6 +254,7 @@ describe('composePrompt', () => {
     const descIdx = result.indexOf('Test description')
     const discussIdx = result.indexOf('## Discussion')
     const charterIdx = result.indexOf('## Workspace charter')
+    const globalMemoryIdx = result.indexOf('## Global memory')
     const memoryIdx = result.indexOf('## Workspace memory')
     const attemptsIdx = result.indexOf('## Previous attempts')
     const howtoIdx = result.indexOf('## How to work')
@@ -238,7 +262,8 @@ describe('composePrompt', () => {
     expect(taskIdx).toBeLessThan(descIdx)
     expect(descIdx).toBeLessThan(discussIdx)
     expect(discussIdx).toBeLessThan(charterIdx)
-    expect(charterIdx).toBeLessThan(memoryIdx)
+    expect(charterIdx).toBeLessThan(globalMemoryIdx)
+    expect(globalMemoryIdx).toBeLessThan(memoryIdx)
     expect(memoryIdx).toBeLessThan(attemptsIdx)
     expect(attemptsIdx).toBeLessThan(howtoIdx)
   })

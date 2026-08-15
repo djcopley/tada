@@ -3,6 +3,8 @@ export interface PromptInput {
   comments: Array<{ author: 'human' | 'agent'; body: string; createdAt: Date }>
   agentsMd: string
   noteFiles: string[]
+  globalAgentsMd: string
+  globalNoteFiles: string[]
   priorRunSummaries: string[]
 }
 
@@ -31,13 +33,21 @@ export function composePrompt(input: PromptInput): string {
   sections.push(input.agentsMd)
   sections.push('')
 
+  // Global memory (always) - shared across every workspace
+  sections.push('## Global memory')
+  sections.push(input.globalAgentsMd)
+  const globalNoteFilesStr =
+    input.globalNoteFiles.length > 0 ? input.globalNoteFiles.join(', ') : '(none yet)'
+  sections.push(`Notes available in ./memory-global/notes: ${globalNoteFilesStr}`)
+  sections.push('')
+
   // Workspace memory (always)
   sections.push('## Workspace memory')
   const noteFilesStr = input.noteFiles.length > 0 ? input.noteFiles.join(', ') : '(none yet)'
   sections.push(`Notes available in ./memory/notes: ${noteFilesStr}`)
   sections.push('Read notes relevant to this task. If you learn something durable about this')
-  sections.push('workspace (a build quirk, credential location, API behavior), record it as a')
-  sections.push('new markdown note in ./memory/notes/.')
+  sections.push('workspace (a build quirk, credential location, API behavior), use the')
+  sections.push('write_memory_note tool to save durable learnings.')
   sections.push('')
 
   // Previous attempts (only if priorRunSummaries exist)

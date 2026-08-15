@@ -8,7 +8,7 @@ import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
 import { pendingOutcome } from '../mcp/server.js'
 import { notifyRunFinished } from '../notify.js'
-import { stateDir } from '../paths.js'
+import { ensureGlobalMemoryDir, stateDir } from '../paths.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
 import { completeRun } from './completion.js'
 import { Journal } from './journal.js'
@@ -170,6 +170,10 @@ export async function executeRun(
     const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')
     const noteFiles = readdirSync(join(memoryDir, 'notes'))
 
+    const globalMemoryDir = ensureGlobalMemoryDir()
+    const globalAgentsMd = readFileSync(join(globalMemoryDir, 'AGENTS.md'), 'utf-8')
+    const globalNoteFiles = readdirSync(join(globalMemoryDir, 'notes'))
+
     const prompt = composePrompt({
       ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
       comments: ticketComments.map((c) => ({
@@ -179,6 +183,8 @@ export async function executeRun(
       })),
       agentsMd,
       noteFiles,
+      globalAgentsMd,
+      globalNoteFiles,
       priorRunSummaries: priorRuns.map((r) => r.summary).filter((s): s is string => s != null),
     })
 

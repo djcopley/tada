@@ -39,7 +39,7 @@ export function buildApp({
   const app = fastify()
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
-  registerMcpRoute(app, db)
+  registerMcpRoute(app, db, wm)
 
   // The web build runs from a different origin than the server (Expo's dev server, or wherever the
   // static bundle is hosted), so every browser request is cross-origin and needs CORS. Reflecting

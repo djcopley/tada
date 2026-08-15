@@ -12,6 +12,7 @@ import { basename, join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb } from '../src/db/index.js'
 import { git } from '../src/git.js'
+import { globalMemoryDir } from '../src/paths.js'
 import { branchFor, buildRunDir, cleanupRunDir } from '../src/runs/runDir.js'
 import { WorkspaceManager } from '../src/workspaces/manager.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
@@ -50,6 +51,10 @@ describe('buildRunDir / cleanupRunDir', () => {
     const memoryLink = join(runDir.path, 'memory')
     expect(realpathSync(memoryLink)).toBe(realpathSync(manager.memoryDir(wsId)))
     expect(readlinkSync(memoryLink)).toBe(manager.memoryDir(wsId))
+
+    const globalMemoryLink = join(runDir.path, 'memory-global')
+    expect(realpathSync(globalMemoryLink)).toBe(realpathSync(globalMemoryDir()))
+    expect(readlinkSync(globalMemoryLink)).toBe(globalMemoryDir())
   })
 
   test('symlinks a folder source into the run dir by name', async () => {

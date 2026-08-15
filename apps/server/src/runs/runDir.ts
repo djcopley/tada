@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { git } from '../git.js'
-import { stateDir } from '../paths.js'
+import { ensureGlobalMemoryDir, stateDir } from '../paths.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
 
 export interface RunDir {
@@ -20,6 +20,7 @@ export async function buildRunDir(
   const path = join(stateDir(), 'runs', String(runId))
   mkdirSync(join(path, 'scratch'), { recursive: true })
   symlinkSync(wm.memoryDir(wsId), join(path, 'memory'))
+  symlinkSync(ensureGlobalMemoryDir(), join(path, 'memory-global'))
 
   const branch = branchFor(ticketId)
   const repoDirs: Record<string, string> = {}
