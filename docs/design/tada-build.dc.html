@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/colors.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/typography.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/shape.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/tokens/motion.css">
+<link rel="stylesheet" href="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/styles.css">
+<script src="_ds/instrument-ink-design-system-76629c80-410f-4f7e-8ee9-7b80c796fcc6/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--ink-950);font-family:var(--font-ui);color:var(--text-body)}
+a{color:var(--accent-live-text);text-decoration:none}a:hover{color:var(--accent-live)}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.25}}
+.scr-root{min-height:100vh;min-width:1700px;background:var(--ink-950);color:var(--text-body)}
+.scr-grid{display:flex;flex-wrap:wrap;gap:44px;align-items:flex-start;padding:0 44px 56px;max-width:1612px}
+.scr{flex:none;display:flex;flex-direction:column;gap:12px;scroll-margin-top:16px}
+.scr-label{font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:1.5;color:var(--text-faint-solid)}
+.scr-card{flex:none;overflow:hidden}
+</style>
+</helmet>
+
+<div class="scr-root">
+<div style="padding:44px 44px 30px;display:flex;flex-direction:column;gap:8px;max-width:820px">
+  <div style="font-weight:600;letter-spacing:var(--tracking-heading);font-size:22px">tada<span style="color:var(--accent-live)">✱</span> — build spec</div>
+  <div style="font-size:13.5px;line-height:1.65;color:var(--text-muted);text-wrap:pretty">Seven screens on the Instrument Ink system. Dark "night watch" is the default mode. Everything the agent says is IBM Plex Mono on recessed ink (<span style="font-family:var(--font-mono);font-size:var(--text-mono-sm)">--agent-*</span>, theme-invariant); everything you touch is Instrument Sans on raised surfaces. Orange = live, sage = accepted, red only for failure. Connect is shown in the light "paper day" theme (<span style="font-family:var(--font-mono);font-size:var(--text-mono-sm)">data-theme="light"</span>).</div>
+</div>
+
+<div class="scr-grid">
+
+<!-- Control -->
+<div class="scr" id="control">
+<div class="scr-label">Control — needs-you triage, live agents, memory + history · web + mobile</div>
+<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+<div class="scr-card" data-screen-label="Control web" style="width:1200px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);display:flex;align-items:stretch;font-family:var(--font-ui);color:var(--text-body)">
+  <div style="width:188px;flex:none;display:flex;flex-direction:column;gap:2px;padding:16px 12px 14px;border-right:1px solid var(--border-subtle)">
+    <div style="font-weight:600;letter-spacing:var(--tracking-heading);font-size:16px;padding:0 10px 14px">tada<span style="color:var(--accent-live)">✱</span></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);background:var(--control-bg);font-size:14px;font-weight:500">Control<span style="flex:1"></span><span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--accent-live-text)">2</span></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Board</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Memory</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Settings</div>
+    <div style="flex:1"></div>
+    <div style="padding:0 10px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">parlor · 2 repos</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Switch" label="Day mode" hint-size="auto,24px"></x-import>
+    </div>
+  </div>
+  <div style="flex:1;min-width:0;padding:22px 26px 26px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div>
+        <div style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Two things need you</div>
+        <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid);margin-top:4px">3 ran overnight · memory grew by one note</div>
+      </div>
+      <span style="flex:1"></span>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.RunStatus" status="live" label="2 agents live" hint-size="auto,20px"></x-import>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" hint-size="auto,32px">New ticket</x-import>
+    </div>
+    <div style="display:grid;grid-template-columns:1.45fr 1fr;gap:20px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Needs you · 2</div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Add CSV export to the reports page" meta="parlor · 2h ago" hint-size="100%,200px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="accepted" hint-size="auto,24px">your turn</x-import>
+              <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">attempt 2 · pr #481 · +412 −38 · 214 tests pass</span>
+            </div>
+            <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:10px 14px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>filters and date range now forwarded into the export query</div>
+            <div style="display:flex;gap:var(--gap-cluster);align-items:center">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" size="sm" hint-size="auto,28px">Accept run</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Send back</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Open diff</x-import>
+              <span style="flex:1"></span>
+              <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">accept merges pr #481</span>
+            </div>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Nightly dependency bump" meta="parlor · 7h ago" hint-size="100%,200px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="failed" hint-size="auto,24px">failed</x-import>
+              <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">attempt 1 · timed out at 30m</span>
+            </div>
+            <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:10px 14px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>vite 6 migration is bigger than a bump — suggest splitting the ticket</div>
+            <div style="display:flex;gap:var(--gap-cluster);align-items:center">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Re-run</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Edit brief and re-run</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Move to backlog</x-import>
+            </div>
+          </div>
+        </x-import>
+        <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid);margin-top:8px">Live now · 2</div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" hint-size="100%,170px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="font-size:15px;font-weight:600">Fix flaky session-refresh test</span>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">parlor-api</x-import>
+              <span style="flex:1"></span>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.RunStatus" status="live" label="live" meta="12m" hint-size="auto,20px"></x-import>
+            </div>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.AgentPanel" hint-size="100%,72px">
+              <div><span style="color:var(--agent-text-muted);margin-right:10px">09:46</span>editing src/auth/session.ts — await the refresh lock</div>
+              <div style="color:var(--accent-live-text)"><span style="color:var(--agent-text-muted);margin-right:10px">09:51</span><span style="animation:ii-pulse 1.6s var(--ease-in-out) infinite">▮</span> running suite ×20 — all green so far</div>
+            </x-import>
+            <div style="display:flex;gap:var(--gap-cluster)">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Full log</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Nudge with a note</x-import>
+            </div>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" hint-size="100%,150px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="font-size:15px;font-weight:600">Rotate the staging TLS cert</span>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">ops · no repo</x-import>
+              <span style="flex:1"></span>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.RunStatus" status="live" label="live" meta="3m" hint-size="auto,20px"></x-import>
+            </div>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.AgentPanel" hint-size="100%,46px">
+              <div style="color:var(--accent-live-text)"><span style="color:var(--agent-text-muted);margin-right:10px">09:52</span><span style="animation:ii-pulse 1.6s var(--ease-in-out) infinite">▮</span> reloading nginx, verifying chain from outside</div>
+            </x-import>
+            <div style="display:flex;gap:var(--gap-cluster)">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Full log</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Nudge with a note</x-import>
+            </div>
+          </div>
+        </x-import>
+        <div style="border:1px dashed var(--border-strong);border-radius:var(--radius-pill);padding:9px 18px;display:flex;align-items:center;gap:10px">
+          <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">1 slot free — next:</span>
+          <span style="font-size:13px;font-weight:500">Wire up webhook retries with backoff</span>
+          <span style="flex:1"></span>
+          <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Start now</x-import>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Memory" meta="parlor" hint-size="100%,190px">
+          <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--text-muted)">
+            <div>· conventional commits; prs under ~600 lines</div>
+            <div>· pnpm test before every pr; e2e only for checkout</div>
+            <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:8px 12px;color:var(--agent-text)">reports queries paginate past 50k rows <span style="color:var(--accent-live-text)">· new, by agent</span></div>
+            <div style="margin-top:2px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Edit memory</x-import></div>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Today" meta="aug 14" hint-size="100%,230px">
+          <div style="display:flex;flex-direction:column">
+            <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);flex:none;width:36px">09:49</span><span style="font-size:13px;line-height:1.45;color:var(--text-muted)">Agent started <span style="color:var(--text-body);font-weight:500">Rotate the staging TLS cert</span></span></div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);flex:none;width:36px">08:20</span><span style="font-size:13px;line-height:1.45;color:var(--text-muted)"><span style="color:var(--accent-ok-text);font-family:var(--font-mono)">✱</span> You accepted <span style="color:var(--text-body);font-weight:500">Prune CI artifacts</span> — freed <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm)">41 GB</span></span></div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);flex:none;width:36px">07:59</span><span style="font-size:13px;line-height:1.45;color:var(--text-muted)"><span style="color:var(--accent-live-text);font-family:var(--font-mono)">+</span> Agent filed a follow-up: <span style="color:var(--text-body);font-weight:500">Paginate legacy /reports/all</span></span></div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);flex:none;width:36px">07:58</span><span style="font-size:13px;line-height:1.45;color:var(--text-muted)"><span style="color:var(--accent-live-text);font-family:var(--font-mono)">✎</span> Agent wrote to <span style="color:var(--text-body);font-weight:500">parlor memory</span></span></div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);flex:none;width:36px">03:12</span><span style="font-size:13px;line-height:1.45;color:var(--text-muted)"><span style="color:var(--accent-fail-text);font-family:var(--font-mono)">✕</span> <span style="color:var(--text-body);font-weight:500">Nightly dependency bump</span> timed out</span></div>
+            <div style="margin-top:8px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Full history</x-import></div>
+          </div>
+        </x-import>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px;background:var(--surface-raised);border:1px solid var(--border-subtle);box-shadow:var(--edge-raised);border-radius:var(--radius-card);padding:9px 14px">
+            <span style="font-size:13px;font-weight:600">parlor</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">2 queued · <span style="color:var(--accent-live-text)">1 live</span> · <span style="color:var(--accent-ok-text)">2 yours</span></span>
+            <span style="flex:1"></span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Board</x-import>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;background:var(--surface-raised);border:1px solid var(--border-subtle);box-shadow:var(--edge-raised);border-radius:var(--radius-card);padding:9px 14px">
+            <span style="font-size:13px;font-weight:600">ops</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">1 queued · <span style="color:var(--accent-live-text)">1 live</span></span>
+            <span style="flex:1"></span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Board</x-import>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="scr-card" data-screen-label="Control mobile" style="width:390px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="padding:20px 20px 0;display:flex;align-items:center;gap:10px">
+    <span style="font-weight:600;letter-spacing:var(--tracking-heading);font-size:16px">tada<span style="color:var(--accent-live)">✱</span></span>
+    <span style="flex:1"></span>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.RunStatus" status="live" label="2 live" hint-size="auto,20px"></x-import>
+  </div>
+  <div style="padding:16px 20px 20px;display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Two things need you</div>
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid);margin-top:4px">3 ran overnight · at 03:12 one failed</div>
+    </div>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Add CSV export to the reports page" hint-size="100%,170px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:9px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="accepted" hint-size="auto,24px">your turn</x-import><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor · 2h · pr #481</span></div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;display:grid;min-height:46px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" hint-size="100%,46px">Accept run</x-import></div>
+          <div style="flex:1;display:grid;min-height:46px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" hint-size="100%,46px">Send back</x-import></div>
+        </div>
+      </div>
+    </x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Nightly dependency bump" hint-size="100%,170px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:9px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="failed" hint-size="auto,24px">failed</x-import><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor · 7h · timed out</span></div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;display:grid;min-height:46px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" hint-size="100%,46px">Re-run</x-import></div>
+          <div style="flex:1;display:grid;min-height:46px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" hint-size="100%,46px">Edit brief</x-import></div>
+        </div>
+      </div>
+    </x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.AgentPanel" header="live now" meta="2 agents" hint-size="100%,88px">
+      <div><span style="color:var(--agent-prompt);margin-right:8px">▸</span>session test · 12m · suite ×20 green</div>
+      <div><span style="color:var(--agent-prompt);margin-right:8px">▸</span>tls cert · 3m · reloading nginx</div>
+    </x-import>
+    <div style="display:flex;gap:4px;background:var(--surface-recessed);border:1px solid var(--border-subtle);border-radius:var(--radius-card);padding:5px">
+      <div style="flex:1;display:grid;min-height:44px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" hint-size="100%,44px">Control</x-import></div>
+      <div style="flex:1;display:grid;min-height:44px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" hint-size="100%,44px">Board</x-import></div>
+      <div style="flex:1;display:grid;min-height:44px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" hint-size="100%,44px">Memory</x-import></div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- Ticket detail -->
+<div class="scr" id="ticket">
+<div class="scr-label">Ticket detail — brief, attempts, thread; agent speaks mono, you speak sans</div>
+<div class="scr-card" data-screen-label="Ticket detail" style="width:900px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="display:flex;align-items:center;gap:10px;padding:16px 24px 0">
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">← Control</x-import>
+    <span style="flex:1"></span>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="accepted" hint-size="auto,24px">your turn</x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">attempt 2</x-import>
+  </div>
+  <div style="padding:12px 24px 24px;display:flex;flex-direction:column;gap:16px">
+    <div>
+      <div style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Add CSV export to the reports page</div>
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid);margin-top:5px">parlor · parlor-web · created 3d ago by you</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Your review is needed" meta="2h ago" hint-size="100%,230px">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:10px 14px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>filters and date range now forwarded into the export query<br><span style="color:var(--agent-text-muted)">pr #481 · +412 −38 · 214 tests pass</span></div>
+            <div style="display:flex;gap:var(--gap-cluster);align-items:center">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" size="sm" hint-size="auto,28px">Accept run</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Send back</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Open pr</x-import>
+            </div>
+            <div style="font-size:12px;line-height:1.5;color:var(--text-faint-solid)">On accept, the agent runs once more: merge <span style="font-family:var(--font-mono)">pr #481</span> into <span style="font-family:var(--font-mono)">main</span>, delete the branch, close the ticket.</div>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Brief" meta="what the agent reads" hint-size="100%,200px">
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.6;color:var(--text-muted)">
+            <div>Add an "Export CSV" button to <span style="font-family:var(--font-mono);font-size:var(--text-mono-base);color:var(--text-body)">/reports</span>.</div>
+            <div>— Respect the active filters and date range.<br>— Stream server-side; some reports are <span style="font-family:var(--font-mono);font-size:var(--text-mono-base)">100k</span> rows.<br>— File name: <span style="font-family:var(--font-mono);font-size:var(--text-mono-base)">reports-YYYY-MM-DD.csv</span>.</div>
+            <div><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Edit brief</x-import></div>
+          </div>
+        </x-import>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Thread</div>
+          <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:9px 13px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>attempt 1 done — export wired to /api/reports/export, streaming csv. opened pr #474 <span style="color:var(--agent-text-muted)">· yesterday</span></div>
+          <div style="background:var(--surface-raised);border:1px solid var(--border-subtle);box-shadow:var(--edge-raised);border-radius:var(--radius-control);padding:9px 13px;font-size:13px;line-height:1.55;color:var(--text-muted)"><span style="font-weight:600;color:var(--text-body)">You</span> — sent back: export ignored the active filters; it always dumped the full table. <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">yesterday</span></div>
+          <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:9px 13px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>attempt 2 done — filters and date range forwarded. opened pr #481 <span style="color:var(--agent-text-muted)">· 2h ago</span></div>
+          <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:9px 13px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--agent-text)"><span style="color:var(--agent-prompt);margin-right:8px">▸</span>noticed /reports/all still dumps unpaginated rows — filed a follow-up ticket for your keep/dismiss <span style="color:var(--agent-text-muted)">· 2h ago</span></div>
+          <div style="display:flex;gap:8px;margin-top:4px;align-items:flex-start">
+            <div style="flex:1"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Input" placeholder="Add a note — the agent reads the thread on its next attempt" hint-size="100%,36px"></x-import></div>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" hint-size="auto,32px">Post</x-import>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Attempts" hint-size="100%,140px">
+          <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono)">
+            <div><span style="color:var(--accent-ok-text)">#2 in review now</span><br><span style="color:var(--text-faint-solid)">pr #481 · ran 34m</span></div>
+            <div style="color:var(--text-muted)">#1 sent back yesterday<br><span style="color:var(--text-faint-solid)">"ignored the active filters"</span></div>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Linked" hint-size="100%,120px">
+          <div style="font-size:13px;line-height:1.5;color:var(--text-muted)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--accent-live-text);letter-spacing:var(--tracking-caps);text-transform:uppercase">follow-up</span><br><span style="font-weight:500;color:var(--text-body)">Paginate the legacy /reports/all endpoint</span><br><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">proposed by agent · in backlog</span></div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Memory it read" hint-size="100%,110px">
+          <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--text-muted)">conventions · testing · <span style="color:var(--accent-ok-text)">reports queries paginate past 50k rows</span></div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="If you send it back" hint-size="100%,110px">
+          <div style="font-size:13px;line-height:1.55;color:var(--text-muted)">Your feedback becomes attempt 3's first instruction, verbatim. Be as specific as the brief.</div>
+        </x-import>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Live run -->
+<div class="scr" id="live-run">
+<div class="scr-label">Live run — one recessed panel, the agent narrates; raw output inside it</div>
+<div class="scr-card" data-screen-label="Live run" style="width:900px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="display:flex;align-items:center;gap:12px;padding:16px 24px 0;flex-wrap:wrap">
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">← Control</x-import>
+    <div>
+      <div style="font-size:16px;font-weight:600;letter-spacing:var(--tracking-heading)">Fix flaky session-refresh test</div>
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid);margin-top:2px">parlor · parlor-api · attempt 1</div>
+    </div>
+    <span style="flex:1"></span>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="live" hint-size="auto,24px">live · 12m</x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="danger" size="sm" hint-size="auto,28px">Stop run</x-import>
+  </div>
+  <div style="padding:14px 24px 22px;display:flex;flex-direction:column;gap:12px">
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.AgentPanel" header="run #4131 · attempt 1" meta="live · 12m" hint-size="100%,320px">
+      <div><span style="color:var(--agent-text-muted);margin-right:10px">09:41</span>cloned parlor-api — shallow, main</div>
+      <div><span style="color:var(--agent-text-muted);margin-right:10px">09:41</span>read workspace memory · 4 notes</div>
+      <div><span style="color:var(--agent-text-muted);margin-right:10px">09:42</span>reproduced the flake with fake timers — 18/20 green</div>
+      <div style="color:var(--text-body)"><span style="color:var(--agent-text-muted);margin-right:10px">09:44</span>found it — two refresh calls race past the mutex</div>
+      <div><span style="color:var(--agent-text-muted);margin-right:10px">09:46</span>editing src/auth/session.ts — await the refresh lock</div>
+      <div style="color:var(--accent-live-text)"><span style="color:var(--agent-text-muted);margin-right:10px">09:51</span><span style="animation:ii-pulse 1.6s var(--ease-in-out) infinite">▮</span> running suite ×20 — all green so far</div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--agent-surface-edge)">
+        <div style="display:flex;align-items:center;gap:10px;font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--agent-text-muted);margin-bottom:6px"><span>raw output</span><span style="flex:1"></span><span>collapse ▾</span></div>
+        <div style="font-size:var(--text-mono-xs);color:var(--agent-text-muted);white-space:pre-wrap">$ pnpm vitest run auth/session.spec.ts --repeat 20
+ ✓ refreshes once under concurrent calls (run 14/20)
+ ✓ refreshes once under concurrent calls (run 15/20)</div>
+      </div>
+    </x-import>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div style="flex:1"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Input" placeholder="Nudge with a note — the agent sees it between steps" hint-size="100%,36px"></x-import></div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" hint-size="auto,32px">Send</x-import>
+    </div>
+    <div style="font-size:12px;color:var(--text-faint-solid)">Safe to close — it runs unattended. You'll get a ping when it needs you.</div>
+  </div>
+</div>
+</div>
+
+<!-- Board -->
+<div class="scr" id="board">
+<div class="scr-label">Board — the planning view per workspace; Control stays home</div>
+<div class="scr-card" data-screen-label="Board" style="width:1200px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);display:flex;align-items:stretch;font-family:var(--font-ui);color:var(--text-body)">
+  <div style="width:188px;flex:none;display:flex;flex-direction:column;gap:2px;padding:16px 12px 14px;border-right:1px solid var(--border-subtle)">
+    <div style="font-weight:600;letter-spacing:var(--tracking-heading);font-size:16px;padding:0 10px 14px">tada<span style="color:var(--accent-live)">✱</span></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Control<span style="flex:1"></span><span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--accent-live-text)">2</span></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);background:var(--control-bg);font-size:14px;font-weight:500">Board</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Memory</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--radius-control);color:var(--text-muted);font-size:14px">Settings</div>
+    <div style="flex:1"></div>
+    <div style="padding:0 10px"><div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">parlor · 2 repos</div></div>
+  </div>
+  <div style="flex:1;min-width:0;padding:22px 26px 26px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Board</span>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">parlor ▾</x-import>
+      <span style="flex:1"></span>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" hint-size="auto,32px">New ticket</x-import>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:0 2px"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Backlog</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">3</span></div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Migrate icon set to Lucide</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor-web · 2d</span></div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Smoke test for the billing webhook</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor-api · 4d</span></div>
+        </x-import>
+        <div style="background:var(--surface-raised);border:1px dashed var(--border-strong);border-radius:var(--radius-card);padding:13px 15px;display:flex;flex-direction:column;gap:8px">
+          <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--accent-live-text)">proposed by agent</span>
+          <span style="font-size:13.5px;font-weight:500;line-height:1.35">Paginate the legacy /reports/all endpoint</span>
+          <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">follow-up of add csv export</span>
+          <div style="display:flex;gap:6px">
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,26px">Keep</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Dismiss</x-import>
+          </div>
+        </div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">+ Add a ticket</x-import>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:0 2px"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Queued</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">2</span></div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Wire up webhook retries with backoff</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor-api · next up</span></div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Nightly dependency bump</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--accent-live-text)">retry · attempt 2</span></div>
+        </x-import>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 2px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.StatusDot" status="live" hint-size="8px,8px"></x-import><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--accent-live-text)">Running</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">1</span></div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,150px">
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <span style="font-size:13.5px;font-weight:500;line-height:1.35">Fix flaky session-refresh test</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">parlor-api · <span style="color:var(--accent-live-text)">12m</span></span>
+            <div style="background:var(--agent-surface);border:1px solid var(--agent-surface-edge);box-shadow:var(--recess);border-radius:var(--radius-control);padding:7px 10px;font-family:var(--font-mono);font-size:var(--text-mono-xs);line-height:1.6;letter-spacing:var(--tracking-mono);color:var(--accent-live-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="animation:ii-pulse 1.6s var(--ease-in-out) infinite">▮</span> suite ×20 — all green so far</div>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Watch live</x-import>
+          </div>
+        </x-import>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 2px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.StatusDot" status="accepted" hint-size="8px,8px"></x-import><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--accent-ok-text)">In review</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">1</span></div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,150px">
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Badge" status="accepted" hint-size="auto,24px">your turn</x-import></div>
+            <span style="font-size:13.5px;font-weight:500;line-height:1.35">Add CSV export to the reports page</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">attempt 2 · pr #481 · tests pass</span>
+            <div style="display:flex;gap:6px">
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" size="sm" hint-size="auto,26px">Accept</x-import>
+              <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Send back</x-import>
+            </div>
+          </div>
+        </x-import>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;opacity:.68">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:0 2px"><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Done</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">2</span></div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Add rate limiting to /auth endpoints</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">pr #468 merged · 1w</span></div>
+        </x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="13px 15px" hint-size="100%,92px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:13.5px;font-weight:500;line-height:1.35">Prune CI artifacts older than 60 days</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">no pr · ops task · 1w</span></div>
+        </x-import>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Memory -->
+<div class="scr" id="memory">
+<div class="scr-label">Memory — scoped per workspace, same ▾ picker as Board; global notes ride along on every run</div>
+<div class="scr-card" data-screen-label="Memory" style="width:680px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="padding:22px 26px 26px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Memory</span>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">parlor ▾</x-import>
+      <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">4 notes</span>
+      <span style="flex:1"></span>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" size="sm" hint-size="auto,28px">New note</x-import>
+    </div>
+    <div style="font-size:13px;line-height:1.5;color:var(--text-muted);margin-top:-4px">The agent reads every note before a run — and may add its own. Plain text, edit freely.</div>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Global" meta="every workspace · 2" hint-size="100%,120px">
+      <div style="display:flex;flex-direction:column;gap:6px;font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--text-muted)">
+        <div>never force-push a shared branch. never commit secrets — stop and ask.</div>
+        <div>open a draft pr first; mark ready only when ci is green.</div>
+      </div>
+    </x-import>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
+      <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">parlor · 4 notes</span>
+      <span style="flex:1;height:1px;background:var(--border-subtle)"></span>
+    </div>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Conventions" meta="edited by you · 2w" hint-size="100%,120px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--text-muted)">conventional commits (fix:, feat:). keep prs under ~600 lines — split anything bigger. never touch generated/ or migrations by hand.</div>
+    </x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" title="Testing" meta="edited by you · 5d" hint-size="100%,110px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-sm);line-height:var(--leading-mono);letter-spacing:var(--tracking-mono);color:var(--text-muted)">pnpm test before every pr. the e2e suite is slow — only run it if anything under src/checkout changed.</div>
+    </x-import>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.AgentPanel" header="learned: reports queries" meta="by agent · 07:58" hint-size="100%,100px">
+        <div>reports queries time out over 50k rows unless paginated — use the cursor helper in lib/db <span style="color:var(--agent-text-muted)">(learned during pr #474)</span></div>
+      </x-import>
+      <div style="display:flex;gap:var(--gap-cluster)">
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Keep</x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Discard</x-import>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Workspace switcher -->
+<div class="scr" id="switcher">
+<div class="scr-label">Workspace switcher — one menu behind every ▾; creating a workspace lives at the bottom of it</div>
+<div class="scr-card" data-screen-label="Workspace switcher" style="width:320px;background:var(--surface-overlay);border:1px solid var(--border-strong);box-shadow:var(--edge-raised),var(--shadow-overlay);border-radius:var(--radius-card);font-family:var(--font-ui);color:var(--text-body);padding:8px">
+  <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid);padding:6px 10px 4px">Scope</div>
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-control);font-size:14px">
+    <span style="width:12px;flex:none;color:var(--text-faint-solid)"> </span>
+    <span style="flex:1">Global</span>
+    <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">2 notes · every run</span>
+  </div>
+  <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid);padding:10px 10px 4px">Workspaces</div>
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-control);background:var(--control-bg);font-size:14px;font-weight:500">
+    <span style="width:12px;flex:none;color:var(--accent-ok-text)">✓</span>
+    <span style="flex:1">parlor</span>
+    <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">2 repos · <span style="color:var(--accent-live-text)">1 live</span></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-control);font-size:14px;color:var(--text-muted)">
+    <span style="width:12px;flex:none"> </span>
+    <span style="flex:1">ops</span>
+    <span style="font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">no repo · 1 note</span>
+  </div>
+  <div style="height:1px;background:var(--border-subtle);margin:8px 4px"></div>
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-control);font-size:14px">
+    <span style="width:12px;flex:none;color:var(--text-faint-solid)">+</span>
+    <span style="flex:1">New workspace</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:2px 10px 8px;font-family:var(--font-mono);font-size:var(--text-mono-xs);color:var(--text-faint-solid)">
+    <span style="width:12px;flex:none"> </span><span>⌘K to switch</span>
+  </div>
+</div>
+</div>
+
+<!-- New workspace -->
+<div class="scr" id="new-workspace">
+<div class="scr-label">New workspace — names it on the server, then attaches repos; repos can wait</div>
+<div class="scr-card" data-screen-label="New workspace" style="width:620px;height:470px;position:relative;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="padding:22px 26px;display:flex;flex-direction:column;gap:12px;opacity:.35">
+    <div style="display:flex;align-items:center;gap:12px"><span style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Board</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">parlor</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div style="height:88px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-card)"></div>
+      <div style="height:88px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-card)"></div>
+      <div style="height:88px;background:var(--surface-raised);border:1px solid var(--border-subtle);border-radius:var(--radius-card)"></div>
+    </div>
+  </div>
+  <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Dialog" open="{{ true }}" inline="{{ true }}" title="New workspace" width="{{ 440 }}" hint-size="100%,100%">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13.5px;line-height:1.55;color:var(--text-muted);margin-top:-2px">A workspace holds its own board, memory and agent limits. It is created on your server.</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Input" label="Name" default-value="Acme web" hint-size="100%,64px"></x-import>
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-mono);color:var(--accent-ok-text);margin-top:-8px">✓ id acme-web · available</div>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Attach repos — optional</div>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Checkbox" label="acme/web" checked="{{ true }}" hint-size="auto,22px"></x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Checkbox" label="acme/infra" hint-size="auto,22px"></x-import>
+        <div style="font-size:12.5px;color:var(--text-faint-solid)">You can attach more later in Settings. Memory starts empty — global notes still apply.</div>
+      </div>
+      <div style="display:flex;gap:var(--gap-cluster);justify-content:flex-end;margin-top:6px">
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" hint-size="auto,32px">Cancel</x-import>
+        <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" hint-size="auto,32px">Create workspace</x-import>
+      </div>
+    </div>
+  </x-import>
+</div>
+</div>
+
+<!-- Connect (light theme) -->
+<div class="scr" id="connect">
+<div class="scr-label">Connect — first run, shown in the light "paper day" theme</div>
+<div class="scr-card" data-theme="light" data-screen-label="Connect" style="width:460px;background:var(--surface-ground);border:1px solid rgba(32,30,29,.15);border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="padding:32px 30px 28px;display:flex;flex-direction:column;gap:14px">
+    <span style="font-weight:600;letter-spacing:var(--tracking-heading);font-size:30px;line-height:1">tada<span style="color:var(--accent-live)">✱</span></span>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--text-muted)">Tickets in, pull requests out. tada runs against your own server — point it there to begin.</p>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Input" label="Server address" default-value="https://tada.home-server.dev" mono="{{ true }}" hint-size="100%,60px"></x-import>
+    <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Input" label="API token" default-value="tada_9f2k…" mono="{{ true }}" hint-size="100%,60px"></x-import>
+    <div style="display:grid;min-height:46px"><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="primary" hint-size="100%,46px">Connect</x-import></div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-family:var(--font-mono);font-size:var(--text-mono-sm);letter-spacing:var(--tracking-mono);color:var(--accent-ok-text)">
+      <span>✓ server reachable · v0.9.2</span>
+      <span>✓ 2 workspaces found — parlor, ops</span>
+      <span>✓ agent keys present on the server</span>
+    </div>
+    <div style="font-size:12px;color:var(--text-faint-solid)">Self-hosted · single user · your keys never leave your box.</div>
+  </div>
+</div>
+</div>
+
+<!-- Settings -->
+<div class="scr" id="settings">
+<div class="scr-label">Settings — workspace owns sources, agent and limits; global owns server and token</div>
+<div class="scr-card" data-screen-label="Settings" style="width:680px;background:var(--surface-ground);border:1px solid #00000066;border-radius:var(--radius-panel);font-family:var(--font-ui);color:var(--text-body)">
+  <div style="padding:22px 26px 26px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font-size:var(--text-lg);font-weight:600;letter-spacing:var(--tracking-heading)">Settings</span>
+      <span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-faint-solid)">parlor</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Sources — this workspace only</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="6px 20px" hint-size="100%,190px">
+        <div style="display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-base)">acme/parlor-api</span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">repo · github</x-import><span style="flex:1"></span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Remove</x-import></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-base)">acme/parlor-web</span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">repo · github</x-import><span style="flex:1"></span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Remove</x-import></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-family:var(--font-mono);font-size:var(--text-mono-base)">~/docs/parlor-specs</span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Tag" hint-size="auto,24px">folder · server</x-import><span style="flex:1"></span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,26px">Remove</x-import></div>
+          <div style="display:flex;gap:8px;padding:10px 0">
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Add repo</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Add folder</x-import>
+          </div>
+        </div>
+      </x-import>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Agent</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" hint-size="100%,150px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:500;width:70px">Harness</span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Claude</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Codex</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Gemini</x-import>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:500;width:70px">Model</span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Sonnet ▾</x-import>
+            <span style="font-size:13px;font-weight:500;margin-left:8px">Effort</span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">Low</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Medium</x-import>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="ghost" size="sm" hint-size="auto,28px">High</x-import>
+          </div>
+          <div style="font-size:12px;color:var(--text-faint-solid)">Model and effort options come from the selected harness.</div>
+        </div>
+      </x-import>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Run limits</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="6px 20px" hint-size="100%,130px">
+        <div style="display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+            <div><div style="font-size:13.5px;font-weight:500">Concurrent runs</div><div style="font-size:12px;color:var(--text-faint-solid)">Agents working at once</div></div>
+            <span style="flex:1"></span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.IconButton" label="Fewer" size="sm" hint-size="28px,28px">−</x-import>
+            <span style="font-family:var(--font-mono);font-size:var(--text-mono-base);width:20px;text-align:center">2</span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.IconButton" label="More" size="sm" hint-size="28px,28px">+</x-import>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0">
+            <div><div style="font-size:13.5px;font-weight:500">Per-run timeout</div><div style="font-size:12px;color:var(--text-faint-solid)">Runs are stopped past this</div></div>
+            <span style="flex:1"></span>
+            <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">30 min ▾</x-import>
+          </div>
+        </div>
+      </x-import>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-family:var(--font-mono);font-size:var(--text-mono-xs);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-faint-solid)">Global — applies to every workspace</div>
+      <x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Card" padding="6px 20px" hint-size="100%,120px">
+        <div style="display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)"><span style="font-size:13px;font-weight:500;width:70px">Server</span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.StatusDot" status="accepted" hint-size="8px,8px"></x-import><span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-muted)">https://tada.home-server.dev</span><span style="flex:1"></span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="danger" size="sm" hint-size="auto,28px">Disconnect</x-import></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0"><span style="font-size:13px;font-weight:500;width:70px">API token</span><span style="font-family:var(--font-mono);font-size:var(--text-mono-sm);color:var(--text-muted)">tada_••••••••••3f9a</span><span style="flex:1"></span><x-import component-from-global-scope="InstrumentInkDesignSystem_76629c.Button" variant="secondary" size="sm" hint-size="auto,28px">Replace</x-import></div>
+        </div>
+      </x-import>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+</div>
+</x-dc>
+</body>
+</html>
