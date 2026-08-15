@@ -197,38 +197,58 @@ export default function WorkspaceSettings() {
 
   const chooseHarness = (adapter: ApiAdapterInfo) => {
     if (!adapter.available || adapter.id === local.adapter) return
+    const previous = local
     const model = adapter.models[0] ?? ''
     const effort = adapter.efforts[0] ?? ''
     setLocal((prev) => ({ ...prev, adapter: adapter.id, model, effort }))
     setAgentError('')
     void patchWorkspace
       .mutateAsync({ defaultAdapter: adapter.id, defaultModel: model, defaultEffort: effort })
-      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the harness')))
+      .catch((err) => {
+        // The server rejected the switch (e.g. a 400) — roll the optimistic update back so the
+        // UI doesn't keep showing a harness/model/effort combination the server never accepted;
+        // a stale-looking success here would also make the *next* patch (e.g. a model pick)
+        // send a model that isn't valid for whatever harness the server actually has on file.
+        setLocal(previous)
+        setAgentError(apiErrorMessage(err, 'Failed to update the harness'))
+      })
   }
 
   const chooseModel = (model: string) => {
     setShowModelMenu(false)
     if (model === local.model) return
+    const previous = local
     setLocal((prev) => ({ ...prev, model }))
     setAgentError('')
     void patchWorkspace
       .mutateAsync({ defaultModel: model })
-      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the model')))
+      .catch((err) => {
+        setLocal(previous)
+        setAgentError(apiErrorMessage(err, 'Failed to update the model'))
+      })
   }
 
   const chooseEffort = (effort: string) => {
     if (effort === local.effort) return
+    const previous = local
     setLocal((prev) => ({ ...prev, effort }))
     setAgentError('')
     void patchWorkspace
       .mutateAsync({ defaultEffort: effort })
-      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the effort')))
+      .catch((err) => {
+        setLocal(previous)
+        setAgentError(apiErrorMessage(err, 'Failed to update the effort'))
+      })
   }
 
   // ---------------------------------------------------------------- run limits
   const setConcurrency = (next: number) => {
+    const previous = local
     setLocal((prev) => ({ ...prev, concurrency: next }))
-    void patchWorkspace.mutateAsync({ concurrency: next }).catch(() => {})
+    // No local error text for these two (the global mutation-error toast already covers it) —
+    // but a rejected patch still has to roll the optimistic value back, or the stepper would
+    // keep showing a concurrency the server never accepted.
+    void patchWorkspace.mutateAsync({ concurrency: next }).catch(() => setLocal(previous))
   }
   const incrementConcurrency = () => {
     if (local.concurrency < CONCURRENCY_MAX) setConcurrency(local.concurrency + 1)
@@ -241,8 +261,9 @@ export default function WorkspaceSettings() {
     setShowTimeoutMenu(false)
     const timeoutMs = minutes * 60_000
     if (timeoutMs === local.timeoutMs) return
+    const previous = local
     setLocal((prev) => ({ ...prev, timeoutMs }))
-    void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => {})
+    void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => setLocal(previous))
   }
 
   // ---------------------------------------------------------------- global

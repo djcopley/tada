@@ -1,10 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import type { ReactNode } from 'react'
+import { useState } from 'react'
 import { Pressable, Text } from 'react-native'
 import { AppQueryProvider } from '../app/_layout'
 import { ApiError } from '../src/api/client'
-import { ConnectionProvider } from '../src/ConnectionContext'
+import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ToastHost } from '../src/toast'
 
 // Only AppQueryProvider/ToastHost are exercised here; stub the router so
@@ -146,5 +147,93 @@ describe('global mutation error fallback toast', () => {
     })
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByTestId('toast-message')).toBeNull()
+  })
+})
+
+describe('query cache reset across connections', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('cached data does not survive disconnect -> reconnect (incl. a same-server token replace)', async () => {
+    const probeFetch = jest.fn(async () => 'seeded')
+
+    function Probe() {
+      // Seeds ['probe-data'] into the QueryClient this test's tree shares with AppQueryProvider.
+      useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
+      return null
+    }
+
+    // Reads straight from the QueryClient rather than relying on some other observer noticing
+    // the removal and reactively refetching (a real screen would instead unmount/remount around
+    // the redirect to/from /connect, which naturally produces a fresh observer either way) —
+    // this is a direct check of the one thing that actually matters: does the cache entry
+    // survive a connection-identity change.
+    function CacheInspector() {
+      const qc = useQueryClient()
+      const { connect, disconnect } = useConnection()
+      const [snapshot, setSnapshot] = useState('unchecked')
+      return (
+        <>
+          <Pressable
+            testID="check-cache"
+            onPress={() => setSnapshot(String(qc.getQueryData(['probe-data'])))}
+          >
+            <Text>check</Text>
+          </Pressable>
+          <Text testID="cache-snapshot">{snapshot}</Text>
+          <Pressable testID="do-disconnect" onPress={() => void disconnect()}>
+            <Text>disconnect</Text>
+          </Pressable>
+          <Pressable
+            testID="do-reconnect"
+            onPress={() => void connect({ baseUrl: 'https://example.com', token: 'tok2' })}
+          >
+            <Text>reconnect</Text>
+          </Pressable>
+        </>
+      )
+    }
+
+    await renderWithProvider(
+      <>
+        <Probe />
+        <CacheInspector />
+      </>,
+    )
+
+    await waitFor(() => {
+      expect(probeFetch).toHaveBeenCalledTimes(1)
+    })
+    await fireEvent.press(screen.getByTestId('check-cache'))
+    expect(screen.getByTestId('cache-snapshot')).toHaveTextContent('seeded')
+
+    await fireEvent.press(screen.getByTestId('do-disconnect'))
+    await fireEvent.press(screen.getByTestId('check-cache'))
+    expect(screen.getByTestId('cache-snapshot')).toHaveTextContent('undefined')
+
+    // Reconnecting — same server, replaced token — must not resurrect the old data either.
+    await fireEvent.press(screen.getByTestId('do-reconnect'))
+    await fireEvent.press(screen.getByTestId('check-cache'))
+    expect(screen.getByTestId('cache-snapshot')).toHaveTextContent('undefined')
+  })
+
+  test('a normal launch (connection already settled before AppQueryProvider mounts) does not clear on mount', async () => {
+    const probeFetch = jest.fn(async () => 'seeded')
+
+    function Probe() {
+      const { data } = useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
+      return <Text testID="probe-value">{data ?? 'loading'}</Text>
+    }
+
+    await renderWithProvider(<Probe />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-value')).toHaveTextContent('seeded')
+    })
+    // No connect/disconnect happened — the identity effect's initial run must not itself
+    // trigger a clear (that would double-fetch on every ordinary app launch).
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(probeFetch).toHaveBeenCalledTimes(1)
   })
 })

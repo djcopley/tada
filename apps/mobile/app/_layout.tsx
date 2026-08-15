@@ -12,7 +12,7 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import { useFonts } from 'expo-font'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { type ReactNode, useEffect, useMemo } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -62,7 +62,7 @@ function PushSetup() {
  * to /connect.
  */
 export function AppQueryProvider({ children }: { children: ReactNode }) {
-  const { disconnect } = useConnection()
+  const { disconnect, connection } = useConnection()
 
   const queryClient = useMemo(() => {
     const onError = (error: unknown) => {
@@ -86,6 +86,28 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
       mutationCache: new MutationCache({ onError: onMutationError }),
     })
   }, [disconnect])
+
+  // The QueryClient itself now survives connect/disconnect (ConnectionProvider always renders
+  // through the same ClientProvider slot, so this subtree no longer remounts on that transition
+  // — see ConnectionContext.tsx). That's the right call for local component state, but it means
+  // nothing implicitly wipes the query cache anymore either: without this, a disconnect (incl.
+  // the global 401 path) followed by reconnecting — same server with a replaced token, or a
+  // different server entirely — would render stale workspaces/boards/memory/activity from the
+  // old connection, and server-assigned ids could collide across servers. Clear explicitly
+  // whenever the connection's identity changes, skipping the initial mount (nothing cached yet,
+  // no need to clear and no reason to force a double-fetch on a normal launch).
+  const identity = connection ? `${connection.baseUrl}::${connection.token}` : null
+  const previousIdentityRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (previousIdentityRef.current === undefined) {
+      previousIdentityRef.current = identity
+      return
+    }
+    if (previousIdentityRef.current !== identity) {
+      queryClient.clear()
+    }
+    previousIdentityRef.current = identity
+  }, [identity, queryClient])
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }

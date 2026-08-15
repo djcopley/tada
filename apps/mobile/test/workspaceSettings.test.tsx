@@ -321,6 +321,59 @@ describe('Workspace settings screen', () => {
         expect(screen.getByTestId('agent-error')).toHaveTextContent('Invalid adapter')
       })
     })
+
+    test('a failed harness switch rolls back the UI to the server\'s harness/model/effort', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockAdapters.mockResolvedValue([
+        adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus'], efforts: ['low', 'medium'] }),
+        adapter({ id: 'gemini', label: 'Gemini', available: true, models: ['pro', 'flash'], efforts: ['fast', 'thorough'] }),
+      ])
+      mockPatchWorkspace.mockRejectedValueOnce(new ApiError(400, { error: 'Invalid adapter' }))
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('harness-gemini')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('harness-gemini'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-error')).toHaveTextContent('Invalid adapter')
+      })
+      // Rolled back to the server's harness (claude/sonnet/medium), not left showing the
+      // rejected gemini/pro/fast the optimistic update had briefly applied.
+      expect(screen.getByTestId('model-menu-trigger')).toHaveTextContent('Sonnet ▾')
+      expect(screen.getByTestId('effort-medium')).toBeTruthy()
+      expect(screen.queryByTestId('effort-fast')).toBeNull()
+
+      // A subsequent model pick now correctly targets claude's model list, not gemini's.
+      await fireEvent.press(screen.getByTestId('model-menu-trigger'))
+      expect(screen.getByTestId('model-option-opus')).toBeTruthy()
+    })
+
+    test('a failed concurrency patch rolls the stepper back', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockPatchWorkspace.mockRejectedValueOnce(new ApiError(500, { error: 'db down' }))
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('concurrency-stepper-increment')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-increment'))
+
+      await waitFor(() => {
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { concurrency: 3 })
+      })
+      // workspace() fixture has concurrency: 2 — the optimistic 3 must roll back on rejection.
+      await waitFor(() => {
+        expect(screen.getByTestId('concurrency-stepper-decrement').props.accessibilityState.disabled).toBe(
+          false,
+        )
+      })
+      jest.clearAllMocks()
+      mockPatchWorkspace.mockResolvedValue(workspace())
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-decrement'))
+      await waitFor(() => {
+        // Rolled back to 2, so decrementing sends 1 (not 2, which it would send from a
+        // still-showing-3 value).
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { concurrency: 1 })
+      })
+    })
   })
 
   describe('Run limits section', () => {
@@ -411,6 +464,13 @@ describe('Workspace settings screen', () => {
 
       await waitFor(() => {
         expect(mockStatus).toHaveBeenCalled()
+      })
+      // The probe must hit the CURRENT server with the NEW token — not the stale token, and
+      // not some other baseUrl.
+      const { TadaClient } = require('../src/api/client')
+      expect(TadaClient).toHaveBeenCalledWith({
+        baseUrl: 'https://tada.home-server.dev',
+        token: 'tada_newtoken1234',
       })
       await waitFor(() => {
         expect(screen.queryByTestId('replace-token-dialog')?.props.visible ?? false).toBe(false)
