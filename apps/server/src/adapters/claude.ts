@@ -1,6 +1,9 @@
-import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import { probeCli } from './exec.js'
+import { UserMessageQueue } from './claudeQueue.js'
 import type {
   Adapter,
   AdapterEvent,
@@ -60,69 +63,32 @@ function toAdapterEvents(msg: SDKMessage): AdapterEvent[] {
   }
 }
 
-/** Effort -> thinking budget. Medium is deliberately absent: it means "whatever the SDK does by
- * default", so the option is omitted rather than pinned to a number that could drift. */
-function thinkingOptions(effort: string): Pick<Options, 'maxThinkingTokens'> {
+/** Tada's effort levels map straight onto the SDK's own `effort` option, which is what current
+ * models actually read (the older `maxThinkingTokens` is deprecated and now behaves as a mere
+ * on/off switch, which would make low and high indistinguishable). */
+function thinkingOptions(effort: string): Pick<Options, 'effort'> {
   switch (effort) {
     case 'low':
-      return { maxThinkingTokens: 1024 }
+      return { effort: 'low' }
+    case 'medium':
+      return { effort: 'medium' }
     case 'high':
-      return { maxThinkingTokens: 32_768 }
+      return { effort: 'high' }
     default:
       return {}
   }
 }
 
-function userMessage(text: string): SDKUserMessage {
-  return {
-    type: 'user',
-    parent_tool_use_id: null,
-    message: { role: 'user', content: [{ type: 'text', text }] },
-  }
-}
-
-/**
- * The async iterable the SDK reads user turns from. Streaming-input mode keeps the session alive
- * for as long as this iterable does, which is exactly the handle a mid-run nudge needs: push a
- * message and the agent picks it up on its next turn. Closing the queue ends the session.
- */
-class UserMessageQueue implements AsyncIterable<SDKUserMessage> {
-  private readonly pending: SDKUserMessage[] = []
-  private closed = false
-  private wake: (() => void) | undefined
-
-  get hasPending(): boolean {
-    return this.pending.length > 0
-  }
-
-  push(text: string): boolean {
-    if (this.closed) return false
-    this.pending.push(userMessage(text))
-    this.wake?.()
-    return true
-  }
-
-  close(): void {
-    this.closed = true
-    this.wake?.()
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
-    while (true) {
-      const next = this.pending.shift()
-      if (next !== undefined) {
-        yield next
-        continue
-      }
-      if (this.closed) return
-      await new Promise<void>((resolve) => {
-        this.wake = () => {
-          this.wake = undefined
-          resolve()
-        }
-      })
-    }
-  }
+/** Cheap evidence that this machine can talk to Anthropic: an explicit key/token in the
+ * environment, or credentials the `claude` login wrote under the home directory. The SDK ships
+ * its own binary, so PATH is deliberately not consulted - a server with the SDK and a logged-in
+ * `~/.claude` runs fine with no global CLI installed. */
+function hasClaudeCredentials(): boolean {
+  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return true
+  const home = homedir()
+  return (
+    existsSync(join(home, '.claude', '.credentials.json')) || existsSync(join(home, '.claude.json'))
+  )
 }
 
 export class ClaudeAdapter implements Adapter {
@@ -132,16 +98,19 @@ export class ClaudeAdapter implements Adapter {
   readonly efforts = ['low', 'medium', 'high']
   readonly supportsInjection = true
 
-  /** The SDK drives the local `claude` CLI, so "can we run?" is "is it installed and credentialed?".
-   * An explicit key/token in the environment answers that without shelling out at all; otherwise
-   * fall back to a cached `claude --version` probe. Any surprise counts as unavailable. */
-  async available(): Promise<boolean> {
-    try {
-      if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return true
-      return await probeCli('claude')
-    } catch {
-      return false
-    }
+  private availability: Promise<boolean> | undefined
+
+  /** "Can we run?" is "is the SDK importable and are there credentials?" - cached, like the CLI
+   * adapters' probes, since neither answer changes without a restart in practice. */
+  available(): Promise<boolean> {
+    this.availability ??= Promise.resolve().then(() => {
+      try {
+        return typeof query === 'function' && hasClaudeCredentials()
+      } catch {
+        return false
+      }
+    })
+    return this.availability
   }
 
   start(ctx: AdapterStartCtx): AdapterSession {
@@ -173,9 +142,9 @@ export class ClaudeAdapter implements Adapter {
           for (const event of toAdapterEvents(msg)) ctx.journal.write(event)
 
           // A `result` message closes a turn. In streaming-input mode the session would then sit
-          // idle waiting for more input forever, so end it here - unless a nudge arrived while
-          // the turn was running, in which case the queue feeds it and the agent keeps going.
-          if (msg.type === 'result' && !queue.hasPending) queue.close()
+          // idle waiting for more input forever, so the queue ends it here - unless it is still
+          // owed a turn for a nudge it injected, in which case the agent keeps going.
+          if (msg.type === 'result') queue.onTurnEnd()
         }
 
         // SDK errors reject this generator's iteration rather than reaching here, so the runner's
@@ -189,7 +158,7 @@ export class ClaudeAdapter implements Adapter {
     return {
       done,
       inject: (note: string): boolean => {
-        const delivered = queue.push(`the user says: ${note}`)
+        const delivered = queue.inject(`the user says: ${note}`)
         if (delivered) ctx.journal.write({ type: 'text', payload: { text: `nudge: ${note}` } })
         return delivered
       },
