@@ -13,10 +13,11 @@ export function reportOutcome(
   _ticketId: number,
   status: 'success' | 'failed',
   summary: string,
+  testsPassed?: number,
 ): void {
   db.drizzle.update(agentRuns).set({ summary }).where(eq(agentRuns.id, runId)).run()
   db.drizzle
     .insert(events)
-    .values({ runId, type: 'status', payload: { kind: 'outcome', status, summary } })
+    .values({ runId, type: 'status', payload: { kind: 'outcome', status, summary, testsPassed } })
     .run()
 }

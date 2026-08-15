@@ -365,6 +365,9 @@ export async function executeRun(
         summary: reported.summary,
         branch: branchFor(ticket.id),
         prUrl: completion.prUrls[0] ?? null,
+        diffAdditions: completion.diffAdditions,
+        diffDeletions: completion.diffDeletions,
+        testsPassed: reported.testsPassed ?? null,
         finishedAt: new Date(),
       })
       .where(eq(agentRuns.id, runId))

@@ -202,14 +202,14 @@ describe('executeRun', () => {
     expect(acts.find((a) => a.type === 'run_failed')?.message).toContain('timed out at 50ms')
   })
 
-  test('5. success with commits: branch pushed to origin, summary stored', async () => {
+  test('5. success with commits: branch pushed to origin, summary stored, diffstat + testsPassed recorded', async () => {
     const { db, manager, ticket, origin } = await setup()
     const run = seedRun(db, ticket.id)
 
     const script: FakeScript = {
       act: async (ctx) => {
         const repoDir = join(ctx.runDir, 'proj')
-        writeFileSync(join(repoDir, 'change.txt'), 'work\n')
+        writeFileSync(join(repoDir, 'change.txt'), 'work\nmore\n')
         await git(repoDir, 'add', '.')
         await git(
           repoDir,
@@ -221,7 +221,7 @@ describe('executeRun', () => {
           '-m',
           'agent work',
         )
-        reportOutcome(db, run.id, ticket.id, 'success', 'shipped it')
+        reportOutcome(db, run.id, ticket.id, 'success', 'shipped it', 7)
       },
     }
 
@@ -231,9 +231,35 @@ describe('executeRun', () => {
     expect(updatedRun?.status).toBe('needs_review')
     expect(updatedRun?.summary).toBe('shipped it')
     expect(updatedRun?.branch).toBe(`ticket/${ticket.id}`)
+    expect(updatedRun?.diffAdditions).toBe(2)
+    expect(updatedRun?.diffDeletions).toBe(0)
+    expect(updatedRun?.testsPassed).toBe(7)
 
     const branches = await git(origin, 'branch', '--list', `ticket/${ticket.id}`)
     expect(branches).toContain(`ticket/${ticket.id}`)
+  })
+
+  test('11. success with no commits: diffAdditions/diffDeletions/testsPassed all null on the run row', async () => {
+    const { db, manager, ticket } = await setup()
+    const run = seedRun(db, ticket.id)
+
+    await executeRun(
+      {
+        db,
+        wm: manager,
+        adapters: adapters({
+          act: async () => reportOutcome(db, run.id, ticket.id, 'success', 'nothing to ship'),
+        }),
+        pr: false,
+      },
+      run.id,
+    )
+
+    const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
+    expect(updatedRun?.status).toBe('needs_review')
+    expect(updatedRun?.diffAdditions).toBeNull()
+    expect(updatedRun?.diffDeletions).toBeNull()
+    expect(updatedRun?.testsPassed).toBeNull()
   })
 
   test('6. setup failure (buildRunDir throws) -> failed, ticket ready/held, error journaled', async () => {
