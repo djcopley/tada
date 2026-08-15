@@ -87,9 +87,30 @@ export function useTicket(id: number) {
   return useQuery({ queryKey: keys.ticket(id), queryFn: () => client.ticket(id) })
 }
 
-export function useMemory(wsId: number) {
+/**
+ * Ticket detail (comments + runs) for several tickets at once — the Control screen's
+ * triage cards need each needs-you/live ticket's latest run and agent comment, which
+ * the bare board DTO doesn't carry. Shares cache keys with useTicket.
+ */
+export function useTicketDetails(ticketIds: number[]) {
   const client = useClient()
-  return useQuery({ queryKey: keys.memory(wsId), queryFn: () => client.memory(wsId) })
+  return useQueries({
+    queries: ticketIds.map((id) => ({
+      queryKey: keys.ticket(id),
+      queryFn: () => client.ticket(id),
+    })),
+  })
+}
+
+/** `wsId` may be `undefined` (e.g. the Control screen before an active workspace has loaded) —
+ * in that case the query simply stays disabled rather than fetching a bogus id. */
+export function useMemory(wsId: number | undefined) {
+  const client = useClient()
+  return useQuery({
+    queryKey: keys.memory(wsId ?? -1),
+    queryFn: () => client.memory(wsId as number),
+    enabled: wsId !== undefined,
+  })
 }
 
 export function useGlobalMemory() {

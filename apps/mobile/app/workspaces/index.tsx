@@ -1,77 +1,116 @@
-import type { ApiTicket, ApiWorkspaceListItem } from '@tada/shared'
+import type { ApiComment, ApiRun, ApiTicket, ApiWorkspaceListItem } from '@tada/shared'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
-import { useBoards, useCreateWorkspace, useWorkspaces } from '../../src/api/queries'
+import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useClient } from '../../src/api/ClientContext'
 import {
-  AgentLine,
-  AgentPanel,
+  keys,
+  useAccept,
+  useActiveWorkspace,
+  useActivity,
+  useBoards,
+  useCreateTicket,
+  useCreateWorkspace,
+  useMemory,
+  useSendBack,
+  useTicketDetails,
+  useWorkspaces,
+} from '../../src/api/queries'
+import { positionBetween } from '../../src/board/positions'
+import {
+  LiveDigest,
+  LiveNowCard,
+  MemoryCard,
+  NeedsYouCard,
+  SlotPill,
+  TodayCard,
+  WorkspaceStrip,
+} from '../../src/components/control/ControlCards'
+import {
   AppHeader,
-  Card,
+  BottomStrip,
+  Button,
   Dialog,
   EmptyState,
   Input,
+  Rail,
+  RunStatusChip,
   Screen,
   Skeleton,
-  StatusTag,
 } from '../../src/components/ui'
-import { WorkspaceCard } from '../../src/components/WorkspaceCard'
 import { useTheme } from '../../src/design/ThemeContext'
-import { space, type } from '../../src/design/tokens'
+import { elapsedLabel, headlineFor, isSinceLocalMidnight, overnightSubline, useNowTick } from '../../src/control'
+import { motion, space, type } from '../../src/design/tokens'
+import { useLayout } from '../../src/layout'
+import { relativeTime } from '../../src/relativeTime'
+import { showToast } from '../../src/toast'
 
-const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
-
-function countWord(n: number): string {
-  return NUMBER_WORDS[n] ?? String(n)
-}
+const TODAY_PAGE_SIZE = 5
+const TADA_LIFETIME_MS = motion.tada + 400
 
 type TriageTicket = { ticket: ApiTicket; workspace: ApiWorkspaceListItem; failed: boolean }
 type LiveTicket = { ticket: ApiTicket; workspace: ApiWorkspaceListItem }
+type StartNowTarget = { ticket: ApiTicket; workspace: ApiWorkspaceListItem; columnId: number; position: number }
+type TicketDetail = { ticket: ApiTicket; comments: ApiComment[]; runs: ApiRun[] }
 
 /**
  * Control — the home screen. Cross-workspace triage: what needs you first,
- * which agents are live right now, then the workspaces themselves.
+ * which agents are live right now, memory + today's activity, then every
+ * workspace. Wide (>=1000px) gets the Rail + two-column grid from the web
+ * artboard; narrow gets the single-column mobile artboard with BottomStrip.
  */
 export default function Control() {
   const router = useRouter()
   const { colors } = useTheme()
-  const { data, isLoading, isRefetching, refetch } = useWorkspaces()
-  const createWorkspace = useCreateWorkspace()
+  const client = useClient()
+  const qc = useQueryClient()
+  const { wide } = useLayout()
+  const now = useNowTick()
 
-  const workspaces = data ?? []
+  const { data: workspacesData, isLoading, isRefetching, refetch } = useWorkspaces()
+  const workspaces = workspacesData ?? []
   const boards = useBoards(workspaces.map((w) => w.id))
+  const { activeWorkspaceId } = useActiveWorkspace()
+  const memoryWorkspaceId = activeWorkspaceId ?? workspaces[0]?.id
+  const memoryWorkspace = workspaces.find((w) => w.id === memoryWorkspaceId)
+  const { data: memory } = useMemory(memoryWorkspaceId)
+  const { data: activityData } = useActivity()
+  const activities = activityData ?? []
 
-  const [modalVisible, setModalVisible] = useState(false)
-  const [name, setName] = useState('')
+  const createWorkspace = useCreateWorkspace()
+  const createTicket = useCreateTicket()
+  const accept = useAccept()
+  const sendBack = useSendBack()
 
-  const openCreateModal = () => {
-    setName('')
-    setModalVisible(true)
-  }
+  const moveTicketMutation = useMutation({
+    mutationFn: (vars: { ticket: ApiTicket; columnId: number; position: number }) =>
+      client.moveTicket(vars.ticket.id, { columnId: vars.columnId, position: vars.position }),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: keys.board(vars.ticket.workspaceId) })
+      void qc.invalidateQueries({ queryKey: keys.workspaces })
+    },
+  })
 
-  const closeCreateModal = () => setModalVisible(false)
+  const nudgeMutation = useMutation({
+    mutationFn: (vars: { runId: number; note: string }) => client.nudge(vars.runId, vars.note),
+    onSuccess: (data, vars) => {
+      void qc.invalidateQueries({ queryKey: keys.run(vars.runId) })
+      if (!data.delivered) showToast('note saved for the next attempt')
+    },
+  })
 
-  const onCreate = async () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    try {
-      const workspace = await createWorkspace.mutateAsync(trimmed)
-      setModalVisible(false)
-      router.push(`/workspaces/${workspace.id}/board`)
-    } catch {
-      // Swallow here — the global mutation error handler already surfaces a
-      // toast. Leave the modal open so the user can retry.
-    }
-  }
-
-  // Fold every loaded board into the triage lists. Boards still loading
-  // simply contribute nothing yet; counts on the workspace rows cover them.
+  // ---------------------------------------------------------------- triage
   const needsYou: TriageTicket[] = []
   const liveNow: LiveTicket[] = []
+  let startNowTarget: StartNowTarget | undefined
+
   boards.forEach((query, index) => {
     const workspace = workspaces[index]
-    if (!query.data || !workspace) return
-    for (const column of query.data.columns) {
+    const board = query.data
+    if (!board || !workspace) return
+
+    for (const column of board.columns) {
       for (const ticket of column.tickets) {
         if (column.kind === 'in_review') {
           needsYou.push({ ticket, workspace, failed: false })
@@ -82,156 +121,489 @@ export default function Control() {
         }
       }
     }
+
+    if (!startNowTarget && workspace.runningCount < workspace.concurrency) {
+      const readyColumn = board.columns.find((c) => c.kind === 'ready')
+      const queued = (readyColumn?.tickets ?? [])
+        .filter((t) => t.queueState === 'queued')
+        .sort((a, b) => a.position - b.position)
+      if (readyColumn && queued.length > 0) {
+        const minPosition = Math.min(...readyColumn.tickets.map((t) => t.position))
+        startNowTarget = {
+          ticket: queued[0]!,
+          workspace,
+          columnId: readyColumn.id,
+          position: positionBetween(undefined, minPosition),
+        }
+      }
+    }
   })
 
-  const liveCount = workspaces.reduce((sum, w) => sum + w.runningCount, 0)
+  const detailIds = Array.from(new Set([...needsYou.map((t) => t.ticket.id), ...liveNow.map((t) => t.ticket.id)]))
+  const details = useTicketDetails(detailIds)
+  const detailById = new Map<number, TicketDetail | undefined>()
+  detailIds.forEach((id, i) => detailById.set(id, details[i]?.data))
 
-  const headline =
-    needsYou.length === 0
-      ? 'All quiet'
-      : `${countWord(needsYou.length)} thing${needsYou.length === 1 ? '' : 's'} need${needsYou.length === 1 ? 's' : ''} you`
-  const subline =
-    liveCount > 0
-      ? `${liveCount} agent${liveCount === 1 ? '' : 's'} live right now`
-      : needsYou.length === 0
-        ? 'nothing waiting on you'
-        : 'no agents live right now'
+  const latestRunFor = (id: number): ApiRun | undefined => {
+    const runs = detailById.get(id)?.runs ?? []
+    return runs[runs.length - 1]
+  }
+  const latestFailedRunFor = (id: number): ApiRun | undefined => {
+    const runs = detailById.get(id)?.runs ?? []
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i]!.status === 'failed') return runs[i]
+    }
+    return undefined
+  }
+  const agentTextFor = (id: number): string | undefined => {
+    const detail = detailById.get(id)
+    if (!detail) return undefined
+    const agentComments = detail.comments.filter((c) => c.author === 'agent')
+    const lastComment = agentComments[agentComments.length - 1]
+    if (lastComment) return lastComment.body
+    return detail.runs[detail.runs.length - 1]?.summary ?? undefined
+  }
 
-  const sectionLabel = (label: string, tone: 'default' | 'live' = 'default') => (
-    <Text
-      style={[
-        type.monoCaps,
-        styles.sectionLabel,
-        { color: tone === 'live' ? colors.liveText : colors.textFaintSolid },
-      ]}
-    >
-      {label}
-    </Text>
+  // ---------------------------------------------------------------- headline
+  const overnightCount = activities.filter(
+    (a) => (a.type === 'needs_review' || a.type === 'run_failed') && isSinceLocalMidnight(a.createdAt),
+  ).length
+  const pendingNotes = (memory?.notes ?? []).filter((n) => n.state === 'pending' && n.author === 'agent')
+  const keptNotes = (memory?.notes ?? []).filter((n) => n.state === 'kept')
+  const headline = headlineFor(needsYou.length)
+  const subline = overnightSubline(overnightCount, pendingNotes.length)
+
+  // ---------------------------------------------------------------- celebration
+  const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
+  const celebrate = (ticketId: number) => {
+    setCelebratingIds((prev) => new Set(prev).add(ticketId))
+    setTimeout(() => {
+      setCelebratingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(ticketId)
+        return next
+      })
+    }, TADA_LIFETIME_MS)
+  }
+
+  // ---------------------------------------------------------------- dialogs
+  const [sendBackTicket, setSendBackTicket] = useState<ApiTicket | null>(null)
+  const [sendBackFeedback, setSendBackFeedback] = useState('')
+  const [nudgeTarget, setNudgeTarget] = useState<{ ticket: ApiTicket; runId: number } | null>(null)
+  const [nudgeNote, setNudgeNote] = useState('')
+  const [newTicketVisible, setNewTicketVisible] = useState(false)
+  const [newTicketTitle, setNewTicketTitle] = useState('')
+  const [createWorkspaceVisible, setCreateWorkspaceVisible] = useState(false)
+  const [newWorkspaceName, setNewWorkspaceName] = useState('')
+
+  const closeSendBack = () => {
+    setSendBackTicket(null)
+    setSendBackFeedback('')
+  }
+  const confirmSendBack = () => {
+    if (!sendBackTicket || !sendBackFeedback.trim()) return
+    sendBack.mutate(
+      { ticketId: sendBackTicket.id, feedback: sendBackFeedback.trim() },
+      { onSuccess: closeSendBack },
+    )
+  }
+
+  const closeNudge = () => {
+    setNudgeTarget(null)
+    setNudgeNote('')
+  }
+  const confirmNudge = () => {
+    if (!nudgeTarget || !nudgeNote.trim()) return
+    nudgeMutation.mutate({ runId: nudgeTarget.runId, note: nudgeNote.trim() }, { onSuccess: closeNudge })
+  }
+
+  const closeNewTicket = () => {
+    setNewTicketVisible(false)
+    setNewTicketTitle('')
+  }
+  const confirmNewTicket = () => {
+    const title = newTicketTitle.trim()
+    if (!title || memoryWorkspaceId === undefined) return
+    createTicket.mutate(
+      { workspaceId: memoryWorkspaceId, title },
+      { onSuccess: (ticket) => { closeNewTicket(); router.push(`/tickets/${ticket.id}`) } },
+    )
+  }
+
+  const closeCreateWorkspace = () => {
+    setCreateWorkspaceVisible(false)
+    setNewWorkspaceName('')
+  }
+  const confirmCreateWorkspace = async () => {
+    const trimmed = newWorkspaceName.trim()
+    if (!trimmed) return
+    try {
+      const workspace = await createWorkspace.mutateAsync(trimmed)
+      closeCreateWorkspace()
+      router.push(`/workspaces/${workspace.id}/board`)
+    } catch {
+      // Global mutation error handler already surfaces a toast; leave the dialog open to retry.
+    }
+  }
+
+  // ---------------------------------------------------------------- needs-you actions
+  const moveToBacklog = (ticket: ApiTicket) => {
+    const board = boards.find((_q, i) => workspaces[i]?.id === ticket.workspaceId)?.data
+    const backlog = board?.columns.find((c) => c.kind === 'backlog')
+    if (!backlog) return
+    const positions = backlog.tickets.map((t) => t.position)
+    const position = positionBetween(positions.length ? Math.max(...positions) : undefined, undefined)
+    moveTicketMutation.mutate({ ticket, columnId: backlog.id, position })
+  }
+
+  const rerun = (ticket: ApiTicket) => {
+    moveTicketMutation.mutate({ ticket, columnId: ticket.columnId, position: ticket.position })
+  }
+
+  const [historyLimit, setHistoryLimit] = useState(TODAY_PAGE_SIZE)
+
+  // ---------------------------------------------------------------- render helpers
+  const needsYouSection = (narrow: boolean) => (
+    <>
+      {needsYou.map(({ ticket, workspace, failed }) => {
+        const latestRun = failed ? latestFailedRunFor(ticket.id) : latestRunFor(ticket.id)
+        return (
+          <NeedsYouCard
+            key={ticket.id}
+            testID={`needs-you-${ticket.id}`}
+            ticket={ticket}
+            workspace={workspace}
+            meta={`${workspace.name} · ${relativeTime(ticket.createdAt)}`}
+            failed={failed}
+            latestRun={latestRun}
+            agentText={agentTextFor(ticket.id)}
+            wide={!narrow}
+            accepting={accept.isPending && accept.variables === ticket.id}
+            celebrate={celebratingIds.has(ticket.id)}
+            actions={{
+              onAccept: () => accept.mutate(ticket.id, { onSuccess: () => celebrate(ticket.id) }),
+              onSendBack: () => setSendBackTicket(ticket),
+              onOpenDiff: () => {
+                if (latestRun?.prUrl) void Linking.openURL(latestRun.prUrl)
+              },
+              onRerun: () => rerun(ticket),
+              onEditAndRerun: () => router.push(`/tickets/${ticket.id}`),
+              onMoveToBacklog: () => moveToBacklog(ticket),
+            }}
+          />
+        )
+      })}
+    </>
   )
 
-  const header = (
-    <View style={styles.headerBlock}>
-      <View>
-        <Text style={[type.display, { color: colors.text }]}>{headline}</Text>
-        <Text style={[type.monoSmall, styles.subline, { color: colors.textFaintSolid }]}>{subline}</Text>
-      </View>
-
-      {needsYou.length > 0 && (
-        <View style={styles.section}>
-          {sectionLabel(`Needs you · ${needsYou.length}`)}
-          {needsYou.map(({ ticket, workspace, failed }) => (
-            <Card
-              key={ticket.id}
-              testID={`needs-you-${ticket.id}`}
-              onPress={() => router.push(`/tickets/${ticket.id}`)}
-              style={styles.triageCard}
-            >
-              <Text numberOfLines={2} style={[type.bodyStrong, { color: colors.text }]}>
-                {ticket.title}
-              </Text>
-              <View style={styles.triageMeta}>
-                <StatusTag
-                  status={
-                    failed ? { label: 'Failed', signal: 'fail' } : { label: 'Your turn', signal: 'ok' }
-                  }
-                />
-                <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>
-                  {`${workspace.name} · #${ticket.id}`}
-                </Text>
-              </View>
-            </Card>
-          ))}
-        </View>
-      )}
-
-      {liveNow.length > 0 && (
-        <View style={styles.section}>
-          {sectionLabel(`Live now · ${liveNow.length}`, 'live')}
-          <AgentPanel testID="live-now-panel">
-            {liveNow.map(({ ticket, workspace }) => (
-              <Pressable
-                key={ticket.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Watch ${ticket.title}`}
-                onPress={() => router.push(`/tickets/${ticket.id}`)}
-              >
-                <AgentLine>{`${ticket.title.toLowerCase()} · ${workspace.name}`}</AgentLine>
-              </Pressable>
-            ))}
-          </AgentPanel>
-        </View>
-      )}
-
-      {workspaces.length > 0 && sectionLabel('Workspaces')}
-    </View>
-  )
-
-  return (
-    <Screen>
-      <AppHeader
-        title=""
-        wordmark
-        actions={[
-          { icon: 'plus', label: 'New workspace', onPress: openCreateModal, testID: 'create-workspace-button' },
-        ]}
-      />
-
-      {isLoading ? (
+  // ================================================================== loading / empty
+  if (isLoading) {
+    return (
+      <Screen>
+        <AppHeader title="" wordmark />
         <View style={styles.skeletons}>
           <Skeleton height={84} />
           <Skeleton height={84} />
           <Skeleton height={84} />
         </View>
-      ) : workspaces.length === 0 ? (
+      </Screen>
+    )
+  }
+
+  if (workspaces.length === 0) {
+    return (
+      <Screen>
+        <AppHeader title="" wordmark />
         <EmptyState
           icon="inbox"
           message="No workspaces yet — create one to start dispatching work."
-          action={{ label: 'New workspace', onPress: openCreateModal }}
+          action={{ label: 'New workspace', onPress: () => setCreateWorkspaceVisible(true) }}
         />
-      ) : (
-        <FlatList
-          testID="workspaces-list"
-          data={workspaces}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={header}
-          renderItem={({ item }) => (
-            <WorkspaceCard
-              workspace={item}
-              onPress={() => router.push(`/workspaces/${item.id}/board`)}
-            />
-          )}
-          refreshing={isRefetching}
-          onRefresh={() => void refetch()}
-        />
-      )}
+        <Dialog
+          visible={createWorkspaceVisible}
+          title="New workspace"
+          onClose={closeCreateWorkspace}
+          confirm={{
+            label: 'Create workspace',
+            onPress: () => void confirmCreateWorkspace(),
+            disabled: createWorkspace.isPending || newWorkspaceName.trim().length === 0,
+            loading: createWorkspace.isPending,
+            testID: 'workspace-create-button',
+          }}
+        >
+          <Input
+            testID="workspace-name-input"
+            label="Name"
+            placeholder="Name"
+            autoFocus
+            value={newWorkspaceName}
+            onChangeText={setNewWorkspaceName}
+          />
+        </Dialog>
+      </Screen>
+    )
+  }
 
+  const dialogs = (
+    <>
       <Dialog
-        visible={modalVisible}
-        title="New workspace"
-        onClose={closeCreateModal}
+        visible={sendBackTicket !== null}
+        title="Send back"
+        onClose={closeSendBack}
+        testID="send-back-dialog"
         confirm={{
-          label: 'Create workspace',
-          onPress: () => void onCreate(),
-          disabled: createWorkspace.isPending || name.trim().length === 0,
-          loading: createWorkspace.isPending,
-          testID: 'workspace-create-button',
+          label: 'Send back',
+          onPress: confirmSendBack,
+          disabled: sendBack.isPending || sendBackFeedback.trim().length === 0,
+          loading: sendBack.isPending,
+          testID: 'send-back-confirm',
         }}
       >
         <Text style={[type.caption, { color: colors.textMuted }]}>
-          A workspace holds its own board, memory and agent limits. It is created on your server.
+          What should the agent change before its next attempt?
         </Text>
         <Input
-          testID="workspace-name-input"
-          label="Name"
-          placeholder="Name"
+          testID="send-back-feedback-input"
+          label="Feedback"
+          placeholder="What needs to change?"
+          multiline
           autoFocus
-          value={name}
-          onChangeText={setName}
+          value={sendBackFeedback}
+          onChangeText={setSendBackFeedback}
         />
       </Dialog>
+
+      <Dialog
+        visible={nudgeTarget !== null}
+        title="Nudge with a note"
+        onClose={closeNudge}
+        testID="nudge-dialog"
+        confirm={{
+          label: 'Send nudge',
+          onPress: confirmNudge,
+          disabled: nudgeMutation.isPending || nudgeNote.trim().length === 0,
+          loading: nudgeMutation.isPending,
+          testID: 'nudge-confirm',
+        }}
+      >
+        <Text style={[type.caption, { color: colors.textMuted }]}>
+          A short note the agent reads at its next checkpoint.
+        </Text>
+        <Input
+          testID="nudge-note-input"
+          label="Note"
+          placeholder="e.g. also update the docs"
+          multiline
+          autoFocus
+          value={nudgeNote}
+          onChangeText={setNudgeNote}
+        />
+      </Dialog>
+
+      <Dialog
+        visible={newTicketVisible}
+        title="New ticket"
+        onClose={closeNewTicket}
+        testID="new-ticket-dialog"
+        confirm={{
+          label: 'Create ticket',
+          onPress: confirmNewTicket,
+          disabled: createTicket.isPending || newTicketTitle.trim().length === 0,
+          loading: createTicket.isPending,
+          testID: 'new-ticket-confirm',
+        }}
+      >
+        <Text style={[type.caption, { color: colors.textMuted }]}>
+          {memoryWorkspace ? `Goes to ${memoryWorkspace.name}.` : 'Pick a workspace from the switcher first.'}
+        </Text>
+        <Input
+          testID="new-ticket-title-input"
+          label="Title"
+          placeholder="What should the agent do?"
+          autoFocus
+          value={newTicketTitle}
+          onChangeText={setNewTicketTitle}
+        />
+      </Dialog>
+    </>
+  )
+
+  // ================================================================== wide
+  if (wide) {
+    return (
+      <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="control-wide">
+        <Rail active="control" needsYouCount={needsYou.length} testID="control-rail" />
+        <ScrollView
+          contentContainerStyle={styles.wideContent}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+        >
+          <View style={styles.wideHeaderRow}>
+            <View style={styles.flexShrink}>
+              <Text style={[type.display, { color: colors.text }]}>{headline}</Text>
+              <Text style={[type.monoSmall, styles.subline, { color: colors.textFaintSolid }]}>{subline}</Text>
+            </View>
+            <View style={styles.spacer} />
+            <RunStatusChip
+              status="live"
+              label={`${liveNow.length} agent${liveNow.length === 1 ? '' : 's'} live`}
+              testID="control-live-chip"
+            />
+            <Button testID="new-ticket-button" variant="primary" label="New ticket" onPress={() => setNewTicketVisible(true)} />
+          </View>
+
+          <View style={styles.twoColumn}>
+            <View style={styles.leftColumn}>
+              {needsYou.length > 0 && sectionLabel(colors.textFaintSolid, `Needs you · ${needsYou.length}`)}
+              {needsYouSection(false)}
+
+              {liveNow.length > 0 && sectionLabel(colors.liveText, `Live now · ${liveNow.length}`)}
+              {liveNow.map(({ ticket, workspace }) => {
+                const latestRun = latestRunFor(ticket.id)
+                const runningRun = detailById.get(ticket.id)?.runs.find((r) => r.status === 'running') ?? latestRun
+                return (
+                  <LiveNowCard
+                    key={ticket.id}
+                    testID={`live-now-${ticket.id}`}
+                    ticket={ticket}
+                    workspace={workspace}
+                    startedAt={runningRun?.startedAt}
+                    now={now}
+                    agentText={agentTextFor(ticket.id)}
+                    onFullLog={() => runningRun && router.push(`/runs/${runningRun.id}`)}
+                    onNudge={() => runningRun && setNudgeTarget({ ticket, runId: runningRun.id })}
+                  />
+                )
+              })}
+
+              {startNowTarget ? (
+                <SlotPill
+                  testID="slot-pill"
+                  slots={startNowTarget.workspace.concurrency - startNowTarget.workspace.runningCount}
+                  nextTitle={startNowTarget.ticket.title}
+                  onStartNow={() =>
+                    moveTicketMutation.mutate({
+                      ticket: startNowTarget!.ticket,
+                      columnId: startNowTarget!.columnId,
+                      position: startNowTarget!.position,
+                    })
+                  }
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.rightColumn}>
+              {memoryWorkspace ? (
+                <MemoryCard
+                  testID="memory-card"
+                  workspaceName={memoryWorkspace.name}
+                  keptNotes={keptNotes}
+                  pendingNote={pendingNotes[pendingNotes.length - 1]}
+                  onEditMemory={() => router.push(`/workspaces/${memoryWorkspace.id}/memory`)}
+                />
+              ) : null}
+
+              <TodayCard
+                testID="today-card"
+                activities={activities.slice(0, historyLimit)}
+                showFullHistory={activities.length > historyLimit}
+                onFullHistory={() => setHistoryLimit((n) => n + 10)}
+              />
+
+              {workspaces.map((w) => (
+                <WorkspaceStrip
+                  key={w.id}
+                  testID={`workspace-strip-${w.id}`}
+                  workspace={w}
+                  onBoard={() => router.push(`/workspaces/${w.id}/board`)}
+                />
+              ))}
+
+              <Button
+                testID="rail-new-workspace"
+                variant="ghost"
+                small
+                label="New workspace"
+                onPress={() => setCreateWorkspaceVisible(true)}
+                style={styles.selfStart}
+              />
+            </View>
+          </View>
+        </ScrollView>
+
+        {dialogs}
+        <Dialog
+          visible={createWorkspaceVisible}
+          title="New workspace"
+          onClose={closeCreateWorkspace}
+          confirm={{
+            label: 'Create workspace',
+            onPress: () => void confirmCreateWorkspace(),
+            disabled: createWorkspace.isPending || newWorkspaceName.trim().length === 0,
+            loading: createWorkspace.isPending,
+            testID: 'workspace-create-button',
+          }}
+        >
+          <Input
+            testID="workspace-name-input"
+            label="Name"
+            placeholder="Name"
+            autoFocus
+            value={newWorkspaceName}
+            onChangeText={setNewWorkspaceName}
+          />
+        </Dialog>
+      </View>
+    )
+  }
+
+  // ================================================================== narrow
+  const liveDigestLines = liveNow.map(({ ticket }) => {
+    const latestRun = latestRunFor(ticket.id)
+    const running = detailById.get(ticket.id)?.runs.find((r) => r.status === 'running') ?? latestRun
+    const digestText = agentTextFor(ticket.id) ?? 'working…'
+    return {
+      key: String(ticket.id),
+      text: `${ticket.title.toLowerCase()} · ${elapsedLabel(running?.startedAt, now)} · ${digestText}`,
+    }
+  })
+
+  return (
+    <Screen edges={['top']} testID="control-narrow">
+      <View style={styles.narrowHeader}>
+        <Text style={[type.title, { color: colors.text }]}>
+          {'tada'}
+          <Text style={{ color: colors.live }}>✱</Text>
+        </Text>
+        <View style={styles.spacer} />
+        <RunStatusChip status="live" label={`${liveNow.length} live`} testID="control-live-chip" />
+      </View>
+
+      <ScrollView
+        testID="control-narrow-scroll"
+        contentContainerStyle={styles.narrowContent}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+      >
+        <View>
+          <Text style={[type.display, { color: colors.text }]}>{headline}</Text>
+          <Text style={[type.monoSmall, styles.subline, { color: colors.textFaintSolid }]}>{subline}</Text>
+        </View>
+
+        {needsYouSection(true)}
+
+        {liveNow.length > 0 ? <LiveDigest testID="live-digest" lines={liveDigestLines} /> : null}
+      </ScrollView>
+
+      <View style={styles.bottomStripWrap}>
+        <BottomStrip active="control" testID="control-bottom-strip" />
+      </View>
+
+      {dialogs}
     </Screen>
   )
+}
+
+function sectionLabel(color: string, label: string) {
+  return <Text style={[type.monoCaps, styles.sectionLabel, { color }]}>{label}</Text>
 }
 
 const styles = StyleSheet.create({
@@ -239,30 +611,62 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  listContent: {
-    paddingVertical: space.sm,
-    paddingBottom: space.xxl,
+  wideRoot: {
+    flex: 1,
+    flexDirection: 'row',
   },
-  headerBlock: {
-    paddingHorizontal: space.lg,
-    paddingTop: space.md,
-    gap: space.xl,
+  wideContent: {
+    flexGrow: 1,
+    padding: space.xxl,
+    gap: space.lg,
+  },
+  wideHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.lg,
+  },
+  flexShrink: {
+    flexShrink: 1,
+  },
+  spacer: {
+    flex: 1,
   },
   subline: {
     marginTop: space.xs,
   },
-  section: {
-    gap: space.sm,
+  twoColumn: {
+    flexDirection: 'row',
+    gap: space.xl,
+    alignItems: 'flex-start',
+  },
+  leftColumn: {
+    flex: 1.45,
+    gap: space.md,
+  },
+  rightColumn: {
+    flex: 1,
+    gap: space.md,
   },
   sectionLabel: {
     textTransform: 'uppercase',
+    marginTop: space.sm,
   },
-  triageCard: {
-    gap: space.sm,
+  selfStart: {
+    alignSelf: 'flex-start',
   },
-  triageMeta: {
+  narrowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm + 2,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+  },
+  narrowContent: {
+    padding: space.lg,
+    paddingTop: space.md,
+    gap: space.md,
+  },
+  bottomStripWrap: {
+    padding: space.md,
   },
 })
