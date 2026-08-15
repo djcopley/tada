@@ -114,7 +114,9 @@ export class TadaClient {
 
   patchWorkspace(
     id: number,
-    patch: Partial<Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'concurrency' | 'timeoutMs'>>,
+    patch: Partial<
+      Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'defaultEffort' | 'concurrency' | 'timeoutMs'>
+    >,
   ): Promise<ApiWorkspace> {
     return this.req('PATCH', `/workspaces/${id}`, patch)
   }

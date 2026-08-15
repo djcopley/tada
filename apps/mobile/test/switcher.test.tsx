@@ -14,6 +14,11 @@ jest.mock('../src/settings', () => ({
   saveActiveWorkspaceId: jest.fn(async () => undefined),
 }))
 
+const mockOpenNewWorkspaceDialog = jest.fn()
+jest.mock('../src/components/NewWorkspaceDialog', () => ({
+  openNewWorkspaceDialog: () => mockOpenNewWorkspaceDialog(),
+}))
+
 const mockListWorkspaces = jest.fn()
 const mockGlobalMemory = jest.fn()
 
@@ -157,6 +162,27 @@ describe('WorkspaceSwitcher', () => {
     await fireEvent.press(screen.getByTestId('switcher-workspace-5'))
 
     expect(mockPush).toHaveBeenCalledWith('/workspaces/5/board')
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-switcher')).toBeNull()
+    })
+  })
+
+  test('selecting "+ New workspace" closes the menu and opens the New workspace dialog', async () => {
+    mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'parlor' })])
+
+    await renderSwitcher()
+    await act(async () => {
+      openWorkspaceSwitcher()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switcher-new-workspace')).toBeTruthy()
+    })
+
+    await fireEvent.press(screen.getByTestId('switcher-new-workspace'))
+
+    expect(mockOpenNewWorkspaceDialog).toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
     await waitFor(() => {
       expect(screen.queryByTestId('workspace-switcher')).toBeNull()
     })

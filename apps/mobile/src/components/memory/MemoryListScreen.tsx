@@ -20,6 +20,7 @@ import {
   Card,
   Dialog,
   EmptyState,
+  IconButton,
   Input,
   Rail,
   Screen,
@@ -360,6 +361,15 @@ export function MemoryListScreen(props: Props) {
         {switcherTrigger}
         <View style={styles.spacer} />
         {newNoteButton(true)}
+        {navWorkspaceId !== undefined ? (
+          <IconButton
+            testID="memory-settings-button"
+            icon="settings"
+            label="Settings"
+            size="sm"
+            onPress={() => router.push(`/workspaces/${navWorkspaceId}/settings`)}
+          />
+        ) : null}
       </View>
       <View style={styles.narrowMeta}>{notesCount}</View>
 

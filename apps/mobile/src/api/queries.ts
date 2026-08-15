@@ -368,7 +368,7 @@ export function usePatchWorkspace(wsId: number) {
   return useMutation({
     mutationFn: (
       patch: Partial<
-        Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'concurrency' | 'timeoutMs'>
+        Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'defaultEffort' | 'concurrency' | 'timeoutMs'>
       >,
     ) => client.patchWorkspace(wsId, patch),
     onSuccess: () => {

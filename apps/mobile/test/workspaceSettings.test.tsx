@@ -1,26 +1,32 @@
-import type { ApiSource, ApiWorkspaceDetail } from '@tada/shared'
+import type { ApiAdapterInfo, ApiSource, ApiWorkspaceDetail } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
-import { ConnectionProvider } from '../src/ConnectionContext'
+import { Dimensions } from 'react-native'
+import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { ToastHost } from '../src/toast'
 
 const mockPush = jest.fn()
 const mockUseLocalSearchParams = jest.fn()
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, back: jest.fn() }),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
 }))
 
 jest.mock('../src/settings', () => ({
-  loadConnection: jest.fn(async () => ({ baseUrl: 'https://example.com', token: 'secret' })),
+  loadConnection: jest.fn(async () => ({ baseUrl: 'https://tada.home-server.dev', token: 'tada_supersecret3f9a' })),
   saveConnection: jest.fn(async () => undefined),
   clearConnection: jest.fn(async () => undefined),
+  loadThemeScheme: jest.fn(async () => 'night'),
+  saveThemeScheme: jest.fn(async () => undefined),
 }))
 
 const mockGetWorkspace = jest.fn()
 const mockPatchWorkspace = jest.fn()
 const mockAddSource = jest.fn()
 const mockRemoveSource = jest.fn()
+const mockAdapters = jest.fn()
+const mockStatus = jest.fn()
 
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
@@ -40,41 +46,72 @@ jest.mock('../src/api/client', () => {
       patchWorkspace: mockPatchWorkspace,
       addSource: mockAddSource,
       removeSource: mockRemoveSource,
+      adapters: mockAdapters,
+      status: mockStatus,
     })),
   }
 })
+
+function setWindowWidth(width: number) {
+  jest.spyOn(Dimensions, 'get').mockReturnValue({ width, height: 900, scale: 1, fontScale: 1 })
+}
 
 function source(overrides: Partial<ApiSource> & { name: string }): ApiSource {
   return { type: 'repo', ...overrides }
 }
 
+function adapter(overrides: Partial<ApiAdapterInfo> = {}): ApiAdapterInfo {
+  return {
+    id: 'claude',
+    label: 'Claude',
+    available: true,
+    models: ['sonnet', 'opus', 'haiku'],
+    efforts: ['low', 'medium', 'high'],
+    supportsInjection: true,
+    ...overrides,
+  }
+}
+
 function workspace(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorkspaceDetail {
   return {
     id: 1,
-    name: 'Alpha',
+    name: 'parlor',
     defaultAdapter: 'claude',
     defaultModel: 'sonnet',
-    defaultEffort: 'default',
+    defaultEffort: 'medium',
     concurrency: 2,
     timeoutMs: 300_000,
     createdAt: '2026-01-01T00:00:00.000Z',
     sources: [
-      source({ name: 'repo-a', url: 'https://github.com/user/repo-a.git', defaultBranch: 'main' }),
-      source({ name: 'repo-b', url: 'git@github.com:user/repo-b.git', defaultBranch: 'develop' }),
+      source({ name: 'acme/parlor-api', url: 'https://github.com/acme/parlor-api.git', defaultBranch: 'main' }),
+      source({ name: 'acme/parlor-gitlab', type: 'repo', url: 'https://gitlab.com/acme/parlor-gitlab.git' }),
+      source({ name: '~/docs/parlor-specs', type: 'folder', path: '/srv/repos/parlor-specs' }),
     ],
     ...overrides,
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const SettingsScreen = require('../app/workspaces/[id]/settings').default
+
+/** Mirrors GuardedStack (src/components/GuardedStack.tsx): the real app never renders a
+ * connected-only screen once `connection` drops (it redirects to /connect first). This keeps
+ * the disconnect flow from tripping useClient()'s invariant the way an un-routed test render
+ * otherwise would. */
+function Guarded() {
+  const { connection } = useConnection()
+  if (!connection) return null
+  return <SettingsScreen />
+}
+
 async function renderSettings() {
   mockUseLocalSearchParams.mockReturnValue({ id: '1' })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const SettingsScreen = require('../app/workspaces/[id]/settings').default
   await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>
-        <SettingsScreen />
+        <Guarded />
+        <ToastHost />
       </ConnectionProvider>
     </QueryClientProvider>,
   )
@@ -83,364 +120,335 @@ async function renderSettings() {
 describe('Workspace settings screen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    setWindowWidth(500)
     mockGetWorkspace.mockResolvedValue(workspace())
     mockPatchWorkspace.mockResolvedValue(workspace())
     mockAddSource.mockResolvedValue(undefined)
     mockRemoveSource.mockResolvedValue(undefined)
+    mockAdapters.mockResolvedValue([
+      adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus', 'haiku'], efforts: ['low', 'medium', 'high'] }),
+      adapter({ id: 'codex', label: 'Codex', available: false, models: ['gpt-5'], efforts: ['default'] }),
+    ])
+    mockStatus.mockResolvedValue({ ok: true, version: '0.9.2', workspaces: [], agents: [] })
   })
 
-  describe('Repos section', () => {
-    test('renders repos from fixture with name and url', async () => {
+  describe('Sources section', () => {
+    test('renders repo/folder rows with mono name and the right tag text', async () => {
       await renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-        expect(screen.getByText('https://github.com/user/repo-a.git')).toBeTruthy()
-        expect(screen.getByText('repo-b')).toBeTruthy()
-        expect(screen.getByText('git@github.com:user/repo-b.git')).toBeTruthy()
+        expect(screen.getByText('acme/parlor-api')).toBeTruthy()
       })
+      expect(screen.getAllByText('repo · github')).toHaveLength(1)
+      expect(screen.getByText('repo · git')).toBeTruthy()
+      expect(screen.getByText('folder · server')).toBeTruthy()
     })
 
-    test('add repo calls client with valid https url and refetches', async () => {
+    test('Add repo opens a dialog; a valid https url calls addSource and closes it', async () => {
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-add-repo')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
+      await fireEvent.press(screen.getByTestId('open-add-repo'))
+      expect(screen.getByTestId('add-repo-dialog')).toBeTruthy()
 
-      const urlInput = screen.getByTestId('add-repo-url-input')
-      await fireEvent.changeText(urlInput, 'https://github.com/user/new-repo.git')
-
-      const addButton = screen.getByTestId('add-repo-button')
-      await fireEvent.press(addButton)
+      await fireEvent.changeText(screen.getByTestId('add-repo-url-input'), 'https://github.com/user/new-repo.git')
+      await fireEvent.press(screen.getByTestId('add-repo-confirm'))
 
       await waitFor(() => {
         expect(mockAddSource).toHaveBeenCalledWith(1, { type: 'repo', url: 'https://github.com/user/new-repo.git' })
       })
     })
 
-    test('add repo calls client with valid git@ url', async () => {
+    test('Add repo rejects an invalid url inline and never calls the client', async () => {
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-add-repo')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
-
-      const urlInput = screen.getByTestId('add-repo-url-input')
-      await fireEvent.changeText(urlInput, 'git@github.com:user/new-repo.git')
-
-      const addButton = screen.getByTestId('add-repo-button')
-      await fireEvent.press(addButton)
-
-      await waitFor(() => {
-        expect(mockAddSource).toHaveBeenCalledWith(1, { type: 'repo', url: 'git@github.com:user/new-repo.git' })
-      })
-    })
-
-    test('invalid url shows inline error and never calls client', async () => {
-      await renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
-
-      const urlInput = screen.getByTestId('add-repo-url-input')
-      await fireEvent.changeText(urlInput, 'not-a-valid-url')
-
-      const addButton = screen.getByTestId('add-repo-button')
-      await fireEvent.press(addButton)
+      await fireEvent.press(screen.getByTestId('open-add-repo'))
+      await fireEvent.changeText(screen.getByTestId('add-repo-url-input'), 'not-a-valid-url')
+      await fireEvent.press(screen.getByTestId('add-repo-confirm'))
 
       expect(screen.getByTestId('add-repo-error')).toBeTruthy()
       expect(mockAddSource).not.toHaveBeenCalled()
     })
 
+    test('Add folder opens a dialog; an absolute path calls addSource with type folder', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-add-folder')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('open-add-folder'))
+      expect(screen.getByTestId('add-folder-dialog')).toBeTruthy()
+
+      await fireEvent.changeText(screen.getByTestId('add-folder-path-input'), '/srv/repos/new-folder')
+      await fireEvent.press(screen.getByTestId('add-folder-confirm'))
+
+      await waitFor(() => {
+        expect(mockAddSource).toHaveBeenCalledWith(1, { type: 'folder', path: '/srv/repos/new-folder' })
+      })
+    })
+
+    test('Add folder rejects a relative path inline', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-add-folder')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('open-add-folder'))
+      await fireEvent.changeText(screen.getByTestId('add-folder-path-input'), 'relative/path')
+      await fireEvent.press(screen.getByTestId('add-folder-confirm'))
+
+      expect(screen.getByTestId('add-folder-error')).toBeTruthy()
+      expect(mockAddSource).not.toHaveBeenCalled()
+    })
+
     test('remove repo confirms via dialog then calls client', async () => {
       await renderSettings()
+      await waitFor(() => expect(screen.getByText('acme/parlor-api')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
-
-      await fireEvent.press(screen.getByTestId('remove-repo-repo-a'))
+      await fireEvent.press(screen.getByTestId('remove-repo-acme/parlor-api'))
       await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
-        expect(mockRemoveSource).toHaveBeenCalledWith(1, 'repo-a')
+        expect(mockRemoveSource).toHaveBeenCalledWith(1, 'acme/parlor-api')
       })
     })
 
-    test('add repo failure shows inline error and keeps the url input', async () => {
-      const { ApiError } = require('../src/api/client')
-      mockAddSource.mockRejectedValueOnce(new ApiError(500, { error: 'clone failed' }))
-
-      await renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
-
-      const urlInput = screen.getByTestId('add-repo-url-input')
-      await fireEvent.changeText(urlInput, 'https://github.com/user/new-repo.git')
-
-      const addButton = screen.getByTestId('add-repo-button')
-      await fireEvent.press(addButton)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('add-repo-error')).toBeTruthy()
-        expect(screen.getByTestId('add-repo-error').props.children).toBe('clone failed')
-      })
-
-      expect(screen.getByTestId('add-repo-url-input').props.value).toBe(
-        'https://github.com/user/new-repo.git',
-      )
-    })
-
-    test('remove repo failure shows inline error', async () => {
+    test('remove repo failure shows an inline error', async () => {
       const { ApiError } = require('../src/api/client')
       mockRemoveSource.mockRejectedValueOnce(new ApiError(500, { error: 'remove failed' }))
-
       await renderSettings()
+      await waitFor(() => expect(screen.getByText('acme/parlor-api')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByText('repo-a')).toBeTruthy()
-      })
-
-      await fireEvent.press(screen.getByTestId('remove-repo-repo-a'))
+      await fireEvent.press(screen.getByTestId('remove-repo-acme/parlor-api'))
       await fireEvent.press(screen.getByTestId('remove-repo-confirm'))
 
       await waitFor(() => {
-        expect(mockRemoveSource).toHaveBeenCalledWith(1, 'repo-a')
         expect(screen.getByTestId('remove-repo-error')).toBeTruthy()
-        expect(screen.getByTestId('remove-repo-error').props.children).toBe('remove failed')
       })
     })
   })
 
-  describe('Defaults section', () => {
-    test('model options change when adapter changes', async () => {
+  describe('Agent section', () => {
+    test('renders a segmented button per adapter — selected is secondary, others ghost', async () => {
       await renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByTestId('adapter-picker')).toBeTruthy()
-      })
-
-      // Initially shows model for claude adapter
-      expect(screen.getByTestId('model-picker')).toBeTruthy()
-
-      // When adapter picker is pressed, modal should open
-      const adapterPicker = screen.getByTestId('adapter-picker')
-      fireEvent.press(adapterPicker)
-
-      // Wait for modal items to be visible (more than 1 claude)
-      await waitFor(() => {
-        const adapterItems = screen.getAllByText('Claude')
-        expect(adapterItems.length).toBeGreaterThan(1)
-      })
-
-      // Should still have model options for claude
-      expect(screen.getByTestId('model-picker')).toBeTruthy()
-    })
-
-    test('selecting adapter calls patchWorkspace and updates model if needed', async () => {
-      mockPatchWorkspace.mockResolvedValue(
-        workspace({ defaultAdapter: 'claude', defaultModel: 'sonnet' }),
-      )
-
-      await renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByTestId('adapter-picker')).toBeTruthy()
-      })
-
-      const adapterPicker = screen.getByTestId('adapter-picker')
-      fireEvent.press(adapterPicker)
-
-      // Wait for modal item to be visible
-      await waitFor(() => {
-        const adapterItems = screen.getAllByText('Claude')
-        expect(adapterItems.length).toBeGreaterThan(1)
-      })
-
-      // Press the modal item (the second one, which is from FlatList)
-      const adapterItems = screen.getAllByText('Claude')
-      if (adapterItems.length > 1) {
-        const modalItem = adapterItems[adapterItems.length - 1]
-        if (modalItem) fireEvent.press(modalItem)
-      }
-
-      await waitFor(() => {
-        expect(mockPatchWorkspace).toHaveBeenCalled()
+        expect(screen.getByTestId('harness-claude')).toBeTruthy()
+        expect(screen.getByTestId('harness-codex')).toBeTruthy()
       })
     })
 
-    test('selecting model calls patchWorkspace with model', async () => {
+    test('an unavailable adapter is disabled with a "not installed" hint', async () => {
       await renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByTestId('model-picker')).toBeTruthy()
+        expect(screen.getByTestId('harness-codex').props.accessibilityState.disabled).toBe(true)
       })
+      expect(screen.getByTestId('harness-hint-codex')).toHaveTextContent('not installed on the server')
+      expect(screen.queryByTestId('harness-hint-claude')).toBeNull()
+    })
 
-      const modelPicker = screen.getByTestId('model-picker')
-      fireEvent.press(modelPicker)
+    test('pressing a disabled harness does not patch', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('harness-codex')).toBeTruthy())
 
-      // Wait for modal item to be visible
+      await fireEvent.press(screen.getByTestId('harness-codex'))
+      expect(mockPatchWorkspace).not.toHaveBeenCalled()
+    })
+
+    test('switching to an available harness resets model + effort to its first entries in a single PATCH', async () => {
+      mockAdapters.mockResolvedValue([
+        adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus'], efforts: ['low', 'medium'] }),
+        adapter({ id: 'gemini', label: 'Gemini', available: true, models: ['pro', 'flash'], efforts: ['fast', 'thorough'] }),
+      ])
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('harness-gemini')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('harness-gemini'))
+
       await waitFor(() => {
-        const modelItems = screen.getAllByText('Sonnet')
-        expect(modelItems.length).toBeGreaterThan(1)
+        expect(mockPatchWorkspace).toHaveBeenCalledTimes(1)
       })
+      expect(mockPatchWorkspace).toHaveBeenCalledWith(1, {
+        defaultAdapter: 'gemini',
+        defaultModel: 'pro',
+        defaultEffort: 'fast',
+      })
+      // The model button and first effort button now reflect the new harness.
+      expect(screen.getByTestId('model-menu-trigger')).toHaveTextContent('Pro ▾')
+      expect(screen.getByTestId('effort-fast').props.accessibilityState.disabled).toBeFalsy()
+    })
 
-      // Press the modal item (the second one, which is from FlatList)
-      const modelItems = screen.getAllByText('Sonnet')
-      if (modelItems.length > 1) {
-        const modalItem = modelItems[modelItems.length - 1]
-        if (modalItem) fireEvent.press(modalItem)
-      }
+    test('Model opens a Menu of the current harness models; selecting one PATCHes defaultModel', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('model-menu-trigger')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('model-menu-trigger'))
+      expect(screen.getByTestId('model-menu')).toBeTruthy()
+      expect(screen.getByTestId('model-option-opus')).toBeTruthy()
+
+      await fireEvent.press(screen.getByTestId('model-option-opus'))
 
       await waitFor(() => {
-        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, expect.objectContaining({ defaultModel: 'sonnet' }))
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { defaultModel: 'opus' })
+      })
+    })
+
+    test('Effort renders a segmented row from the current harness efforts; selecting one PATCHes defaultEffort', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('effort-high')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('effort-high'))
+
+      await waitFor(() => {
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { defaultEffort: 'high' })
+      })
+    })
+
+    test('shows the harness/model helper copy', async () => {
+      await renderSettings()
+      await waitFor(() => {
+        expect(screen.getByText('Model and effort options come from the selected harness.')).toBeTruthy()
+      })
+    })
+
+    test('a patch failure shows an inline agent error', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockPatchWorkspace.mockRejectedValueOnce(new ApiError(400, { error: 'Invalid adapter' }))
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('effort-high')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('effort-high'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-error')).toHaveTextContent('Invalid adapter')
       })
     })
   })
 
-  describe('Advanced section', () => {
-    test('concurrency stepper +/- sends patched number', async () => {
+  describe('Run limits section', () => {
+    test('stepper +/- sends the patched concurrency', async () => {
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('concurrency-stepper-increment')).toBeTruthy())
 
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-increment'))
       await waitFor(() => {
-        expect(screen.getByTestId('concurrency-increment')).toBeTruthy()
-      })
-
-      // Wait for workspace data to render concurrency value
-      const incrementButton = screen.getByTestId('concurrency-increment')
-      fireEvent.press(incrementButton)
-
-      await waitFor(() => {
-        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, expect.objectContaining({ concurrency: 3 }))
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { concurrency: 3 })
       })
 
       jest.clearAllMocks()
       mockPatchWorkspace.mockResolvedValue(workspace({ concurrency: 3 }))
-
-      const decrementButton = screen.getByTestId('concurrency-decrement')
-      fireEvent.press(decrementButton)
-
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-decrement'))
       await waitFor(() => {
-        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, expect.objectContaining({ concurrency: 2 }))
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { concurrency: 2 })
       })
     })
 
-    test('concurrency clamped to 1..4', async () => {
+    test('concurrency clamps to 1..8', async () => {
+      mockGetWorkspace.mockResolvedValue(workspace({ concurrency: 1 }))
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('concurrency-stepper-decrement')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByTestId('concurrency-decrement')).toBeTruthy()
-      })
-
-      // Try to go below 1
-      let decrementButton = screen.getByTestId('concurrency-decrement')
-      fireEvent.press(decrementButton)
-
-      await waitFor(() => {
-        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, expect.objectContaining({ concurrency: 1 }))
-      })
-
-      jest.clearAllMocks()
-      mockPatchWorkspace.mockResolvedValue(workspace({ concurrency: 1 }))
-
-      // Press decrement at 1 - should not call again
-      decrementButton = screen.getByTestId('concurrency-decrement')
-      fireEvent.press(decrementButton)
-
-      // Should not call since already at min
+      expect(screen.getByTestId('concurrency-stepper-decrement').props.accessibilityState.disabled).toBe(true)
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-decrement'))
       expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
 
-    test('timeout minutes input can be changed', async () => {
+    test('concurrency does not exceed 8', async () => {
+      mockGetWorkspace.mockResolvedValue(workspace({ concurrency: 8 }))
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('concurrency-stepper-increment')).toBeTruthy())
 
-      await waitFor(() => {
-        expect(screen.getByTestId('timeout-minutes-input')).toBeTruthy()
-      })
-
-      const timeoutInput = screen.getByTestId('timeout-minutes-input')
-      fireEvent.changeText(timeoutInput, '10')
-
-      // Wait for the input value to update
-      await waitFor(() => {
-        const updated = screen.getByTestId('timeout-minutes-input')
-        expect(updated.props.value).toBe('10')
-      })
-    })
-
-    test('blurring an empty timeout input resets to the last-saved value', async () => {
-      await renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByTestId('timeout-minutes-input')).toBeTruthy()
-      })
-
-      const timeoutInput = screen.getByTestId('timeout-minutes-input')
-      // workspace() fixture has timeoutMs 300_000 => 5 minutes displayed
-      expect(timeoutInput.props.value).toBe('5')
-
-      await fireEvent.changeText(timeoutInput, '')
-      await fireEvent(timeoutInput, 'blur')
-
-      await waitFor(() => {
-        expect(screen.getByTestId('timeout-minutes-input').props.value).toBe('5')
-      })
+      expect(screen.getByTestId('concurrency-stepper-increment').props.accessibilityState.disabled).toBe(true)
+      await fireEvent.press(screen.getByTestId('concurrency-stepper-increment'))
       expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
 
-    test('blurring a non-numeric timeout input resets to the last-saved value', async () => {
+    test('Per-run timeout opens a Menu of 10/15/30/60 min; selecting one PATCHes timeoutMs', async () => {
       await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('timeout-menu-trigger')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('timeout-menu-trigger'))
+      expect(screen.getByTestId('timeout-option-10')).toBeTruthy()
+      expect(screen.getByTestId('timeout-option-60')).toBeTruthy()
+
+      await fireEvent.press(screen.getByTestId('timeout-option-60'))
 
       await waitFor(() => {
-        expect(screen.getByTestId('timeout-minutes-input')).toBeTruthy()
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { timeoutMs: 60 * 60_000 })
       })
-
-      const timeoutInput = screen.getByTestId('timeout-minutes-input')
-
-      await fireEvent.changeText(timeoutInput, 'abc')
-      await fireEvent(timeoutInput, 'blur')
-
-      await waitFor(() => {
-        expect(screen.getByTestId('timeout-minutes-input').props.value).toBe('5')
-      })
-      expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
   })
 
-  describe('Error handling', () => {
-    test('server 400 on patch shows inline error text', async () => {
-      const { ApiError } = require('../src/api/client')
-      mockPatchWorkspace.mockRejectedValueOnce(
-        new ApiError(400, { error: 'Invalid adapter' }),
-      )
-
+  describe('Global section (narrow)', () => {
+    test('shows the server url, masked token and theme switch', async () => {
       await renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByTestId('adapter-picker')).toBeTruthy()
+        expect(screen.getByText('https://tada.home-server.dev')).toBeTruthy()
       })
+      expect(screen.getByTestId('masked-token')).toHaveTextContent('tada_••••••••••3f9a')
+      expect(screen.getByTestId('theme-switch')).toBeTruthy()
+    })
 
-      const adapterPicker = screen.getByTestId('adapter-picker')
-      fireEvent.press(adapterPicker)
+    test('Disconnect asks for confirmation before disconnecting', async () => {
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('disconnect-button')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('disconnect-button'))
+      expect(screen.getByTestId('disconnect-confirm')).toBeTruthy()
+
+      await fireEvent.press(screen.getByTestId('disconnect-confirm'))
+      // Disconnecting drops the connection, which re-renders without a workspace client —
+      // the settings screen itself unmounts; nothing further to assert here beyond no crash.
+    })
+
+    test('Replace token probes the new token via status() before persisting it', async () => {
+      mockStatus.mockResolvedValueOnce({ ok: true, version: '0.9.2', workspaces: [], agents: [] })
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-replace-token')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('open-replace-token'))
+      await fireEvent.changeText(screen.getByTestId('replace-token-input'), 'tada_newtoken1234')
+      await fireEvent.press(screen.getByTestId('replace-token-confirm'))
 
       await waitFor(() => {
-        const adapterItems = screen.getAllByText('Claude')
-        expect(adapterItems.length).toBeGreaterThan(1)
+        expect(mockStatus).toHaveBeenCalled()
       })
+      await waitFor(() => {
+        expect(screen.queryByTestId('replace-token-dialog')?.props.visible ?? false).toBe(false)
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('masked-token')).toHaveTextContent('tada_••••••••••1234')
+      })
+    })
 
-      const adapterItems = screen.getAllByText('Claude')
-      if (adapterItems.length > 1) {
-        const modalItem = adapterItems[adapterItems.length - 1]
-        if (modalItem) fireEvent.press(modalItem)
-      }
+    test('Replace token failure keeps the dialog open and shows a toast', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockStatus.mockRejectedValueOnce(new ApiError(401, { error: 'unauthorized' }))
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('open-replace-token')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('open-replace-token'))
+      await fireEvent.changeText(screen.getByTestId('replace-token-input'), 'tada_badtoken')
+      await fireEvent.press(screen.getByTestId('replace-token-confirm'))
 
       await waitFor(() => {
-        expect(screen.getByTestId('patch-error')).toBeTruthy()
+        expect(screen.getByText('Could not verify the new token')).toBeTruthy()
       })
+      // Dialog stays open (still findable) so the user can retry.
+      expect(screen.getByTestId('replace-token-dialog')).toBeTruthy()
+    })
+  })
+
+  describe('Wide layout', () => {
+    test('renders the Rail with a Settings active item instead of the narrow theme switch', async () => {
+      setWindowWidth(1400)
+      await renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('settings-wide')).toBeTruthy()
+      })
+      expect(screen.getByTestId('settings-rail')).toBeTruthy()
+      expect(screen.queryByTestId('theme-switch')).toBeNull()
+      expect(screen.queryByTestId('settings-narrow')).toBeNull()
     })
   })
 })

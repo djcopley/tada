@@ -13,12 +13,12 @@ export type Theme = {
 
 const noop = () => {}
 
-function buildTheme(scheme: ThemeScheme, setScheme: (s: ThemeScheme) => void): Theme {
+export function buildTheme(scheme: ThemeScheme, setScheme: (s: ThemeScheme) => void = noop): Theme {
   const colors = scheme === 'day' ? day : night
   return { scheme, colors, shadow: shadows(colors), setScheme }
 }
 
-const ThemeContext = createContext<Theme | null>(null)
+export const ThemeContext = createContext<Theme | null>(null)
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [scheme, setSchemeState] = useState<ThemeScheme>('night')

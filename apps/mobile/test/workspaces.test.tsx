@@ -5,6 +5,7 @@ import { Dimensions, Linking } from 'react-native'
 import Control from '../app/workspaces/index'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider } from '../src/ConnectionContext'
+import { NewWorkspaceDialog } from '../src/components/NewWorkspaceDialog'
 import { hhmm } from '../src/control'
 import { ToastHost } from '../src/toast'
 
@@ -54,6 +55,9 @@ const mockNudge = jest.fn()
 const mockMoveTicket = jest.fn()
 const mockCreateTicket = jest.fn()
 const mockCreateWorkspace = jest.fn()
+const mockCheckName = jest.fn()
+const mockKnownRepos = jest.fn()
+const mockAddSource = jest.fn()
 
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
@@ -80,6 +84,9 @@ jest.mock('../src/api/client', () => {
       moveTicket: mockMoveTicket,
       createTicket: mockCreateTicket,
       createWorkspace: mockCreateWorkspace,
+      checkName: mockCheckName,
+      knownRepos: mockKnownRepos,
+      addSource: mockAddSource,
       wsUrl: () => 'wss://example.com/ws',
     })),
   }
@@ -303,6 +310,9 @@ function setupMocks({
   mockTicket.mockImplementation(async (id: number) => ticketDetails[id])
   mockMemory.mockResolvedValue(memory)
   mockActivity.mockResolvedValue(activity)
+  mockCheckName.mockResolvedValue({ id: 'new-one', available: true })
+  mockKnownRepos.mockResolvedValue([])
+  mockAddSource.mockResolvedValue([])
 }
 
 async function renderControl() {
@@ -311,6 +321,7 @@ async function renderControl() {
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>
         <Control />
+        <NewWorkspaceDialog />
         <ToastHost />
       </ConnectionProvider>
     </QueryClientProvider>,
@@ -533,6 +544,19 @@ describe('Control screen', () => {
     // memory-note mention.
     const failedAt = hhmm(localTime(3, 12))
     expect(screen.getByText(`1 ran overnight · at ${failedAt} one failed`)).toBeTruthy()
+  })
+
+  test('narrow header gear navigates to the active workspace\'s settings', async () => {
+    setupMocks()
+    setWindowWidth(500)
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('control-settings-button')).toBeTruthy()
+    })
+    await fireEvent.press(screen.getByTestId('control-settings-button'))
+
+    expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
   })
 
   test('live-now elapsed label reflects the run\'s startedAt against the current time', async () => {

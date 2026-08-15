@@ -48,9 +48,16 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
 
   const client = connection ? new TadaClient(connection) : null
   const value: ConnectionState = { connection, client, connect, disconnect }
-  const content = client ? <ClientProvider client={client}>{children}</ClientProvider> : children
 
-  return <ConnectionContext.Provider value={value}>{content}</ConnectionContext.Provider>
+  // Always wrap in ClientProvider (even with a null client pre-connect) so the app subtree
+  // below never remounts when `connection` flips from null to a real value — an unmount here
+  // would reset every screen's local state (and drop the Connect screen's just-rendered
+  // checklist) right as the app navigates to /workspaces.
+  return (
+    <ConnectionContext.Provider value={value}>
+      <ClientProvider client={client}>{children}</ClientProvider>
+    </ConnectionContext.Provider>
+  )
 }
 
 export function useConnection(): ConnectionState {

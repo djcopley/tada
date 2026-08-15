@@ -7,7 +7,7 @@ export function ClientProvider({
   client,
   children,
 }: {
-  client: TadaClient
+  client: TadaClient | null
   children: ReactNode
 }) {
   return <ClientContext.Provider value={client}>{children}</ClientContext.Provider>
@@ -15,6 +15,6 @@ export function ClientProvider({
 
 export function useClient(): TadaClient {
   const client = useContext(ClientContext)
-  if (!client) throw new Error('useClient must be used within a ClientProvider')
+  if (!client) throw new Error('useClient must be used within a ClientProvider with an active connection')
   return client
 }

@@ -496,6 +496,19 @@ describe('Memory screens', () => {
       })
       expect(screen.queryByTestId('memory-rail')).toBeNull()
     })
+
+    test('narrow header gear navigates to the workspace\'s settings', async () => {
+      mockMemory.mockResolvedValue(memory({ notes: [] }))
+
+      await renderMemoryList()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('memory-settings-button')).toBeTruthy()
+      })
+      await fireEvent.press(screen.getByTestId('memory-settings-button'))
+
+      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
+    })
   })
 
   describe('Global scope list', () => {

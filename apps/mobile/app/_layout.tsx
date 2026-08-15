@@ -18,6 +18,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
+import { NewWorkspaceDialog } from '../src/components/NewWorkspaceDialog'
 import { WorkspaceSwitcher } from '../src/components/WorkspaceSwitcher'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
@@ -106,6 +107,14 @@ function ConnectedWorkspaceSwitcher() {
   return <WorkspaceSwitcher />
 }
 
+/** Same connection guard as {@link ConnectedWorkspaceSwitcher} — the New workspace dialog needs
+ * a TadaClient (via useClient), which only exists once a connection is saved. */
+function ConnectedNewWorkspaceDialog() {
+  const { connection } = useConnection()
+  if (!connection) return null
+  return <NewWorkspaceDialog />
+}
+
 export default function RootLayout() {
   // Screens design their own type with these faces; hold rendering one frame
   // until they're ready so nothing flashes in the system font.
@@ -134,6 +143,7 @@ export default function RootLayout() {
               */}
               <Stack screenOptions={{ headerShown: false }} />
               <ConnectedWorkspaceSwitcher />
+              <ConnectedNewWorkspaceDialog />
               <ToastHost />
             </AppQueryProvider>
           </ConnectionProvider>

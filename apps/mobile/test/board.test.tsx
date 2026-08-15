@@ -593,6 +593,20 @@ describe('Board screen', () => {
     expect(screen.getByTestId('board-bottom-strip')).toBeTruthy()
   })
 
+  test('narrow: header gear navigates to the workspace\'s settings', async () => {
+    setWidth(NARROW_WIDTH)
+    mockBoard.mockResolvedValueOnce(board())
+
+    await renderBoard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('board-settings-button')).toBeTruthy()
+    })
+    await fireEvent.press(screen.getByTestId('board-settings-button'))
+
+    expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
+  })
+
   test('dragging a backlog card and dropping it still fires a move', async () => {
     mockBoard.mockResolvedValueOnce(
       board({

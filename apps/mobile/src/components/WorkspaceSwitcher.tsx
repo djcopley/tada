@@ -6,6 +6,7 @@ import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
 import { Icon } from './ui/Icon'
 import { Menu } from './ui/Menu'
+import { openNewWorkspaceDialog } from './NewWorkspaceDialog'
 
 /** `'memory'` is passed only by the Memory screen's own `▾` trigger — the one place Global is a
  * meaningful destination, since there's no global board, ticket, or run to switch into. Every
@@ -77,7 +78,7 @@ export function WorkspaceSwitcher() {
 
   const createWorkspace = () => {
     close()
-    router.push('/workspaces')
+    openNewWorkspaceDialog()
   }
 
   return (

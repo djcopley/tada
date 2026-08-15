@@ -12,7 +12,6 @@ import {
   useActivity,
   useBoards,
   useCreateTicket,
-  useCreateWorkspace,
   useMemory,
   useSendBack,
   useTicketDetails,
@@ -34,12 +33,14 @@ import {
   Button,
   Dialog,
   EmptyState,
+  IconButton,
   Input,
   Rail,
   RunStatusChip,
   Screen,
   Skeleton,
 } from '../../src/components/ui'
+import { openNewWorkspaceDialog } from '../../src/components/NewWorkspaceDialog'
 import { WorkspaceSocket } from '../../src/components/WorkspaceSocket'
 import { useTheme } from '../../src/design/ThemeContext'
 import {
@@ -94,7 +95,6 @@ export default function Control() {
   const { data: activityData } = useActivity()
   const activities = activityData ?? []
 
-  const createWorkspace = useCreateWorkspace()
   const createTicket = useCreateTicket()
   const accept = useAccept()
   const sendBack = useSendBack()
@@ -236,8 +236,6 @@ export default function Control() {
   const [nudgeNote, setNudgeNote] = useState('')
   const [newTicketVisible, setNewTicketVisible] = useState(false)
   const [newTicketTitle, setNewTicketTitle] = useState('')
-  const [createWorkspaceVisible, setCreateWorkspaceVisible] = useState(false)
-  const [newWorkspaceName, setNewWorkspaceName] = useState('')
 
   const closeSendBack = () => {
     setSendBackTicket(null)
@@ -271,22 +269,6 @@ export default function Control() {
       { workspaceId: memoryWorkspaceId, title },
       { onSuccess: (ticket) => { closeNewTicket(); router.push(`/tickets/${ticket.id}`) } },
     )
-  }
-
-  const closeCreateWorkspace = () => {
-    setCreateWorkspaceVisible(false)
-    setNewWorkspaceName('')
-  }
-  const confirmCreateWorkspace = async () => {
-    const trimmed = newWorkspaceName.trim()
-    if (!trimmed) return
-    try {
-      const workspace = await createWorkspace.mutateAsync(trimmed)
-      closeCreateWorkspace()
-      router.push(`/workspaces/${workspace.id}/board`)
-    } catch {
-      // Global mutation error handler already surfaces a toast; leave the dialog open to retry.
-    }
   }
 
   // ---------------------------------------------------------------- needs-you actions
@@ -360,29 +342,8 @@ export default function Control() {
         <EmptyState
           icon="inbox"
           message="No workspaces yet — create one to start dispatching work."
-          action={{ label: 'New workspace', onPress: () => setCreateWorkspaceVisible(true) }}
+          action={{ label: 'New workspace', onPress: () => openNewWorkspaceDialog() }}
         />
-        <Dialog
-          visible={createWorkspaceVisible}
-          title="New workspace"
-          onClose={closeCreateWorkspace}
-          confirm={{
-            label: 'Create workspace',
-            onPress: () => void confirmCreateWorkspace(),
-            disabled: createWorkspace.isPending || newWorkspaceName.trim().length === 0,
-            loading: createWorkspace.isPending,
-            testID: 'workspace-create-button',
-          }}
-        >
-          <Input
-            testID="workspace-name-input"
-            label="Name"
-            placeholder="Name"
-            autoFocus
-            value={newWorkspaceName}
-            onChangeText={setNewWorkspaceName}
-          />
-        </Dialog>
       </Screen>
     )
   }
@@ -567,7 +528,7 @@ export default function Control() {
                 variant="ghost"
                 small
                 label="New workspace"
-                onPress={() => setCreateWorkspaceVisible(true)}
+                onPress={() => openNewWorkspaceDialog()}
                 style={styles.selfStart}
               />
             </View>
@@ -575,27 +536,6 @@ export default function Control() {
         </ScrollView>
 
         {dialogs}
-        <Dialog
-          visible={createWorkspaceVisible}
-          title="New workspace"
-          onClose={closeCreateWorkspace}
-          confirm={{
-            label: 'Create workspace',
-            onPress: () => void confirmCreateWorkspace(),
-            disabled: createWorkspace.isPending || newWorkspaceName.trim().length === 0,
-            loading: createWorkspace.isPending,
-            testID: 'workspace-create-button',
-          }}
-        >
-          <Input
-            testID="workspace-name-input"
-            label="Name"
-            placeholder="Name"
-            autoFocus
-            value={newWorkspaceName}
-            onChangeText={setNewWorkspaceName}
-          />
-        </Dialog>
       </View>
     )
   }
@@ -621,6 +561,15 @@ export default function Control() {
         </Text>
         <View style={styles.spacer} />
         <RunStatusChip status="live" label={`${liveNow.length} live`} testID="control-live-chip" />
+        {memoryWorkspaceId !== undefined ? (
+          <IconButton
+            testID="control-settings-button"
+            icon="settings"
+            label="Settings"
+            size="sm"
+            onPress={() => router.push(`/workspaces/${memoryWorkspaceId}/settings`)}
+          />
+        ) : null}
       </View>
 
       <ScrollView

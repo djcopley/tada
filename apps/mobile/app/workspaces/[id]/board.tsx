@@ -32,7 +32,7 @@ import { ColumnView } from '../../../src/components/ColumnView'
 import { TicketActions } from '../../../src/components/TicketActions'
 import type { BoardCardActions, TicketDetail } from '../../../src/components/TicketCard'
 import { TicketCardBody } from '../../../src/components/TicketCard'
-import { AppHeader, BottomStrip, Button, Dialog, EmptyState, Input, Rail, Screen, Skeleton } from '../../../src/components/ui'
+import { AppHeader, BottomStrip, Button, Dialog, EmptyState, IconButton, Input, Rail, Screen, Skeleton } from '../../../src/components/ui'
 import { openWorkspaceSwitcher } from '../../../src/components/WorkspaceSwitcher'
 import { useNowTick } from '../../../src/control'
 import { useTheme } from '../../../src/design/ThemeContext'
@@ -601,6 +601,13 @@ export default function Board() {
           {workspaceSwitcherTrigger}
           <View style={styles.spacer} />
           <Button testID="board-new-ticket" variant="primary" small label="New ticket" onPress={() => setNewTicketVisible(true)} />
+          <IconButton
+            testID="board-settings-button"
+            icon="settings"
+            label="Settings"
+            size="sm"
+            onPress={() => router.push(`/workspaces/${wsId}/settings`)}
+          />
         </View>
 
         <FlatList

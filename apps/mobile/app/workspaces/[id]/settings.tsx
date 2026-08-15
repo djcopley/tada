@@ -1,18 +1,15 @@
+import type { ApiAdapterInfo, ApiSource } from '@tada/shared'
 import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View, Pressable } from 'react-native'
-import { useConnection } from '../../../src/ConnectionContext'
-import { useRemoveSource, useAddSource, usePatchWorkspace, useWorkspace } from '../../../src/api/queries'
-import type { ApiError } from '../../../src/api/client'
-
-/**
- * Temporary bridge: this screen is fully rebuilt in Task 14 against the
- * server's `/adapters` discovery route (`useAdapters`) — not worth wiring
- * that up here just to delete it again shortly. Mirrors the removed
- * `src/adapters.ts` for now; the server is the real authority and rejects
- * unknown adapter/model combinations with a 400.
- */
-const ADAPTERS: Record<string, readonly string[]> = { claude: ['sonnet', 'opus', 'haiku'] }
+import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { ApiError, TadaClient } from '../../../src/api/client'
+import {
+  useAddSource,
+  useAdapters,
+  usePatchWorkspace,
+  useRemoveSource,
+  useWorkspace,
+} from '../../../src/api/queries'
 import {
   AppHeader,
   Button,
@@ -21,14 +18,24 @@ import {
   EmptyState,
   Icon,
   Input,
+  Menu,
   ListRow,
+  Rail,
   Screen,
-  Sheet,
   Skeleton,
+  Stepper,
+  Tag,
 } from '../../../src/components/ui'
+import { useConnection } from '../../../src/ConnectionContext'
 import { useTheme } from '../../../src/design/ThemeContext'
 import { humanize } from '../../../src/design/status'
 import { radius, space, type } from '../../../src/design/tokens'
+import { useLayout } from '../../../src/layout'
+import { showToast } from '../../../src/toast'
+
+const TIMEOUT_OPTIONS_MIN = [10, 15, 30, 60] as const
+const CONCURRENCY_MIN = 1
+const CONCURRENCY_MAX = 8
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   const apiErr = err as ApiError
@@ -37,67 +44,81 @@ function apiErrorMessage(err: unknown, fallback: string): string {
     : fallback
 }
 
+/** `repo · github` when the clone URL is a github.com remote, `repo · git` for any other repo
+ * host, `folder · server` for a bare local path. */
+function sourceTag(source: ApiSource): string {
+  if (source.type === 'folder') return 'folder · server'
+  return source.url?.includes('github.com') ? 'repo · github' : 'repo · git'
+}
+
+function maskToken(token: string): string {
+  const last4 = token.slice(-4)
+  return `tada_${'•'.repeat(10)}${last4}`
+}
+
+interface LocalDefaults {
+  adapter: string
+  model: string
+  effort: string
+  concurrency: number
+  timeoutMs: number
+}
+
 export default function WorkspaceSettings() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const wsId = Number(id)
-  const { colors, scheme, setScheme } = useTheme()
-  const { connection, disconnect } = useConnection()
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const { colors } = useTheme()
+  const { wide } = useLayout()
+  const { connection, connect, disconnect } = useConnection()
 
   const { data: workspace, isLoading } = useWorkspace(wsId)
+  const { data: adapters } = useAdapters()
   const removeSource = useRemoveSource(wsId)
   const addSource = useAddSource(wsId)
   const patchWorkspace = usePatchWorkspace(wsId)
 
-  const [addRepoUrl, setAddRepoUrl] = useState('')
-  const [addRepoError, setAddRepoError] = useState('')
-  const [removeRepoError, setRemoveRepoError] = useState('')
-  const [patchError, setPatchError] = useState('')
-
-  const [showAdapterPicker, setShowAdapterPicker] = useState(false)
-  const [showModelPicker, setShowModelPicker] = useState(false)
-  const [repoToRemove, setRepoToRemove] = useState<string | null>(null)
-
-  interface SettingsState {
-    selectedAdapter: string
-    selectedModel: string
-    concurrency: number
-    timeoutMinutes: string
-  }
-
-  // Initialize from workspace if available, otherwise use defaults
-  const [settings, setSettings] = useState<SettingsState>(() =>
-    workspace
-      ? {
-          selectedAdapter: workspace.defaultAdapter,
-          selectedModel: workspace.defaultModel,
-          concurrency: workspace.concurrency,
-          timeoutMinutes: String(workspace.timeoutMs / 60_000),
-        }
-      : {
-          selectedAdapter: 'claude',
-          selectedModel: 'sonnet',
-          concurrency: 1,
-          timeoutMinutes: '5',
-        },
-  )
-
-  // Track if we've synced the workspace data to avoid syncing on every render
+  const [local, setLocal] = useState<LocalDefaults>({
+    adapter: 'claude',
+    model: 'sonnet',
+    effort: 'default',
+    concurrency: 1,
+    timeoutMs: 30 * 60_000,
+  })
   const syncedWorkspaceIdRef = useRef<number | null>(null)
 
-  // Sync state when workspace loads (if not already synced)
   useEffect(() => {
     if (workspace && workspace.id !== syncedWorkspaceIdRef.current) {
       syncedWorkspaceIdRef.current = workspace.id
-      setSettings({
-        selectedAdapter: workspace.defaultAdapter,
-        selectedModel: workspace.defaultModel,
+      setLocal({
+        adapter: workspace.defaultAdapter,
+        model: workspace.defaultModel,
+        effort: workspace.defaultEffort,
         concurrency: workspace.concurrency,
-        timeoutMinutes: String(workspace.timeoutMs / 60_000),
+        timeoutMs: workspace.timeoutMs,
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace?.id])
+
+  const [repoToRemove, setRepoToRemove] = useState<string | null>(null)
+  const [removeRepoError, setRemoveRepoError] = useState('')
+
+  const [showAddRepo, setShowAddRepo] = useState(false)
+  const [addRepoUrl, setAddRepoUrl] = useState('')
+  const [addRepoError, setAddRepoError] = useState('')
+
+  const [showAddFolder, setShowAddFolder] = useState(false)
+  const [addFolderPath, setAddFolderPath] = useState('')
+  const [addFolderError, setAddFolderError] = useState('')
+
+  const [agentError, setAgentError] = useState('')
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [showTimeoutMenu, setShowTimeoutMenu] = useState(false)
+
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const [showReplaceToken, setShowReplaceToken] = useState(false)
+  const [newToken, setNewToken] = useState('')
+  const [replacingToken, setReplacingToken] = useState(false)
 
   if (Number.isNaN(wsId)) {
     return (
@@ -120,32 +141,45 @@ export default function WorkspaceSettings() {
     )
   }
 
-  const validateRepoUrl = (url: string): boolean => {
-    return url.startsWith('https://') || url.startsWith('git@')
-  }
+  // ---------------------------------------------------------------- sources
+  const validateRepoUrl = (url: string): boolean => url.startsWith('https://') || url.startsWith('git@')
 
   const handleAddRepo = () => {
     setAddRepoError('')
-    setRemoveRepoError('')
-
     if (!addRepoUrl.trim()) {
       setAddRepoError('URL cannot be empty')
       return
     }
-
     if (!validateRepoUrl(addRepoUrl)) {
       setAddRepoError('URL must start with https:// or git@')
       return
     }
-
     void addSource
       .mutateAsync({ type: 'repo', url: addRepoUrl })
       .then(() => {
+        setShowAddRepo(false)
         setAddRepoUrl('')
       })
-      .catch((err) => {
-        setAddRepoError(apiErrorMessage(err, 'Failed to add repo'))
+      .catch((err) => setAddRepoError(apiErrorMessage(err, 'Failed to add repo')))
+  }
+
+  const handleAddFolder = () => {
+    setAddFolderError('')
+    if (!addFolderPath.trim()) {
+      setAddFolderError('Path cannot be empty')
+      return
+    }
+    if (!addFolderPath.startsWith('/')) {
+      setAddFolderError('Path must be absolute — it has to exist on the server')
+      return
+    }
+    void addSource
+      .mutateAsync({ type: 'folder', path: addFolderPath })
+      .then(() => {
+        setShowAddFolder(false)
+        setAddFolderPath('')
       })
+      .catch((err) => setAddFolderError(apiErrorMessage(err, 'Failed to add folder')))
   }
 
   const confirmRemoveRepo = () => {
@@ -158,74 +192,82 @@ export default function WorkspaceSettings() {
     })
   }
 
-  const handleAdapterChange = async (adapter: string) => {
-    setSettings((prev) => ({ ...prev, selectedAdapter: adapter }))
-    setShowAdapterPicker(false)
+  // ---------------------------------------------------------------- agent
+  const currentAdapterInfo: ApiAdapterInfo | undefined = adapters?.find((a) => a.id === local.adapter)
 
-    // Check if current model is valid for new adapter
-    const modelsForAdapter = ADAPTERS[adapter] ?? []
-    let modelToSet = settings.selectedModel
-    if (!modelsForAdapter.includes(settings.selectedModel)) {
-      modelToSet = modelsForAdapter[0] ?? 'sonnet'
-      setSettings((prev) => ({ ...prev, selectedModel: modelToSet }))
-    }
+  const chooseHarness = (adapter: ApiAdapterInfo) => {
+    if (!adapter.available || adapter.id === local.adapter) return
+    const model = adapter.models[0] ?? ''
+    const effort = adapter.efforts[0] ?? ''
+    setLocal((prev) => ({ ...prev, adapter: adapter.id, model, effort }))
+    setAgentError('')
+    void patchWorkspace
+      .mutateAsync({ defaultAdapter: adapter.id, defaultModel: model, defaultEffort: effort })
+      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the harness')))
+  }
 
-    setPatchError('')
+  const chooseModel = (model: string) => {
+    setShowModelMenu(false)
+    if (model === local.model) return
+    setLocal((prev) => ({ ...prev, model }))
+    setAgentError('')
+    void patchWorkspace
+      .mutateAsync({ defaultModel: model })
+      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the model')))
+  }
+
+  const chooseEffort = (effort: string) => {
+    if (effort === local.effort) return
+    setLocal((prev) => ({ ...prev, effort }))
+    setAgentError('')
+    void patchWorkspace
+      .mutateAsync({ defaultEffort: effort })
+      .catch((err) => setAgentError(apiErrorMessage(err, 'Failed to update the effort')))
+  }
+
+  // ---------------------------------------------------------------- run limits
+  const setConcurrency = (next: number) => {
+    setLocal((prev) => ({ ...prev, concurrency: next }))
+    void patchWorkspace.mutateAsync({ concurrency: next }).catch(() => {})
+  }
+  const incrementConcurrency = () => {
+    if (local.concurrency < CONCURRENCY_MAX) setConcurrency(local.concurrency + 1)
+  }
+  const decrementConcurrency = () => {
+    if (local.concurrency > CONCURRENCY_MIN) setConcurrency(local.concurrency - 1)
+  }
+
+  const chooseTimeout = (minutes: number) => {
+    setShowTimeoutMenu(false)
+    const timeoutMs = minutes * 60_000
+    if (timeoutMs === local.timeoutMs) return
+    setLocal((prev) => ({ ...prev, timeoutMs }))
+    void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => {})
+  }
+
+  // ---------------------------------------------------------------- global
+  const closeReplaceToken = () => {
+    setShowReplaceToken(false)
+    setNewToken('')
+  }
+
+  const handleReplaceToken = async () => {
+    const trimmed = newToken.trim()
+    if (!trimmed || !connection) return
+    setReplacingToken(true)
     try {
-      await patchWorkspace.mutateAsync({ defaultAdapter: adapter, defaultModel: modelToSet })
-    } catch (err) {
-      setPatchError(apiErrorMessage(err, `Error: ${(err as ApiError).message}`))
+      // Validate the new token against the server before persisting it — an unauthenticated
+      // route wouldn't catch a typo'd token.
+      const probeClient = new TadaClient({ baseUrl: connection.baseUrl, token: trimmed })
+      await probeClient.status()
+      await connect({ baseUrl: connection.baseUrl, token: trimmed })
+      closeReplaceToken()
+    } catch {
+      showToast('Could not verify the new token')
+    } finally {
+      setReplacingToken(false)
     }
   }
-
-  const handleModelChange = async (model: string) => {
-    setSettings((prev) => ({ ...prev, selectedModel: model }))
-    setShowModelPicker(false)
-
-    setPatchError('')
-    try {
-      await patchWorkspace.mutateAsync({ defaultModel: model })
-    } catch (err) {
-      setPatchError(apiErrorMessage(err, `Error: ${(err as ApiError).message}`))
-    }
-  }
-
-  const handleConcurrencyIncrement = () => {
-    if (settings.concurrency < 4) {
-      const newValue = settings.concurrency + 1
-      setSettings((prev) => ({ ...prev, concurrency: newValue }))
-      setPatchError('')
-      // The global mutation error handler already surfaces a toast on
-      // failure; nothing local to do here.
-      void patchWorkspace.mutateAsync({ concurrency: newValue }).catch(() => {})
-    }
-  }
-
-  const handleConcurrencyDecrement = () => {
-    if (settings.concurrency > 1) {
-      const newValue = settings.concurrency - 1
-      setSettings((prev) => ({ ...prev, concurrency: newValue }))
-      setPatchError('')
-      void patchWorkspace.mutateAsync({ concurrency: newValue }).catch(() => {})
-    }
-  }
-
-  const handleTimeoutBlur = () => {
-    const minutes = parseInt(settings.timeoutMinutes, 10)
-    if (!Number.isNaN(minutes) && minutes > 0) {
-      const timeoutMs = minutes * 60_000
-      setPatchError('')
-      void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => {})
-    } else {
-      // Reset to last-saved value if input is invalid
-      if (workspace) {
-        setSettings((prev) => ({ ...prev, timeoutMinutes: String(workspace.timeoutMs / 60_000) }))
-      }
-    }
-  }
-
-  const adapterList = Object.keys(ADAPTERS)
-  const modelList = ADAPTERS[settings.selectedAdapter] ?? []
 
   const sectionTitle = (title: string) => (
     <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>{title}</Text>
@@ -237,184 +279,294 @@ export default function WorkspaceSettings() {
     </Text>
   )
 
-  return (
-    <Screen>
-      <AppHeader title="Settings" back />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.section}>
-          {sectionTitle('SOURCES — THIS WORKSPACE ONLY')}
-          <Card style={styles.sectionCard}>
-            {workspace.sources.length === 0 ? (
-              <Text style={[type.caption, { color: colors.textFaintSolid }]}>
-                No repositories — agents will run without a codebase.
-              </Text>
-            ) : (
-              workspace.sources.map((source) => (
-                <ListRow
-                  key={source.name}
-                  icon="git-branch"
-                  title={source.name}
-                  subtitle={source.url ?? source.path}
-                  trailing={
-                    <Pressable
-                      testID={`remove-repo-${source.name}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${source.name}`}
-                      hitSlop={8}
-                      onPress={() => setRepoToRemove(source.name)}
-                      style={({ pressed }) => [styles.removeButton, pressed && { opacity: 0.6 }]}
-                    >
-                      <Icon name="trash-2" size={16} color={colors.failText} />
-                    </Pressable>
-                  }
-                />
-              ))
-            )}
-            <View style={styles.addRepoRow}>
-              <Input
-                testID="add-repo-url-input"
-                placeholder="https://… or git@…"
-                mono
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={addRepoUrl}
-                onChangeText={setAddRepoUrl}
-                containerStyle={styles.addRepoInput}
+  const currentTimeoutMinutes = Math.round(local.timeoutMs / 60_000)
+
+  // ================================================================== sections
+  const sourcesSection = (
+    <View style={styles.section}>
+      {sectionTitle('SOURCES — THIS WORKSPACE ONLY')}
+      <Card style={styles.sourcesCard}>
+        {workspace.sources.length === 0 ? (
+          <Text style={[type.caption, { color: colors.textFaintSolid }]}>
+            No repositories — agents will run without a codebase.
+          </Text>
+        ) : (
+          workspace.sources.map((source) => (
+            <View key={source.name} style={[styles.sourceRow, { borderBottomColor: colors.borderSubtle }]}>
+              <Text style={[type.mono, { color: colors.text }]}>{source.name}</Text>
+              <Tag label={sourceTag(source)} />
+              <View style={styles.flex1} />
+              <Button
+                testID={`remove-repo-${source.name}`}
+                variant="ghost"
+                small
+                label="Remove"
+                onPress={() => setRepoToRemove(source.name)}
               />
-              <Button testID="add-repo-button" label="Add" onPress={handleAddRepo} small />
             </View>
-            {addRepoError ? errorText('add-repo-error', addRepoError) : null}
-            {removeRepoError ? errorText('remove-repo-error', removeRepoError) : null}
-          </Card>
+          ))
+        )}
+        <View style={styles.addRow}>
+          <Button testID="open-add-repo" variant="secondary" small label="Add repo" onPress={() => setShowAddRepo(true)} />
+          <Button
+            testID="open-add-folder"
+            variant="secondary"
+            small
+            label="Add folder"
+            onPress={() => setShowAddFolder(true)}
+          />
         </View>
+        {removeRepoError ? errorText('remove-repo-error', removeRepoError) : null}
+      </Card>
+    </View>
+  )
 
-        <View style={styles.section}>
-          {sectionTitle('AGENT')}
-          <Card style={styles.sectionCard}>
-            <ListRow
-              testID="adapter-picker"
-              icon="cpu"
-              title="Agent"
-              trailing={
-                <Text style={[type.mono, { color: colors.textMuted }]}>
-                  {humanize(settings.selectedAdapter)}
+  const agentSection = (
+    <View style={styles.section}>
+      {sectionTitle('AGENT')}
+      <Card style={styles.agentCard}>
+        <View style={styles.agentRow}>
+          <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>Harness</Text>
+          {(adapters ?? []).map((adapter) => (
+            <View key={adapter.id} style={styles.segmentedItem}>
+              <Button
+                testID={`harness-${adapter.id}`}
+                variant={adapter.id === local.adapter ? 'secondary' : 'ghost'}
+                small
+                label={adapter.label}
+                disabled={!adapter.available}
+                onPress={() => chooseHarness(adapter)}
+              />
+              {!adapter.available ? (
+                <Text
+                  testID={`harness-hint-${adapter.id}`}
+                  style={[type.caption, styles.hint, { color: colors.textFaintSolid }]}
+                >
+                  not installed on the server
                 </Text>
-              }
-              onPress={() => setShowAdapterPicker(true)}
-            />
-            <ListRow
-              testID="model-picker"
-              icon="layers"
-              title="Model"
-              trailing={
-                <Text style={[type.mono, { color: colors.textMuted }]}>
-                  {humanize(settings.selectedModel)}
-                </Text>
-              }
-              onPress={() => setShowModelPicker(true)}
-            />
-            {patchError ? errorText('patch-error', patchError) : null}
-          </Card>
+              ) : null}
+            </View>
+          ))}
         </View>
 
-        <View style={styles.section}>
-          {sectionTitle('RUN LIMITS')}
-          <Card style={styles.sectionCard}>
-            <ListRow
-              icon="git-merge"
-              title="Concurrency"
-              subtitle="Agents working at once (1–4)"
-              trailing={
-                <View style={styles.stepper}>
-                  <Pressable
-                    testID="concurrency-decrement"
-                    accessibilityRole="button"
-                    accessibilityLabel="Decrease concurrency"
-                    onPress={handleConcurrencyDecrement}
-                    style={({ pressed }) => [
-                      styles.stepperButton,
-                      { backgroundColor: colors.raised2 },
-                      pressed && { opacity: 0.6 },
-                    ]}
-                  >
-                    <Icon name="minus" size={16} />
-                  </Pressable>
-                  <Text style={[type.mono, styles.stepperValue, { color: colors.text }]}>
-                    {settings.concurrency}
-                  </Text>
-                  <Pressable
-                    testID="concurrency-increment"
-                    accessibilityRole="button"
-                    accessibilityLabel="Increase concurrency"
-                    onPress={handleConcurrencyIncrement}
-                    style={({ pressed }) => [
-                      styles.stepperButton,
-                      { backgroundColor: colors.raised2 },
-                      pressed && { opacity: 0.6 },
-                    ]}
-                  >
-                    <Icon name="plus" size={16} />
-                  </Pressable>
-                </View>
-              }
+        <View style={styles.agentRow}>
+          <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>Model</Text>
+          <Button
+            testID="model-menu-trigger"
+            variant="secondary"
+            small
+            label={`${humanize(local.model)} ▾`}
+            onPress={() => setShowModelMenu(true)}
+          />
+          <Text style={[type.caption, styles.rowLabel, styles.effortLabel, { color: colors.text }]}>Effort</Text>
+          {(currentAdapterInfo?.efforts ?? []).map((effort) => (
+            <Button
+              key={effort}
+              testID={`effort-${effort}`}
+              variant={effort === local.effort ? 'secondary' : 'ghost'}
+              small
+              label={humanize(effort)}
+              onPress={() => chooseEffort(effort)}
             />
-            <ListRow
-              icon="clock"
-              title="Timeout"
-              subtitle="Minutes before a run is stopped"
-              trailing={
-                <TextInput
-                  testID="timeout-minutes-input"
-                  style={[
-                    styles.timeoutInput,
-                    type.mono,
-                    { color: colors.text, borderColor: colors.borderSubtle, backgroundColor: colors.raised },
-                  ]}
-                  keyboardType="numeric"
-                  value={settings.timeoutMinutes}
-                  onChangeText={(text) => setSettings((prev) => ({ ...prev, timeoutMinutes: text }))}
-                  onBlur={handleTimeoutBlur}
-                />
-              }
-            />
-          </Card>
+          ))}
         </View>
 
-        <View style={styles.section}>
-          {sectionTitle('GLOBAL — APPLIES TO EVERY WORKSPACE')}
-          <Card style={styles.sectionCard}>
-            <ListRow
-              icon="moon"
-              title="Night watch"
-              subtitle="Dark ink is the default; flip for paper day"
-              trailing={
-                <Switch
-                  testID="theme-switch"
-                  accessibilityLabel="Day mode"
-                  value={scheme === 'day'}
-                  onValueChange={(on) => setScheme(on ? 'day' : 'night')}
-                  trackColor={{ true: colors.live, false: colors.raised2 }}
-                  thumbColor={colors.raised}
-                />
-              }
-            />
-            <ListRow
-              icon="server"
-              title="Server"
-              subtitle={connection?.baseUrl ?? '—'}
-              trailing={
-                <Button
-                  testID="disconnect-button"
-                  variant="destructive"
-                  label="Disconnect"
-                  onPress={() => setConfirmDisconnect(true)}
-                  small
-                />
-              }
-            />
-          </Card>
+        <Text style={[type.caption, { color: colors.textFaintSolid }]}>
+          Model and effort options come from the selected harness.
+        </Text>
+        {agentError ? errorText('agent-error', agentError) : null}
+      </Card>
+    </View>
+  )
+
+  const limitsSection = (
+    <View style={styles.section}>
+      {sectionTitle('RUN LIMITS')}
+      <Card style={styles.limitsCard}>
+        <View style={[styles.limitRow, { borderBottomColor: colors.borderSubtle }]}>
+          <View>
+            <Text style={[type.bodyStrong, { color: colors.text }]}>Concurrent runs</Text>
+            <Text style={[type.caption, { color: colors.textFaintSolid }]}>Agents working at once</Text>
+          </View>
+          <View style={styles.flex1} />
+          <Stepper
+            testID="concurrency-stepper"
+            value={local.concurrency}
+            min={CONCURRENCY_MIN}
+            max={CONCURRENCY_MAX}
+            onDecrement={decrementConcurrency}
+            onIncrement={incrementConcurrency}
+          />
         </View>
-      </ScrollView>
+        <View style={styles.limitRow}>
+          <View>
+            <Text style={[type.bodyStrong, { color: colors.text }]}>Per-run timeout</Text>
+            <Text style={[type.caption, { color: colors.textFaintSolid }]}>Runs are stopped past this</Text>
+          </View>
+          <View style={styles.flex1} />
+          <Button
+            testID="timeout-menu-trigger"
+            variant="secondary"
+            small
+            label={`${currentTimeoutMinutes} min ▾`}
+            onPress={() => setShowTimeoutMenu(true)}
+          />
+        </View>
+      </Card>
+    </View>
+  )
+
+  const globalSection = (
+    <View style={styles.section}>
+      {sectionTitle('GLOBAL — APPLIES TO EVERY WORKSPACE')}
+      <Card style={styles.globalCard}>
+        <View style={[styles.limitRow, { borderBottomColor: colors.borderSubtle }]}>
+          <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>Server</Text>
+          <View style={[styles.dot, { backgroundColor: colors.okText }]} />
+          <Text style={[type.mono, { color: colors.textMuted }]}>{connection?.baseUrl ?? '—'}</Text>
+          <View style={styles.flex1} />
+          <Button
+            testID="disconnect-button"
+            variant="destructive"
+            small
+            label="Disconnect"
+            onPress={() => setConfirmDisconnect(true)}
+          />
+        </View>
+        <View style={!wide ? [styles.limitRow, { borderBottomColor: colors.borderSubtle }] : styles.limitRow}>
+          <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>API token</Text>
+          <Text testID="masked-token" style={[type.mono, { color: colors.textMuted }]}>
+            {connection ? maskToken(connection.token) : '—'}
+          </Text>
+          <View style={styles.flex1} />
+          <Button
+            testID="open-replace-token"
+            variant="secondary"
+            small
+            label="Replace"
+            onPress={() => setShowReplaceToken(true)}
+          />
+        </View>
+        {!wide ? (
+          <View style={styles.limitRow}>
+            <View>
+              <Text style={[type.bodyStrong, { color: colors.text }]}>Night watch</Text>
+              <Text style={[type.caption, { color: colors.textFaintSolid }]}>
+                Dark ink is the default; flip for paper day
+              </Text>
+            </View>
+            <View style={styles.flex1} />
+            <NarrowThemeSwitch />
+          </View>
+        ) : null}
+      </Card>
+    </View>
+  )
+
+  const dialogs = (
+    <>
+      <Dialog
+        visible={showAddRepo}
+        title="Add repository"
+        onClose={() => {
+          setShowAddRepo(false)
+          setAddRepoUrl('')
+          setAddRepoError('')
+        }}
+        testID="add-repo-dialog"
+        confirm={{
+          label: 'Add',
+          onPress: handleAddRepo,
+          disabled: addSource.isPending,
+          loading: addSource.isPending,
+          testID: 'add-repo-confirm',
+        }}
+      >
+        <Input
+          testID="add-repo-url-input"
+          label="Repository URL"
+          placeholder="https://… or git@…"
+          mono
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={addRepoUrl}
+          onChangeText={setAddRepoUrl}
+        />
+        {addRepoError ? errorText('add-repo-error', addRepoError) : null}
+      </Dialog>
+
+      <Dialog
+        visible={showAddFolder}
+        title="Add folder"
+        onClose={() => {
+          setShowAddFolder(false)
+          setAddFolderPath('')
+          setAddFolderError('')
+        }}
+        testID="add-folder-dialog"
+        confirm={{
+          label: 'Add',
+          onPress: handleAddFolder,
+          disabled: addSource.isPending,
+          loading: addSource.isPending,
+          testID: 'add-folder-confirm',
+        }}
+      >
+        <Text style={[type.caption, { color: colors.textMuted }]}>Must be an absolute path that exists on the server.</Text>
+        <Input
+          testID="add-folder-path-input"
+          label="Folder path"
+          placeholder="/srv/repos/parlor-specs"
+          mono
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={addFolderPath}
+          onChangeText={setAddFolderPath}
+        />
+        {addFolderError ? errorText('add-folder-error', addFolderError) : null}
+      </Dialog>
+
+      <Dialog
+        visible={repoToRemove !== null}
+        title="Remove repository?"
+        onClose={() => setRepoToRemove(null)}
+        confirm={{
+          label: 'Remove',
+          destructive: true,
+          onPress: confirmRemoveRepo,
+          testID: 'remove-repo-confirm',
+        }}
+      >
+        <Text style={[type.body, { color: colors.textMuted }]}>
+          {`${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
+        </Text>
+      </Dialog>
+
+      <Menu visible={showModelMenu} onClose={() => setShowModelMenu(false)} testID="model-menu">
+        {(currentAdapterInfo?.models ?? []).map((model) => (
+          <ListRow
+            key={model}
+            testID={`model-option-${model}`}
+            title={humanize(model)}
+            trailing={model === local.model ? <Icon name="check" size={16} color={colors.text} /> : null}
+            onPress={() => chooseModel(model)}
+          />
+        ))}
+      </Menu>
+
+      <Menu visible={showTimeoutMenu} onClose={() => setShowTimeoutMenu(false)} testID="timeout-menu">
+        {TIMEOUT_OPTIONS_MIN.map((minutes) => (
+          <ListRow
+            key={minutes}
+            testID={`timeout-option-${minutes}`}
+            title={`${minutes} min`}
+            trailing={
+              minutes === currentTimeoutMinutes ? <Icon name="check" size={16} color={colors.text} /> : null
+            }
+            onPress={() => chooseTimeout(minutes)}
+          />
+        ))}
+      </Menu>
 
       <Dialog
         visible={confirmDisconnect}
@@ -435,48 +587,85 @@ export default function WorkspaceSettings() {
         </Text>
       </Dialog>
 
-      <Sheet visible={showAdapterPicker} onClose={() => setShowAdapterPicker(false)}>
-        {adapterList.map((item) => (
-          <ListRow
-            key={item}
-            title={humanize(item)}
-            trailing={
-              item === settings.selectedAdapter ? <Icon name="check" size={16} color={colors.text} /> : null
-            }
-            onPress={() => void handleAdapterChange(item)}
-          />
-        ))}
-      </Sheet>
-
-      <Sheet visible={showModelPicker} onClose={() => setShowModelPicker(false)}>
-        {modelList.map((item) => (
-          <ListRow
-            key={item}
-            title={humanize(item)}
-            trailing={
-              item === settings.selectedModel ? <Icon name="check" size={16} color={colors.text} /> : null
-            }
-            onPress={() => void handleModelChange(item)}
-          />
-        ))}
-      </Sheet>
-
       <Dialog
-        visible={repoToRemove !== null}
-        title="Remove repository?"
-        onClose={() => setRepoToRemove(null)}
+        visible={showReplaceToken}
+        title="Replace API token"
+        onClose={closeReplaceToken}
+        testID="replace-token-dialog"
         confirm={{
-          label: 'Remove',
-          destructive: true,
-          onPress: confirmRemoveRepo,
-          testID: 'remove-repo-confirm',
+          label: 'Replace',
+          onPress: () => void handleReplaceToken(),
+          disabled: replacingToken || newToken.trim().length === 0,
+          loading: replacingToken,
+          testID: 'replace-token-confirm',
         }}
       >
-        <Text style={[type.body, { color: colors.textMuted }]}>
-          {`${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
-        </Text>
+        <Input
+          testID="replace-token-input"
+          label="API token"
+          mono
+          secureTextEntry
+          autoFocus
+          value={newToken}
+          onChangeText={setNewToken}
+        />
       </Dialog>
+    </>
+  )
+
+  if (wide) {
+    return (
+      <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="settings-wide">
+        <Rail
+          active="settings"
+          workspaceId={wsId}
+          workspaceName={workspace.name}
+          sourceCount={workspace.sources.length}
+          testID="settings-rail"
+        />
+        <ScrollView contentContainerStyle={styles.wideContent}>
+          <View style={styles.headerRow}>
+            <Text style={[type.display, { color: colors.text }]}>Settings</Text>
+            <Text style={[type.mono, { color: colors.textFaintSolid }]}>{workspace.name}</Text>
+          </View>
+          {sourcesSection}
+          {agentSection}
+          {limitsSection}
+          {globalSection}
+        </ScrollView>
+        {dialogs}
+      </View>
+    )
+  }
+
+  return (
+    <Screen testID="settings-narrow">
+      <AppHeader title="Settings" back />
+      <ScrollView contentContainerStyle={styles.content}>
+        {sourcesSection}
+        {agentSection}
+        {limitsSection}
+        {globalSection}
+      </ScrollView>
+      {dialogs}
     </Screen>
+  )
+}
+
+/** Night watch/day switch — narrow-only (wide gets the same control in the Rail footer). Lives
+ * as its own component only so it can call useTheme for scheme/setScheme without threading them
+ * through the whole screen. */
+function NarrowThemeSwitch() {
+  const { colors, scheme, setScheme } = useTheme()
+  return (
+    <Switch
+      testID="theme-switch"
+      accessibilityLabel="Day mode"
+      value={scheme === 'day'}
+      onValueChange={(on) => setScheme(on ? 'day' : 'night')}
+      trackColor={{ true: colors.live, false: colors.raised2 }}
+      thumbColor={colors.raised}
+    />
   )
 }
 
@@ -485,55 +674,93 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.lg,
   },
+  wideRoot: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  wideContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    padding: space.xxl,
+  },
+  headerRow: {
+    width: '100%',
+    maxWidth: 680,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: space.sm,
+    marginBottom: space.lg,
+  },
   content: {
     padding: space.lg,
-    gap: space.xxl,
+    gap: space.xl,
   },
   section: {
     gap: space.sm,
+    width: '100%',
+    maxWidth: 680,
   },
   sectionTitle: {
-    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
-  sectionCard: {
-    gap: space.sm,
+  sourcesCard: {
+    gap: 0,
   },
-  removeButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addRepoRow: {
+  sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    paddingVertical: space.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  addRepoInput: {
-    flex: 1,
+  addRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    paddingVertical: space.sm + 2,
   },
-  stepper: {
+  agentCard: {
+    gap: space.md,
+  },
+  agentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    flexWrap: 'wrap',
   },
-  stepperButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.tag + 2,
+  rowLabel: {
+    fontWeight: '500',
+  },
+  effortLabel: {
+    marginLeft: space.sm,
+  },
+  segmentedItem: {
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 2,
   },
-  stepperValue: {
-    minWidth: 24,
+  hint: {
+    maxWidth: 96,
     textAlign: 'center',
   },
-  timeoutInput: {
-    borderWidth: 1,
-    borderRadius: radius.tag + 2,
-    paddingHorizontal: space.sm,
-    paddingVertical: space.xs,
-    width: 72,
-    textAlign: 'right',
+  limitsCard: {
+    gap: 0,
+  },
+  limitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'transparent',
+  },
+  globalCard: {
+    gap: 0,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  flex1: {
+    flex: 1,
   },
 })
