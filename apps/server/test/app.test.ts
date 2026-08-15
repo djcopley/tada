@@ -116,6 +116,24 @@ describe('buildApp', () => {
     )
   })
 
+  test('preflight advertises PUT, PATCH and DELETE (the client uses all three)', async () => {
+    const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/tickets/1',
+      headers: {
+        origin: 'http://localhost:8081',
+        'access-control-request-method': 'PATCH',
+        'access-control-request-headers': 'authorization,content-type',
+      },
+    })
+    expect(res.statusCode).toBeLessThan(300)
+    const methods = String(res.headers['access-control-allow-methods'])
+    for (const m of ['PUT', 'PATCH', 'DELETE']) expect(methods).toContain(m)
+  })
+
   // CORS answers every OPTIONS request itself, so an unauthenticated one can never reach a route
   // handler. The server defines no OPTIONS routes of its own, so nothing is shadowed by this.
   test('an unauthenticated OPTIONS request never reaches the route handler', async () => {

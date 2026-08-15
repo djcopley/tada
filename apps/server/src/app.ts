@@ -46,7 +46,13 @@ export function buildApp({
   // static bundle is hosted), so every browser request is cross-origin and needs CORS. Reflecting
   // any origin is safe here: the only credential is a bearer token the client attaches explicitly,
   // never an ambient cookie, so a hostile page reflecting past CORS still has nothing to send.
-  void app.register(fastifyCors, { origin: true, credentials: false })
+  // `methods` is explicit because @fastify/cors defaults to GET,HEAD,POST - a browser preflight for
+  // the PATCH/PUT/DELETE routes would otherwise be refused.
+  void app.register(fastifyCors, {
+    origin: true,
+    credentials: false,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
 
   // Registered inside `.after()` so it lands *behind* the CORS hook: `.register()` defers plugin
   // boot to the avvio phase, and hooks run in the order they were added. Added synchronously here
