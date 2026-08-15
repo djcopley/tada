@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ApiError } from '../../src/api/client'
 import { useClient } from '../../src/api/ClientContext'
 import {
   keys,
@@ -39,8 +40,18 @@ import {
   Screen,
   Skeleton,
 } from '../../src/components/ui'
+import { WorkspaceSocket } from '../../src/components/WorkspaceSocket'
 import { useTheme } from '../../src/design/ThemeContext'
-import { elapsedLabel, headlineFor, isSinceLocalMidnight, overnightSubline, useNowTick } from '../../src/control'
+import {
+  elapsedLabel,
+  headlineFor,
+  hhmm,
+  isSinceLocalMidnight,
+  narrowNeedsYouMeta,
+  narrowOvernightSubline,
+  overnightSubline,
+  useNowTick,
+} from '../../src/control'
 import { motion, space, type } from '../../src/design/tokens'
 import { useLayout } from '../../src/layout'
 import { relativeTime } from '../../src/relativeTime'
@@ -48,6 +59,7 @@ import { showToast } from '../../src/toast'
 
 const TODAY_PAGE_SIZE = 5
 const TADA_LIFETIME_MS = motion.tada + 400
+const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
 
 type TriageTicket = { ticket: ApiTicket; workspace: ApiWorkspaceListItem; failed: boolean }
 type LiveTicket = { ticket: ApiTicket; workspace: ApiWorkspaceListItem }
@@ -71,6 +83,10 @@ export default function Control() {
   const { data: workspacesData, isLoading, isRefetching, refetch } = useWorkspaces()
   const workspaces = workspacesData ?? []
   const boards = useBoards(workspaces.map((w) => w.id))
+  // Control is the live-monitoring home, so it keeps one socket per workspace open — mounted
+  // via a renderless component per id (see WorkspaceSocket) rather than looping the hook
+  // itself, since Rules of Hooks forbids a variable number of hook calls per render.
+  const sockets = workspaces.map((w) => <WorkspaceSocket key={w.id} workspaceId={w.id} />)
   const { activeWorkspaceId } = useActiveWorkspace()
   const memoryWorkspaceId = activeWorkspaceId ?? workspaces[0]?.id
   const memoryWorkspace = workspaces.find((w) => w.id === memoryWorkspaceId)
@@ -89,6 +105,18 @@ export default function Control() {
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: keys.board(vars.ticket.workspaceId) })
       void qc.invalidateQueries({ queryKey: keys.workspaces })
+    },
+    // Re-run / Move to backlog / Start now all funnel through here. A 409 means the ticket's
+    // run state moved under us (e.g. an agent picked it up) — same convention as the board
+    // screen's handle409: a specific toast plus a refresh of the now-stale board/ticket so the
+    // card reflects reality instead of silently no-opping. Non-409 errors already hit the
+    // global mutation-error toast (see app/_layout.tsx).
+    onError: (error, vars) => {
+      if (error instanceof ApiError && error.status === 409) {
+        showToast(RUN_IN_PROGRESS_TOAST)
+        void qc.invalidateQueries({ queryKey: keys.board(vars.ticket.workspaceId) })
+        void qc.invalidateQueries({ queryKey: keys.ticket(vars.ticket.id) })
+      }
     },
   })
 
@@ -165,13 +193,28 @@ export default function Control() {
   }
 
   // ---------------------------------------------------------------- headline
+  // Both filters pass the same ticking `now` (from useNowTick) explicitly, rather than relying
+  // on isSinceLocalMidnight's internal default, so every "current time" read in this render is
+  // consistent with the elapsed labels and re-evaluates as `now` ticks forward.
+  const nowDate = new Date(now)
   const overnightCount = activities.filter(
-    (a) => (a.type === 'needs_review' || a.type === 'run_failed') && isSinceLocalMidnight(a.createdAt),
+    (a) => (a.type === 'needs_review' || a.type === 'run_failed') && isSinceLocalMidnight(a.createdAt, nowDate),
   ).length
+  const overnightFailures = activities.filter(
+    (a) => a.type === 'run_failed' && isSinceLocalMidnight(a.createdAt, nowDate),
+  )
+  const firstOvernightFailureAt = overnightFailures.length
+    ? hhmm(
+        overnightFailures.reduce((earliest, a) => (a.createdAt < earliest.createdAt ? a : earliest)).createdAt,
+      )
+    : null
   const pendingNotes = (memory?.notes ?? []).filter((n) => n.state === 'pending' && n.author === 'agent')
   const keptNotes = (memory?.notes ?? []).filter((n) => n.state === 'kept')
   const headline = headlineFor(needsYou.length)
+  // Wide's subline leans on memory (matches the desktop artboard); narrow's mentions the first
+  // overnight failure's time instead, per the mobile artboard (docs/design/tada-build.dc.html:189).
   const subline = overnightSubline(overnightCount, pendingNotes.length)
+  const narrowSubline = narrowOvernightSubline(overnightCount, firstOvernightFailureAt)
 
   // ---------------------------------------------------------------- celebration
   const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
@@ -272,8 +315,8 @@ export default function Control() {
             key={ticket.id}
             testID={`needs-you-${ticket.id}`}
             ticket={ticket}
-            workspace={workspace}
             meta={`${workspace.name} · ${relativeTime(ticket.createdAt)}`}
+            narrowMeta={narrowNeedsYouMeta(workspace.name, ticket.createdAt, now, failed, latestRun)}
             failed={failed}
             latestRun={latestRun}
             agentText={agentTextFor(ticket.id)}
@@ -432,6 +475,7 @@ export default function Control() {
   if (wide) {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="control-wide">
+        {sockets}
         <Rail active="control" needsYouCount={needsYou.length} testID="control-rail" />
         <ScrollView
           contentContainerStyle={styles.wideContent}
@@ -569,6 +613,7 @@ export default function Control() {
 
   return (
     <Screen edges={['top']} testID="control-narrow">
+      {sockets}
       <View style={styles.narrowHeader}>
         <Text style={[type.title, { color: colors.text }]}>
           {'tada'}
@@ -585,7 +630,7 @@ export default function Control() {
       >
         <View>
           <Text style={[type.display, { color: colors.text }]}>{headline}</Text>
-          <Text style={[type.monoSmall, styles.subline, { color: colors.textFaintSolid }]}>{subline}</Text>
+          <Text style={[type.monoSmall, styles.subline, { color: colors.textFaintSolid }]}>{narrowSubline}</Text>
         </View>
 
         {needsYouSection(true)}

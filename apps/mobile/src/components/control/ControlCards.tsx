@@ -61,8 +61,8 @@ export type NeedsYouActions = {
  * Wide shows the full inline action row; narrow pairs two 46px buttons per the mobile artboard. */
 export function NeedsYouCard({
   ticket,
-  workspace,
   meta,
+  narrowMeta,
   failed,
   latestRun,
   agentText,
@@ -73,9 +73,10 @@ export function NeedsYouCard({
   testID,
 }: {
   ticket: ApiTicket
-  workspace: ApiWorkspaceListItem
   /** Wide header meta, e.g. "parlor · 2h ago". */
   meta: string
+  /** Narrow (mobile artboard) meta, e.g. "parlor · 2h · pr #481" — see `narrowNeedsYouMeta`. */
+  narrowMeta: string
   failed: boolean
   latestRun: ApiRun | undefined
   agentText: string | undefined
@@ -94,16 +95,14 @@ export function NeedsYouCard({
       <CardHeader title={ticket.title} meta={wide ? meta : undefined} />
       <View style={styles.triageMetaRow}>
         <Badge status={failed ? 'failed' : 'accepted'} label={failed ? 'failed' : 'your turn'} />
-        {statLine ? (
+        {wide && statLine ? (
           <Text style={[type.monoSmall, styles.flexShrink, { color: colors.textFaintSolid }]}>{statLine}</Text>
         ) : null}
         {celebrate ? <TadaStar play testID={`${testID}-tada`} /> : null}
       </View>
 
       {!wide && (
-        <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>
-          {`${workspace.name} · ${statLine || (failed ? 'failed' : 'pending')}`}
-        </Text>
+        <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{narrowMeta}</Text>
       )}
 
       {wide ? <AgentWell text={agentText} testID={`${testID}-agent`} /> : null}

@@ -6,6 +6,8 @@ import {
   headlineFor,
   hhmm,
   isSinceLocalMidnight,
+  narrowNeedsYouMeta,
+  narrowOvernightSubline,
   overnightSubline,
   prNumberFromUrl,
   runStatLine,
@@ -74,6 +76,21 @@ describe('isSinceLocalMidnight', () => {
   test('a timestamp from yesterday is not', () => {
     const now = new Date(2026, 7, 14, 10, 0, 0)
     expect(isSinceLocalMidnight(new Date(2026, 7, 13, 23, 59).toISOString(), now)).toBe(false)
+  })
+
+  test('the default `now` goes through Date.now(), so mocking Date.now() freezes it', () => {
+    // Regression: `new Date()` (no args) does NOT consult a jest.spyOn(Date, 'now') mock — only
+    // an explicit `Date.now()` call does. The default param must route through Date.now() or
+    // every caller relying on the default (and every test that freezes time this way) silently
+    // uses the real wall clock instead.
+    const frozen = new Date(2026, 7, 14, 10, 0, 0).getTime()
+    jest.spyOn(Date, 'now').mockReturnValue(frozen)
+    try {
+      expect(isSinceLocalMidnight(new Date(2026, 7, 14, 3, 12).toISOString())).toBe(true)
+      expect(isSinceLocalMidnight(new Date(2026, 7, 13, 23, 59).toISOString())).toBe(false)
+    } finally {
+      jest.restoreAllMocks()
+    }
   })
 })
 
@@ -199,5 +216,46 @@ describe('slotPillText', () => {
   })
   test('plural', () => {
     expect(slotPillText(3, 'Rotate the staging TLS cert')).toBe('3 slots free — next: Rotate the staging TLS cert')
+  })
+})
+
+describe('narrowNeedsYouMeta', () => {
+  const now = new Date(2026, 7, 14, 10, 0, 0).getTime()
+  const createdAt = new Date(2026, 7, 14, 8, 0, 0).toISOString()
+
+  test('in-review with a PR', () => {
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, false, run({ prUrl: 'https://github.com/acme/parlor/pull/481' }))).toBe(
+      'parlor · 2h · pr #481',
+    )
+  })
+
+  test('in-review with no PR yet omits the marker, not the whole line', () => {
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, false, run())).toBe('parlor · 2h')
+  })
+
+  test('in-review with no run at all', () => {
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, false, undefined)).toBe('parlor · 2h')
+  })
+
+  test('failed with a summary', () => {
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, true, run({ summary: 'timed out at 30m' }))).toBe(
+      'parlor · 2h · timed out at 30m',
+    )
+  })
+
+  test('failed with no summary falls back to "failed"', () => {
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, true, run({ summary: null }))).toBe('parlor · 2h · failed')
+  })
+})
+
+describe('narrowOvernightSubline', () => {
+  test('degrades gracefully when nothing ran', () => {
+    expect(narrowOvernightSubline(0, null)).toBe('nothing ran overnight')
+  })
+  test('runs with no failure', () => {
+    expect(narrowOvernightSubline(3, null)).toBe('3 ran overnight')
+  })
+  test('runs with a failure mentions its time', () => {
+    expect(narrowOvernightSubline(3, '03:12')).toBe('3 ran overnight · at 03:12 one failed')
   })
 })

@@ -1,10 +1,32 @@
-import type { ApiActivity, ApiBoard, ApiComment, ApiMemory, ApiRun, ApiTicket, ApiWorkspaceListItem } from '@tada/shared'
+import type { ApiActivity, ApiBoard, ApiComment, ApiMemory, ApiRun, ApiTicket, ApiWorkspaceListItem, WsMessage } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions, Linking } from 'react-native'
 import Control from '../app/workspaces/index'
+import { ApiError } from '../src/api/client'
 import { ConnectionProvider } from '../src/ConnectionContext'
+import { hhmm } from '../src/control'
 import { ToastHost } from '../src/toast'
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  url: string
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onclose: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  constructor(url: string) {
+    this.url = url
+    FakeWebSocket.instances.push(this)
+  }
+
+  close() {}
+
+  emitMessage(msg: WsMessage) {
+    this.onmessage?.({ data: JSON.stringify(msg) })
+  }
+}
 
 const mockPush = jest.fn()
 jest.mock('expo-router', () => ({
@@ -66,6 +88,16 @@ jest.mock('../src/api/client', () => {
 function setWindowWidth(width: number) {
   jest.spyOn(Dimensions, 'get').mockReturnValue({ width, height: 900, scale: 1, fontScale: 1 })
 }
+
+/** Builds an ISO timestamp for a given *local* wall-clock hour:minute on the fixture day
+ * (2026-08-14), so hhmm()/isSinceLocalMidnight()/elapsedLabel() round-trip to the intended
+ * digits regardless of the test runner's actual timezone — Node doesn't reliably observe a
+ * runtime `process.env.TZ` change, so this (not TZ-pinning) is what keeps the fixtures honest. */
+function localTime(hour: number, minute = 0): string {
+  return new Date(2026, 7, 14, hour, minute, 0).toISOString()
+}
+
+const FROZEN_NOW = new Date(2026, 7, 14, 10, 0, 0).getTime()
 
 function workspace(overrides: Partial<ApiWorkspaceListItem> = {}): ApiWorkspaceListItem {
   return {
@@ -157,14 +189,14 @@ const reviewTicket = ticket({
   id: 101,
   columnId: 13,
   title: 'Add CSV export to the reports page',
-  createdAt: '2026-08-14T07:00:00.000Z',
+  createdAt: localTime(7),
 })
 const failedTicket = ticket({
   id: 102,
   columnId: 11,
   title: 'Nightly dependency bump',
   queueState: 'held',
-  createdAt: '2026-08-14T02:00:00.000Z',
+  createdAt: localTime(2),
 })
 const liveTicket = ticket({
   id: 103,
@@ -225,7 +257,7 @@ function defaultTicketDetails(): Record<number, { ticket: ApiTicket; comments: A
           ticketId: 103,
           attemptNumber: 1,
           status: 'running',
-          startedAt: '2026-08-14T09:48:00.000Z',
+          startedAt: localTime(9, 48),
         }),
       ],
     },
@@ -249,7 +281,7 @@ function defaultActivity(): ApiActivity[] {
     activityEntry({ id: 4, type: 'accepted', ticketId: 99, ticketTitle: 'Prune CI artifacts', message: 'You accepted "Prune CI artifacts" — freed 41 GB', createdAt: '2026-08-14T08:20:00.000Z' }),
     activityEntry({ id: 3, type: 'follow_up_filed', ticketId: 98, ticketTitle: 'Paginate legacy /reports/all', message: 'Filed a follow-up ticket: "Paginate legacy /reports/all"', createdAt: '2026-08-14T07:59:00.000Z' }),
     activityEntry({ id: 2, type: 'memory_written', ticketId: null, ticketTitle: null, message: 'Wrote memory note: parlor memory', createdAt: '2026-08-14T07:58:00.000Z' }),
-    activityEntry({ id: 1, type: 'run_failed', ticketId: 102, ticketTitle: 'Nightly dependency bump', message: '"Nightly dependency bump" failed: timed out at 30m', createdAt: '2026-08-14T03:12:00.000Z' }),
+    activityEntry({ id: 1, type: 'run_failed', ticketId: 102, ticketTitle: 'Nightly dependency bump', message: '"Nightly dependency bump" failed: timed out at 30m', createdAt: localTime(3, 12) }),
   ]
 }
 
@@ -286,18 +318,28 @@ async function renderControl() {
 }
 
 describe('Control screen', () => {
+  const realWebSocket = global.WebSocket
+
   beforeEach(() => {
     jest.clearAllMocks()
     // Real timers throughout (fake timers deadlock RTL's async waitFor here) — instead we
     // freeze Date.now so elapsed-time math against the fixtures' ISO timestamps is deterministic.
     // The interval-driven ticking itself is covered at the unit level (see useNowTick in
-    // control.test.ts), which exercises jest fake timers directly against the hook.
-    jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-14T10:00:00.000Z').getTime())
+    // control.test.ts), which exercises jest fake timers directly against the hook. FROZEN_NOW
+    // and every fixture timestamp above are built via `localTime()`, not raw UTC ISO literals,
+    // so hhmm()/isSinceLocalMidnight() (deliberately local-clock-aware) read the intended digits
+    // regardless of the test runner's actual timezone.
+    jest.spyOn(Date, 'now').mockReturnValue(FROZEN_NOW)
     setWindowWidth(1400)
+    // Control mounts one live WorkspaceSocket per workspace; stub the global constructor so
+    // that doesn't try to open a real connection.
+    FakeWebSocket.instances = []
+    global.WebSocket = FakeWebSocket as unknown as typeof WebSocket
   })
 
   afterEach(() => {
     jest.restoreAllMocks()
+    global.WebSocket = realWebSocket
   })
 
   test('groups review + held tickets into needs-you and in-progress tickets into live-now', async () => {
@@ -466,7 +508,7 @@ describe('Control screen', () => {
     expect(screen.queryByTestId('control-narrow')).toBeNull()
   })
 
-  test('narrow layout renders the mobile artboard with BottomStrip', async () => {
+  test('narrow layout renders the mobile artboard with BottomStrip and terse card meta', async () => {
     setupMocks()
     setWindowWidth(500)
     await renderControl()
@@ -477,6 +519,20 @@ describe('Control screen', () => {
     expect(screen.getByTestId('control-bottom-strip')).toBeTruthy()
     expect(screen.getByTestId('live-digest')).toBeTruthy()
     expect(screen.queryByTestId('control-rail')).toBeNull()
+
+    // Mobile artboard format: "<workspace> · <elapsed since created> · <short marker>" —
+    // reviewTicket was created 3h before the frozen "now" and has a PR; failedTicket was
+    // created 8h before and has a failed-run summary. Neither the verbose wide stat line
+    // ("attempt 2 · pr #481 · +412 −38 · 214 tests pass") nor the wide "N ago" meta should
+    // appear on narrow cards.
+    expect(screen.getByText('parlor · 3h · pr #481')).toBeTruthy()
+    expect(screen.getByText('parlor · 8h · timed out at 30m')).toBeTruthy()
+    expect(screen.queryByText('attempt 2 · pr #481 · +412 −38 · 214 tests pass')).toBeNull()
+
+    // Narrow's subline names the first overnight failure's time instead of the wide subline's
+    // memory-note mention.
+    const failedAt = hhmm(localTime(3, 12))
+    expect(screen.getByText(`1 ran overnight · at ${failedAt} one failed`)).toBeTruthy()
   })
 
   test('live-now elapsed label reflects the run\'s startedAt against the current time', async () => {
@@ -505,5 +561,60 @@ describe('Control screen', () => {
       expect(mockCreateWorkspace).toHaveBeenCalledWith('New One')
     })
     expect(mockPush).toHaveBeenCalledWith('/workspaces/42/board')
+  })
+
+  test('a 409 from re-run shows the run-in-progress toast and refreshes the stale board', async () => {
+    setupMocks()
+    mockMoveTicket.mockRejectedValueOnce(new ApiError(409, { error: 'conflict' }))
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('needs-you-102-rerun')).toBeTruthy()
+    })
+    expect(mockBoard).toHaveBeenCalledTimes(1)
+
+    await fireEvent.press(screen.getByTestId('needs-you-102-rerun'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('toast-message')).toHaveTextContent(
+        'Agent is working on this ticket — wait or cancel the run',
+      )
+    })
+    // The board query was invalidated (not silently left stale) so it's refetched.
+    await waitFor(() => {
+      expect(mockBoard.mock.calls.length).toBeGreaterThan(1)
+    })
+  })
+
+  test('a live board_changed socket message refreshes Control-relevant queries', async () => {
+    setupMocks()
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('needs-you-101')).toBeTruthy()
+    })
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(FakeWebSocket.instances[0]?.url).toBe('wss://example.com/ws')
+
+    const callsBefore = {
+      board: mockBoard.mock.calls.length,
+      workspaces: mockListWorkspaces.mock.calls.length,
+      activity: mockActivity.mock.calls.length,
+    }
+
+    FakeWebSocket.instances[0]?.emitMessage({ type: 'board_changed', workspaceId: 1 })
+
+    // board_changed invalidates the board, the workspaces list (triage counts live there) and
+    // the cross-workspace activity feed — exactly what Control's triage/Today card read — so
+    // Control live-updates instead of only refreshing on pull or its own mutations.
+    await waitFor(() => {
+      expect(mockBoard.mock.calls.length).toBeGreaterThan(callsBefore.board)
+    })
+    await waitFor(() => {
+      expect(mockListWorkspaces.mock.calls.length).toBeGreaterThan(callsBefore.workspaces)
+    })
+    await waitFor(() => {
+      expect(mockActivity.mock.calls.length).toBeGreaterThan(callsBefore.activity)
+    })
   })
 })

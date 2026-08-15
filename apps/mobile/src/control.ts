@@ -31,11 +31,16 @@ export function overnightSubline(runsFinished: number, pendingNotes: number): st
   return `${runsPart} · ${notePart}`
 }
 
-export function localMidnight(now: Date = new Date()): Date {
+export function localMidnight(now: Date = new Date(Date.now())): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
 }
 
-export function isSinceLocalMidnight(iso: string, now: Date = new Date()): boolean {
+// `new Date(Date.now())` rather than the bare `new Date()` in both defaults above: `new Date()`
+// reads the system clock directly and does NOT go through the (mockable, explicitly-called)
+// `Date.now()` static — jest.spyOn(Date, 'now') has no effect on it, which would silently break
+// tests that freeze "now" that way. Routing through `Date.now()` keeps this consistent with
+// `elapsedLabel`/`useNowTick` and makes it testable the same way.
+export function isSinceLocalMidnight(iso: string, now: Date = new Date(Date.now())): boolean {
   return new Date(iso).getTime() >= localMidnight(now).getTime()
 }
 
@@ -113,6 +118,36 @@ export function elapsedLabel(startedAt: string | null | undefined, now: number =
 /** "1 slot free — next: <title>" / "3 slots free — next: <title>". */
 export function slotPillText(slots: number, nextTitle: string): string {
   return `${slots} ${slots === 1 ? 'slot' : 'slots'} free — next: ${nextTitle}`
+}
+
+/**
+ * Terse mobile-artboard meta line for a needs-you card: `"parlor · 2h · pr #481"`
+ * (in-review) or `"parlor · 7h · timed out at 30m"` (failed) — workspace, elapsed since the
+ * ticket was created, short marker. The marker is omitted (not the whole line) when there's
+ * nothing to show: no PR yet on a review ticket, or no run at all.
+ */
+export function narrowNeedsYouMeta(
+  workspaceName: string,
+  createdAt: string,
+  now: number,
+  failed: boolean,
+  run: ApiRun | undefined,
+): string {
+  const elapsed = elapsedLabel(createdAt, now)
+  const marker = failed
+    ? (run?.summary && run.summary.trim()) || 'failed'
+    : prNumberFromUrl(run?.prUrl)
+      ? `pr #${prNumberFromUrl(run?.prUrl)}`
+      : undefined
+  return marker ? `${workspaceName} · ${elapsed} · ${marker}` : `${workspaceName} · ${elapsed}`
+}
+
+/** Mobile-artboard subline variant: `"3 ran overnight · at 03:12 one failed"` when a run failed
+ * since local midnight, else the same graceful degradation as `overnightSubline`. */
+export function narrowOvernightSubline(runsFinished: number, failureAt: string | null): string {
+  if (runsFinished === 0) return 'nothing ran overnight'
+  if (failureAt) return `${runsFinished} ran overnight · at ${failureAt} one failed`
+  return `${runsFinished} ran overnight`
 }
 
 /** Re-renders every `intervalMs` so live-run elapsed labels ("12m") tick forward while the
