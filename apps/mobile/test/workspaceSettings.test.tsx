@@ -292,6 +292,7 @@ describe('Workspace settings screen', () => {
     })
 
     test('Effort renders a segmented row from the current harness efforts; selecting one PATCHes defaultEffort', async () => {
+      mockPatchWorkspace.mockResolvedValue(workspace({ defaultEffort: 'high' }))
       await renderSettings()
       await waitFor(() => expect(screen.getByTestId('effort-high')).toBeTruthy())
 
@@ -300,6 +301,17 @@ describe('Workspace settings screen', () => {
       await waitFor(() => {
         expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { defaultEffort: 'high' })
       })
+      // Effort-only body: nothing else rides along (the server used to strip defaultEffort out of
+      // this PATCH entirely, leaving it an empty patch).
+      expect(mockPatchWorkspace).toHaveBeenCalledTimes(1)
+      expect(Object.keys(mockPatchWorkspace.mock.calls[0][1])).toEqual(['defaultEffort'])
+
+      // Success path: no error surfaced, and the optimistic value stuck — pressing the same
+      // effort again is a no-op, which it would not be had the handler rolled `local.effort`
+      // back to 'medium'.
+      expect(screen.queryByTestId('agent-error')).toBeNull()
+      await fireEvent.press(screen.getByTestId('effort-high'))
+      expect(mockPatchWorkspace).toHaveBeenCalledTimes(1)
     })
 
     test('shows the harness/model helper copy', async () => {

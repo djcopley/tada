@@ -1,4 +1,12 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { ClientProvider } from './api/ClientContext'
 import { TadaClient } from './api/client'
 import { clearConnection, loadConnection, saveConnection, type Connection } from './settings'
@@ -44,10 +52,18 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setConnection(null)
   }, [])
 
-  if (loading) return null
+  // Memoized on the connection's identity, not rebuilt per render: `client` is a dependency of
+  // every socket effect downstream, so a fresh TadaClient on each provider render would tear down
+  // and reopen every workspace socket on any root re-render (a theme toggle, say). `connection`
+  // only gets a new identity when it is actually loaded/connected/cleared - exactly the moments a
+  // reconnect is the right behaviour.
+  const client = useMemo(() => (connection ? new TadaClient(connection) : null), [connection])
+  const value: ConnectionState = useMemo(
+    () => ({ connection, client, connect, disconnect }),
+    [connection, client, connect, disconnect],
+  )
 
-  const client = connection ? new TadaClient(connection) : null
-  const value: ConnectionState = { connection, client, connect, disconnect }
+  if (loading) return null
 
   // Always wrap in ClientProvider (even with a null client pre-connect) so the app subtree
   // below never remounts when `connection` flips from null to a real value — an unmount here
