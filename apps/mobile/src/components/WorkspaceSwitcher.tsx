@@ -7,30 +7,42 @@ import { radius, space, type } from '../design/tokens'
 import { Icon } from './ui/Icon'
 import { Menu } from './ui/Menu'
 
-type Listener = () => void
+/** `'memory'` is passed only by the Memory screen's own `▾` trigger — the one place Global is a
+ * meaningful destination, since there's no global board, ticket, or run to switch into. Every
+ * other trigger (Board, Ticket, Run, Settings, ⌘K) opens with `'nav'`, which hides the row. */
+export type SwitcherContext = 'memory' | 'nav'
+
+type Listener = (context: SwitcherContext) => void
 const listeners = new Set<Listener>()
 
 /** Opens the one workspace switcher from any `▾` trigger anywhere in the app — mirrors
- * `showToast`'s module-level pub/sub so callers never need the switcher in their own tree. */
-export function openWorkspaceSwitcher(): void {
-  for (const listener of listeners) listener()
+ * `showToast`'s module-level pub/sub so callers never need the switcher in their own tree.
+ * `context` gates the Scope→Global row (see {@link SwitcherContext}); defaults to `'nav'`. */
+export function openWorkspaceSwitcher(context: SwitcherContext = 'nav'): void {
+  for (const listener of listeners) listener(context)
 }
 
 /**
- * One menu behind every `▾`: Scope → Global (memory contexts only, no board), then every
- * workspace with its `N repos · M live` meta, a divider, and `+ New workspace`. Mounted once
- * near the app root; on web, ⌘K toggles it regardless of which screen is focused.
+ * One menu behind every `▾`: every workspace with its `N repos · M live` meta, a divider, and
+ * `+ New workspace`. Opened with `context: 'memory'`, it also gets a Scope → Global row up top —
+ * every other context hides it (see {@link SwitcherContext}). Mounted once near the app root; on
+ * web, ⌘K toggles it regardless of which screen is focused (always without the Global row, since
+ * the shortcut carries no screen context).
  */
 export function WorkspaceSwitcher() {
   const router = useRouter()
   const { colors } = useTheme()
   const [visible, setVisible] = useState(false)
+  const [showGlobal, setShowGlobal] = useState(false)
   const { data: workspaces } = useWorkspaces()
   const { data: globalMemory } = useGlobalMemory()
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveWorkspace()
 
   useEffect(() => {
-    const listener: Listener = () => setVisible(true)
+    const listener: Listener = (context) => {
+      setShowGlobal(context === 'memory')
+      setVisible(true)
+    }
     listeners.add(listener)
     return () => {
       listeners.delete(listener)
@@ -42,6 +54,7 @@ export function WorkspaceSwitcher() {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
+        setShowGlobal(false)
         setVisible((v) => !v)
       }
     }
@@ -69,13 +82,17 @@ export function WorkspaceSwitcher() {
 
   return (
     <Menu visible={visible} onClose={close} testID="workspace-switcher">
-      <SectionLabel>Scope</SectionLabel>
-      <Row
-        testID="switcher-scope-global"
-        label="Global"
-        meta={`${globalMemory?.notes.length ?? 0} notes · every run`}
-        onPress={selectGlobal}
-      />
+      {showGlobal ? (
+        <>
+          <SectionLabel>Scope</SectionLabel>
+          <Row
+            testID="switcher-scope-global"
+            label="Global"
+            meta={`${globalMemory?.notes.length ?? 0} notes · every run`}
+            onPress={selectGlobal}
+          />
+        </>
+      ) : null}
 
       <SectionLabel>Workspaces</SectionLabel>
       {(workspaces ?? []).map((ws) => (

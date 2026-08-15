@@ -73,7 +73,7 @@ describe('WorkspaceSwitcher', () => {
     expect(screen.getByTestId('workspace-switcher')).toBeTruthy()
   })
 
-  test('renders the Global scope row and every workspace with its source/live meta', async () => {
+  test('opened with memory context shows the Global scope row and every workspace with its source/live meta', async () => {
     mockListWorkspaces.mockResolvedValue([
       workspace({ id: 1, name: 'parlor', sourceCount: 2, runningCount: 1 }),
       workspace({ id: 2, name: 'ops', sourceCount: 0, runningCount: 0 }),
@@ -81,7 +81,7 @@ describe('WorkspaceSwitcher', () => {
 
     await renderSwitcher()
     await act(async () => {
-      openWorkspaceSwitcher()
+      openWorkspaceSwitcher('memory')
     })
 
     await waitFor(() => {
@@ -94,12 +94,40 @@ describe('WorkspaceSwitcher', () => {
     expect(screen.getByTestId('switcher-new-workspace')).toBeTruthy()
   })
 
-  test('selecting Global closes the menu and navigates to /memory', async () => {
+  test('opened without memory context (nav — e.g. Board\'s trigger) hides the Global scope row', async () => {
+    mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'parlor' })])
+
+    await renderSwitcher()
+    await act(async () => {
+      openWorkspaceSwitcher('nav')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switcher-workspace-1')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('switcher-scope-global')).toBeNull()
+  })
+
+  test('opened with no context argument also hides the Global scope row (nav is the default)', async () => {
     mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'parlor' })])
 
     await renderSwitcher()
     await act(async () => {
       openWorkspaceSwitcher()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switcher-workspace-1')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('switcher-scope-global')).toBeNull()
+  })
+
+  test('selecting Global closes the menu and navigates to /memory', async () => {
+    mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'parlor' })])
+
+    await renderSwitcher()
+    await act(async () => {
+      openWorkspaceSwitcher('memory')
     })
 
     await waitFor(() => {

@@ -561,7 +561,7 @@ export default function Board() {
       variant="secondary"
       small
       label={`${workspace.name} ▾`}
-      onPress={openWorkspaceSwitcher}
+      onPress={() => openWorkspaceSwitcher('nav')}
     />
   )
 

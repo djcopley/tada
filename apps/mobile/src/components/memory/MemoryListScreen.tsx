@@ -174,7 +174,7 @@ export function MemoryListScreen(props: Props) {
       variant="secondary"
       small
       label={switcherLabel}
-      onPress={openWorkspaceSwitcher}
+      onPress={() => openWorkspaceSwitcher('memory')}
     />
   )
 
