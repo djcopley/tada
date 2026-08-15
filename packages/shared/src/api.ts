@@ -1,5 +1,16 @@
 // DTO shapes as they cross the wire (integer ids, ISO-string dates).
-import type { ColumnKind, QueueState, RunStatus, TicketOrigin, ProposalState, CommentKind, MemoryScope, NoteState, SourceType, ActivityType } from './domain.js'
+import type {
+  ActivityType,
+  ColumnKind,
+  CommentKind,
+  MemoryScope,
+  NoteState,
+  ProposalState,
+  QueueState,
+  RunStatus,
+  SourceType,
+  TicketOrigin,
+} from './domain.js'
 
 export interface ApiWorkspace {
   id: number
