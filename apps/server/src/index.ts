@@ -1,8 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { ClaudeAdapter } from './adapters/claude.js'
-import { FakeAdapter } from './adapters/fake.js'
-import type { Adapter } from './adapters/types.js'
+import { buildAdapterRegistry } from './adapters/registry.js'
 import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
 import { openDb } from './db/index.js'
@@ -18,11 +16,7 @@ async function main(): Promise<void> {
   const db = openDb(join(dataDir(), 'tada.db'))
   const wm = new WorkspaceManager(db)
 
-  const adapters = new Map<string, Adapter>()
-  adapters.set('claude', new ClaudeAdapter())
-  if (process.env.TADA_FAKE_ADAPTER === '1') {
-    adapters.set('fake', new FakeAdapter())
-  }
+  const adapters = buildAdapterRegistry()
 
   const hub = new BroadcastHub(db)
   const scheduler = new Scheduler({

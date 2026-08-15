@@ -15,6 +15,8 @@ import type { WorkspaceManager } from '../workspaces/manager.js'
 export interface RunOutcome {
   status: 'success' | 'failed'
   summary: string
+  /** Number of tests the agent saw pass, when it bothered to count. */
+  testsPassed?: number
 }
 
 interface RunContext {
@@ -201,13 +203,21 @@ function createMcpServer(ctx: RunContext): McpServer {
     'report_outcome',
     {
       description: 'Report the final outcome of this run',
-      inputSchema: { status: z.enum(['success', 'failed']), summary: z.string() },
+      inputSchema: {
+        status: z.enum(['success', 'failed']),
+        summary: z.string(),
+        testsPassed: z.number().optional(),
+      },
     },
-    async ({ status, summary }) => {
+    async ({ status, summary, testsPassed }) => {
       ctx.db.drizzle.update(agentRuns).set({ summary }).where(eq(agentRuns.id, ctx.runId)).run()
       ctx.db.drizzle
         .insert(events)
-        .values({ runId: ctx.runId, type: 'status', payload: { kind: 'outcome', status, summary } })
+        .values({
+          runId: ctx.runId,
+          type: 'status',
+          payload: { kind: 'outcome', status, summary, testsPassed },
+        })
         .run()
       return { content: [{ type: 'text', text: 'outcome recorded' }] }
     },
@@ -220,6 +230,7 @@ interface OutcomeEventPayload {
   kind: 'outcome'
   status: 'success' | 'failed'
   summary: string
+  testsPassed?: number
 }
 
 function isOutcomePayload(payload: unknown): payload is OutcomeEventPayload {
@@ -241,7 +252,11 @@ export function pendingOutcome(db: TadaDb, runId: number): RunOutcome | null {
 
   const latest = rows.find((row) => row.type === 'status' && isOutcomePayload(row.payload))
   if (!latest || !isOutcomePayload(latest.payload)) return null
-  return { status: latest.payload.status, summary: latest.payload.summary }
+  return {
+    status: latest.payload.status,
+    summary: latest.payload.summary,
+    testsPassed: latest.payload.testsPassed,
+  }
 }
 
 function bearerToken(header: string | undefined): string | undefined {

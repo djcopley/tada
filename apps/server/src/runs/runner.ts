@@ -5,7 +5,7 @@ import { canMoveCard, canTransitionRun } from '@tada/shared'
 import { asc, eq } from 'drizzle-orm'
 import type { ActivityBroadcaster } from '../activity.js'
 import { noopActivityBroadcaster, recordActivity } from '../activity.js'
-import type { Adapter, AdapterEvent } from '../adapters/types.js'
+import type { Adapter, AdapterEvent, AdapterSession } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
 import { pendingOutcome } from '../mcp/server.js'
@@ -14,6 +14,7 @@ import { ensureGlobalMemoryDir, stateDir } from '../paths.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
 import { completeRun } from './completion.js'
 import { Journal } from './journal.js'
+import { readOutcomeFile } from './outcome.js'
 import { composePrompt } from './prompt.js'
 import { branchFor, buildRunDir } from './runDir.js'
 
@@ -69,11 +70,24 @@ function columnFor(db: TadaDb, workspaceId: number, kind: ColumnKind) {
   return row
 }
 
-/** Executes a single run to a terminal state (needs_review, failed, or cancelled). */
+/** An adapter that throws while probing is treated as unavailable rather than crashing the run. */
+async function isAvailable(adapter: Adapter): Promise<boolean> {
+  try {
+    return await adapter.available()
+  } catch {
+    return false
+  }
+}
+
+/** Executes a single run to a terminal state (needs_review, failed, or cancelled).
+ *
+ * `onSession` hands the live AdapterSession back to the caller (the Scheduler) as soon as the
+ * adapter starts, which is how `POST /runs/:id/nudge` reaches into a running agent. */
 export async function executeRun(
   deps: RunnerDeps,
   runId: number,
   externalSignal?: AbortSignal,
+  onSession?: (session: AdapterSession) => void,
 ): Promise<void> {
   const { db, wm } = deps
   const hub = deps.hub ?? noopActivityBroadcaster
@@ -236,6 +250,11 @@ export async function executeRun(
 
     if (!adapter) {
       adapterError = new Error(`unknown adapter: ${run.adapter}`)
+    } else if (!(await isAvailable(adapter))) {
+      const message = 'adapter not available on this server'
+      journal.write({ type: 'error', payload: { message } })
+      markFailed(message)
+      return
     } else {
       const manualController = new AbortController()
       const signal = AbortSignal.any(
@@ -244,20 +263,22 @@ export async function executeRun(
         ),
       )
 
-      const runPromise = adapter
-        .run({
-          runDir: runDir.path,
-          prompt,
-          model: run.model,
-          timeoutMs: workspace.timeoutMs,
-          mcp: { url: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp', token: run.runToken },
-          onEvent: (e) => journal.write(e),
-          signal,
-        })
-        .then(
-          (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
-          (error: unknown) => ({ kind: 'error' as const, error }),
-        )
+      const session = adapter.start({
+        runDir: runDir.path,
+        prompt,
+        model: run.model,
+        effort: run.effort,
+        mcpUrl: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp',
+        runToken: run.runToken,
+        journal,
+        signal,
+      })
+      onSession?.(session)
+
+      const runPromise = session.done.then(
+        (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
+        (error: unknown) => ({ kind: 'error' as const, error }),
+      )
 
       const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
         if (signal.aborted) {
@@ -305,7 +326,19 @@ export async function executeRun(
       return
     }
 
-    const reported = pendingOutcome(db, runId)
+    // MCP is the primary outcome channel; the outcome file is the fallback for adapters that
+    // can't call tools (codex/gemini), so it is only consulted when nothing arrived over MCP.
+    let reported = pendingOutcome(db, runId)
+    if (!reported) {
+      const fromFile = readOutcomeFile(runDir.path)
+      if (fromFile.kind === 'invalid') {
+        journal.write({ type: 'error', payload: { message: fromFile.reason } })
+        markFailed(fromFile.reason)
+        return
+      }
+      if (fromFile.kind === 'outcome') reported = fromFile.outcome
+    }
+
     if (!reported) {
       markFailed('agent did not report an outcome')
       return

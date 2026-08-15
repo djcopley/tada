@@ -3,11 +3,12 @@ import { and, asc, eq, gt } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { TadaDb } from '../db/index.js'
-import { agentRuns, events, pushTokens, tickets } from '../db/schema.js'
+import { agentRuns, comments, events, pushTokens, tickets } from '../db/schema.js'
 import type { Scheduler } from '../runs/scheduler.js'
 import type { RouteDeps } from './deps.js'
 
 const pushTokenSchema = z.object({ token: z.string().min(1) })
+const nudgeSchema = z.object({ note: z.string().min(1) })
 
 function runIdParam(id: string): number | undefined {
   const n = Number(id)
@@ -105,6 +106,28 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
     cancelRun(db, scheduler, id)
     return db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+  })
+
+  // Mid-run steer: the note is always recorded on the ticket (so it shows up in the discussion
+  // and in the next attempt's prompt), while `delivered` says whether the running agent got it
+  // right now - false when the adapter can't be interrupted or the session already wrapped up.
+  app.post('/runs/:id/nudge', async (req, reply) => {
+    const id = runIdParam((req.params as { id: string }).id)
+    if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
+
+    const parsed = nudgeSchema.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+
+    const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    if (run?.status !== 'running') return reply.code(404).send({ error: 'run not running' })
+
+    db.drizzle
+      .insert(comments)
+      .values({ ticketId: run.ticketId, author: 'human', kind: 'nudge', body: parsed.data.note })
+      .run()
+
+    const delivered = scheduler.sessionFor(id)?.inject(parsed.data.note) ?? false
+    return { delivered }
   })
 
   app.post('/push-tokens', async (req, reply) => {

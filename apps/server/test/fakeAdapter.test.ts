@@ -3,14 +3,32 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { FakeAdapter } from '../src/adapters/fake.js'
-import type { AdapterEvent } from '../src/adapters/types.js'
+import type { AdapterEvent, AdapterStartCtx } from '../src/adapters/types.js'
 import { createDefaultColumns, openDb } from '../src/db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../src/db/schema.js'
 import { Journal } from '../src/runs/journal.js'
 
+/** The AdapterStartCtx a runner would build, with an in-memory journal for assertions. */
+function startCtx(overrides: Partial<AdapterStartCtx> = {}): AdapterStartCtx & {
+  written: AdapterEvent[]
+} {
+  const written: AdapterEvent[] = []
+  return {
+    runDir: mkdtempSync(join(tmpdir(), 'tada-')),
+    prompt: 'test prompt',
+    model: 'test-model',
+    effort: 'medium',
+    mcpUrl: 'http://localhost:3000/mcp',
+    runToken: 'token',
+    signal: new AbortController().signal,
+    journal: { write: (e: AdapterEvent) => written.push(e) },
+    written,
+    ...overrides,
+  }
+}
+
 describe('FakeAdapter', () => {
-  test('1. emits events and exits with code 0', async () => {
-    const events: AdapterEvent[] = []
+  test('1. journals its scripted events and exits with code 0', async () => {
     const adapter = new FakeAdapter({
       events: [
         { type: 'text', payload: 'hi' },
@@ -18,25 +36,17 @@ describe('FakeAdapter', () => {
       ],
     })
 
-    const ctx = {
-      runDir: mkdtempSync(join(tmpdir(), 'tada-')),
-      prompt: 'test prompt',
-      model: 'test-model',
-      timeoutMs: 5000,
-      mcp: { url: 'http://localhost:3000', token: 'token' },
-      onEvent: (e: AdapterEvent) => events.push(e),
-      signal: new AbortController().signal,
-    }
-
-    const result = await adapter.run(ctx)
+    const ctx = startCtx()
+    const result = await adapter.start(ctx).done
 
     expect(result.exitCode).toBe(0)
-    expect(events).toEqual([
+    expect(ctx.written).toEqual([
       { type: 'text', payload: 'hi' },
       { type: 'status', payload: 'running' },
     ])
-    expect(adapter.name).toBe('fake')
+    expect(adapter.id).toBe('fake')
     expect(adapter.models).toEqual(['fake-1'])
+    expect(await adapter.available()).toBe(true)
   })
 
   test('2. act callback runs with ctx and can write to runDir', async () => {
@@ -50,21 +60,28 @@ describe('FakeAdapter', () => {
       exitCode: 42,
     })
 
-    const runDir = mkdtempSync(join(tmpdir(), 'tada-'))
-    const ctx = {
-      runDir,
-      prompt: 'test prompt',
-      model: 'test-model',
-      timeoutMs: 5000,
-      mcp: { url: 'http://localhost:3000', token: 'token' },
-      onEvent: () => {},
-      signal: new AbortController().signal,
-    }
-
-    const result = await adapter.run(ctx)
+    const ctx = startCtx()
+    const result = await adapter.start(ctx).done
 
     expect(result.exitCode).toBe(42)
-    expect(readFileSync(join(runDir, 'test.txt'), 'utf-8')).toBe('hello')
+    expect(readFileSync(join(ctx.runDir, 'test.txt'), 'utf-8')).toBe('hello')
+  })
+
+  test('2b. inject records the note and journals it; declines when injection is unsupported', async () => {
+    const adapter = new FakeAdapter({ act: () => new Promise<void>(() => {}) })
+    const ctx = startCtx()
+    const session = adapter.start(ctx)
+
+    expect(session.inject('look at the logs')).toBe(true)
+    expect(adapter.injected).toEqual(['look at the logs'])
+    expect(ctx.written).toEqual([{ type: 'text', payload: { text: 'nudge: look at the logs' } }])
+
+    const silent = new FakeAdapter({
+      act: () => new Promise<void>(() => {}),
+      supportsInjection: false,
+    })
+    expect(silent.start(startCtx()).inject('nope')).toBe(false)
+    expect(silent.injected).toEqual([])
   })
 
   test('3. Journal.write appends to events table and transcript file, calls broadcast', async () => {
@@ -168,19 +185,16 @@ describe('FakeAdapter', () => {
     const controller = new AbortController()
     controller.abort()
 
-    const ctx = {
-      runDir: mkdtempSync(join(tmpdir(), 'tada-')),
-      prompt: 'test prompt',
-      model: 'test-model',
-      timeoutMs: 5000,
-      mcp: { url: 'http://localhost:3000', token: 'token' },
-      onEvent: () => {
-        throw new Error('onEvent should not be called')
-      },
+    const ctx = startCtx({
       signal: controller.signal,
-    }
+      journal: {
+        write: () => {
+          throw new Error('journal.write should not be called')
+        },
+      },
+    })
 
-    await expect(adapter.run(ctx)).rejects.toThrow(
+    await expect(adapter.start(ctx).done).rejects.toThrow(
       expect.objectContaining({
         name: 'AbortError',
       }),

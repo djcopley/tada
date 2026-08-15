@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { canTransitionRun } from '@tada/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import type { AdapterSession } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
 import { executeRun, type RunnerDeps } from './runner.js'
@@ -8,6 +9,8 @@ import { executeRun, type RunnerDeps } from './runner.js'
 interface ActiveEntry {
   controller: AbortController
   workspaceId: number
+  /** Set once the adapter actually starts; absent while the run dir is still being built. */
+  session?: AdapterSession
 }
 
 function readyColumnFor(db: TadaDb, workspaceId: number) {
@@ -156,10 +159,19 @@ export class Scheduler {
     this.active.get(runId)?.controller.abort()
   }
 
+  /** The live adapter session for a run, if one is in flight here. Undefined for runs that are
+   * queued, finished, or (after a restart) were started by a previous process. */
+  sessionFor(runId: number): AdapterSession | undefined {
+    return this.active.get(runId)?.session
+  }
+
   private start(runId: number, workspaceId: number): void {
     const controller = new AbortController()
-    this.active.set(runId, { controller, workspaceId })
-    executeRun(this.deps, runId, controller.signal)
+    const entry: ActiveEntry = { controller, workspaceId }
+    this.active.set(runId, entry)
+    executeRun(this.deps, runId, controller.signal, (session) => {
+      entry.session = session
+    })
       .catch(() => {
         // executeRun routes every failure through markFailed/markCancelled internally; this is
         // just a safety net against an unhandled rejection killing the process.

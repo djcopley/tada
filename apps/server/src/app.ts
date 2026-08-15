@@ -8,6 +8,7 @@ import { registerMcpRoute } from './mcp/server.js'
 import { registerActivityRoutes } from './routes/activity.js'
 import { registerMemoryRoutes } from './routes/memory.js'
 import { registerRunRoutes } from './routes/runs.js'
+import { registerSystemRoutes } from './routes/system.js'
 import { registerTicketRoutes } from './routes/tickets.js'
 import { registerWorkspaceRoutes } from './routes/workspaces.js'
 import type { Scheduler } from './runs/scheduler.js'
@@ -39,7 +40,6 @@ export function buildApp({
 }: AppDeps): FastifyInstance {
   const app = fastify()
   app.decorate('db', db)
-  app.get('/health', async () => ({ ok: true }))
   registerMcpRoute(app, db, wm, broadcastHub)
 
   // The web build runs from a different origin than the server (Expo's dev server, or wherever the
@@ -87,6 +87,7 @@ export function buildApp({
   registerRunRoutes(app, routeDeps)
   registerMemoryRoutes(app, routeDeps)
   registerActivityRoutes(app, routeDeps)
+  registerSystemRoutes(app, routeDeps)
 
   return app
 }

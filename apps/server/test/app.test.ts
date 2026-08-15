@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { openDb } from '../src/db/index.js'
 import { configDir } from '../src/paths.js'
+import { serverVersion } from '../src/version.js'
 import { makeAppDeps } from './helpers/appDeps.js'
 import { isolateXdg } from './helpers/gitFixtures.js'
 
@@ -22,7 +23,7 @@ describe('buildApp', () => {
     const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     const res = await app.inject({ method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true })
+    expect(res.json()).toEqual({ ok: true, version: serverVersion })
   })
 
   test('other routes require bearer auth', async () => {
@@ -60,7 +61,7 @@ describe('buildApp', () => {
     const app = buildApp(makeAppDeps(makeDb(), loadConfig()))
     const res = await app.inject({ method: 'GET', url: '/health?x=1' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true })
+    expect(res.json()).toEqual({ ok: true, version: serverVersion })
   })
 
   test('cross-origin GET /health carries an allow-origin header', async () => {

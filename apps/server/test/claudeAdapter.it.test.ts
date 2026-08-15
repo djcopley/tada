@@ -90,7 +90,13 @@ describe.skipIf(!process.env.TADA_IT)('ClaudeAdapter (integration)', () => {
     // Real MCP endpoint: the ClaudeAdapter's SDK session calls back into report_outcome over
     // HTTP, so `pendingOutcome` needs an actual listening server, not the runner test's default
     // placeholder mcpUrl.
-    const adapters = new Map<string, Adapter>([['claude', new ClaudeAdapter()]])
+    // The adapter runs in streaming-input mode now: `start()` returns a live session whose queue
+    // stays open until the SDK reports a result, which is also what makes `session.inject()`
+    // (POST /runs/:id/nudge) possible. The runner drives all of that; this test only checks the
+    // end-to-end outcome.
+    const claude = new ClaudeAdapter()
+    expect(await claude.available()).toBe(true)
+    const adapters = new Map<string, Adapter>([[claude.id, claude]])
     app = buildApp(makeAppDeps(db, loadConfig(), { adapters }))
     const address = await app.listen({ port: 0, host: '127.0.0.1' })
 
