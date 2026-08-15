@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
 import { useClient } from '../../src/api/ClientContext'
+import { useLatestRunEvents } from '../../src/api/useLatestRunEvent'
 import {
   keys,
   useAccept,
@@ -191,6 +192,17 @@ export default function Control() {
     if (lastComment) return lastComment.body
     return detail.runs[detail.runs.length - 1]?.summary ?? undefined
   }
+
+  const runningRunIdFor = (id: number): number | undefined =>
+    detailById.get(id)?.runs.find((r) => r.status === 'running')?.id
+
+  // The live cards' well text prefers the running run's latest journaled event over the ticket's
+  // last agent comment/summary, which lag behind by comment/run boundaries rather than tracking
+  // play-by-play (see useLatestRunEvent). `working…` is the true no-events-yet fallback: while a
+  // run is live, its agent-well never falls back to a stale comment from an earlier run.
+  const liveEventByRunId = useLatestRunEvents(liveNow.map(({ ticket }) => runningRunIdFor(ticket.id)))
+  const liveAgentTextFor = (id: number, runningRunId: number | undefined): string | undefined =>
+    runningRunId !== undefined ? liveEventByRunId.get(runningRunId) : agentTextFor(id)
 
   // ---------------------------------------------------------------- headline
   // Both filters pass the same ticking `now` (from useNowTick) explicitly, rather than relying
@@ -473,7 +485,7 @@ export default function Control() {
                     workspace={workspace}
                     startedAt={runningRun?.startedAt}
                     now={now}
-                    agentText={agentTextFor(ticket.id)}
+                    agentText={liveAgentTextFor(ticket.id, runningRunIdFor(ticket.id))}
                     onFullLog={() => runningRun && router.push(`/runs/${runningRun.id}`)}
                     onNudge={() => runningRun && setNudgeTarget({ ticket, runId: runningRun.id })}
                   />
@@ -544,7 +556,7 @@ export default function Control() {
   const liveDigestLines = liveNow.map(({ ticket }) => {
     const latestRun = latestRunFor(ticket.id)
     const running = detailById.get(ticket.id)?.runs.find((r) => r.status === 'running') ?? latestRun
-    const digestText = agentTextFor(ticket.id) ?? 'working…'
+    const digestText = liveAgentTextFor(ticket.id, runningRunIdFor(ticket.id)) ?? 'working…'
     return {
       key: String(ticket.id),
       text: `${ticket.title.toLowerCase()} · ${elapsedLabel(running?.startedAt, now)} · ${digestText}`,

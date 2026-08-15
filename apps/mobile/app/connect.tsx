@@ -72,69 +72,71 @@ export default function Connect() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.body}
         >
-          <View style={styles.wordmark}>
-            <Text style={[styles.wordmarkText, { color: colors.text }]}>
-              tada
-              <Text style={{ color: colors.live }}>✱</Text>
-            </Text>
-            <Text style={[type.body, styles.tagline, { color: colors.textMuted }]}>
-              Tickets in, pull requests out. tada runs against your own server — point it there to begin.
-            </Text>
-          </View>
-
-          <View style={styles.form}>
-            <Input
-              testID="base-url-input"
-              label="Server address"
-              placeholder="https://tada.home-server.dev"
-              mono
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-            />
-            <Input
-              testID="token-input"
-              label="API token"
-              placeholder="Paste your server token"
-              mono
-              secureTextEntry
-              value={token}
-              onChangeText={setToken}
-            />
-            <Button
-              testID="connect-button"
-              label="Connect"
-              onPress={() => void onConnect()}
-              loading={connecting}
-            />
-            {checks.length > 0 && (
-              <View style={styles.checks}>
-                {checks.map((line) => (
-                  <Text
-                    key={line.text}
-                    style={[type.monoSmall, { color: line.muted ? colors.textFaintSolid : colors.okText }]}
-                  >
-                    {line.text}
-                  </Text>
-                ))}
-              </View>
-            )}
-            {error != null && (
-              <Text
-                testID="connect-error"
-                accessibilityRole="alert"
-                style={[type.caption, styles.error, { color: colors.failText }]}
-              >
-                {error}
+          <View style={styles.column}>
+            <View style={styles.wordmark}>
+              <Text style={[styles.wordmarkText, { color: colors.text }]}>
+                tada
+                <Text style={{ color: colors.live }}>✱</Text>
               </Text>
-            )}
-          </View>
+              <Text style={[type.body, styles.tagline, { color: colors.textMuted }]}>
+                Tickets in, pull requests out. tada runs against your own server — point it there to begin.
+              </Text>
+            </View>
 
-          <Text style={[type.caption, styles.footer, { color: colors.textFaintSolid }]}>
-            Self-hosted · single user · your keys never leave your box.
-          </Text>
+            <View style={styles.form}>
+              <Input
+                testID="base-url-input"
+                label="Server address"
+                placeholder="https://tada.home-server.dev"
+                mono
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                value={baseUrl}
+                onChangeText={setBaseUrl}
+              />
+              <Input
+                testID="token-input"
+                label="API token"
+                placeholder="Paste your server token"
+                mono
+                secureTextEntry
+                value={token}
+                onChangeText={setToken}
+              />
+              <Button
+                testID="connect-button"
+                label="Connect"
+                onPress={() => void onConnect()}
+                loading={connecting}
+              />
+              {checks.length > 0 && (
+                <View style={styles.checks}>
+                  {checks.map((line) => (
+                    <Text
+                      key={line.text}
+                      style={[type.monoSmall, { color: line.muted ? colors.textFaintSolid : colors.okText }]}
+                    >
+                      {line.text}
+                    </Text>
+                  ))}
+                </View>
+              )}
+              {error != null && (
+                <Text
+                  testID="connect-error"
+                  accessibilityRole="alert"
+                  style={[type.caption, styles.error, { color: colors.failText }]}
+                >
+                  {error}
+                </Text>
+              )}
+            </View>
+
+            <Text style={[type.caption, styles.footer, { color: colors.textFaintSolid }]}>
+              Self-hosted · single user · your keys never leave your box.
+            </Text>
+          </View>
         </KeyboardAvoidingView>
       </Screen>
     </ThemeContext.Provider>
@@ -145,7 +147,15 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     padding: space.xxl,
+  },
+  // Artboard is a ~460px column (tada-build.dc.html #connect) — desktop/web widths otherwise
+  // stretch the form the full viewport width. Mobile stays full-width since 460 exceeds phone
+  // screens and `maxWidth` is a no-op there.
+  column: {
+    width: '100%',
+    maxWidth: 460,
     gap: space.xxxl,
   },
   wordmark: {

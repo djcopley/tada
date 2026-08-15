@@ -12,6 +12,7 @@ import {
 } from '../../control'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
+import { stripLeadingHeading } from '../memory/MemoryListScreen'
 import { AgentLine, AgentPanel, Badge, Button, Card, RunStatusChip, Tag, TadaStar } from '../ui'
 
 /** Small sans title + mono meta header used above card bodies — the shared Card primitive is a
@@ -267,7 +268,7 @@ export function MemoryCard({
       <CardHeader title="Memory" meta={workspaceName} />
       {keptNotes.slice(0, 2).map((note) => (
         <Text key={note.id} numberOfLines={1} style={[type.mono, { color: colors.textMuted }]}>
-          {`· ${note.body}`}
+          {`· ${stripLeadingHeading(note.body)}`}
         </Text>
       ))}
       {pendingNote ? (
@@ -276,7 +277,7 @@ export function MemoryCard({
           style={[styles.agentWell, { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge }]}
         >
           <Text style={[type.mono, { color: colors.agentText }]}>
-            {pendingNote.body}
+            {stripLeadingHeading(pendingNote.body)}
             <Text style={{ color: colors.liveText }}>{' · new, by agent'}</Text>
           </Text>
         </View>

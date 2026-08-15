@@ -13,6 +13,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
+import { useLatestRunEvent } from '../api/useLatestRunEvent'
 import {
   agentWellText,
   doneMeta,
@@ -164,7 +165,12 @@ function RunningBody({ ticket, workspace, now, detail, actions }: BodyProps) {
   const source = workspace.sources[0]?.name
   const runningRun = detail?.runs.find((r) => r.status === 'running') ?? detail?.runs[detail.runs.length - 1]
   const elapsed = elapsedLabel(runningRun?.startedAt, now)
-  const agentText = agentWellText(detail)
+  const isLive = runningRun?.status === 'running'
+  // Prefer the run's latest journaled event over the ticket's last agent comment/summary, which
+  // lag behind by comment/run boundaries — while the run is live, `working…` (AgentWell's
+  // fallback) is the true no-events-yet state, not a stale comment from an earlier run.
+  const liveText = useLatestRunEvent(runningRun?.id, isLive)
+  const agentText = isLive ? liveText : agentWellText(detail)
 
   return (
     <View style={styles.body}>
@@ -323,12 +329,20 @@ export function TicketCard({
 
   const dragging = dnd?.draggingId === ticket.id
 
+  // Proposal cards always render Keep/Dismiss, running cards render Watch live only once a run
+  // is live, and in-review cards always render Accept/Send back — in every other case the body
+  // has no interactive children, so the card itself can safely be a real `<button>`.
+  const hasNestedButtons =
+    Boolean(actions) &&
+    (proposal || columnKind === 'in_review' || (columnKind === 'in_progress' && Boolean(actions?.onWatchLive)))
+
   const card = (
     <View ref={cardRef} collapsable={false} style={dragging && styles.liftedSource}>
       <Card
         testID={`ticket-card-${ticket.id}`}
         onPress={onPress}
         onLongPress={onLongPress}
+        nestedInteractive={hasNestedButtons}
         style={proposal ? [styles.card, { borderStyle: 'dashed', borderColor: colors.borderStrong }] : styles.card}
       >
         <TicketCardBody

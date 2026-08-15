@@ -9,10 +9,17 @@ type Props = {
   onLongPress?: () => void
   style?: ViewStyle | ViewStyle[]
   testID?: string
+  /** Set when `children` render their own interactive `Button`/`Pressable` controls (e.g. a
+   * proposal card's Keep/Dismiss). RN-web maps `accessibilityRole="button"` straight to a DOM
+   * `<button>`, so a pressable card wrapping pressable children would nest `<button>` inside
+   * `<button>` — invalid HTML that React (rightly) logs a hydration warning for. Cards in this
+   * position stay clickable (mouse + `onPress`) but drop the button role/DOM tag; the nested
+   * controls keep their own. */
+  nestedInteractive?: boolean
 }
 
 /** Elevated surface. Pressable when given handlers, static otherwise. */
-export function Card({ children, onPress, onLongPress, style, testID }: Props) {
+export function Card({ children, onPress, onLongPress, style, testID, nestedInteractive }: Props) {
   const { colors, shadow } = useTheme()
   const surface = [
     styles.card,
@@ -31,7 +38,7 @@ export function Card({ children, onPress, onLongPress, style, testID }: Props) {
   return (
     <Pressable
       testID={testID}
-      accessibilityRole="button"
+      accessibilityRole={nestedInteractive ? undefined : 'button'}
       onPress={onPress}
       onLongPress={onLongPress}
       style={({ pressed }) => [...surface, pressed && styles.pressed]}

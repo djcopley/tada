@@ -134,8 +134,12 @@ export function narrowNeedsYouMeta(
   run: ApiRun | undefined,
 ): string {
   const elapsed = elapsedLabel(createdAt, now)
+  // Narrow has no room for the full failure summary (that's the wide card's job) — a short
+  // marker only: "timed out" when the reason mentions a timeout, else the bare "failed".
   const marker = failed
-    ? (run?.summary && run.summary.trim()) || 'failed'
+    ? /timed?\s*out|timeout/i.test(run?.summary ?? '')
+      ? 'timed out'
+      : 'failed'
     : prNumberFromUrl(run?.prUrl)
       ? `pr #${prNumberFromUrl(run?.prUrl)}`
       : undefined

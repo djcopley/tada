@@ -340,6 +340,42 @@ describe('Ticket detail screen', () => {
     expect(Linking.openURL).toHaveBeenCalledWith('https://example.com/pull/481')
   })
 
+  test('memory card joins kept titles and the highlighted newest agent note with no dangling separator', async () => {
+    mockMemory.mockResolvedValueOnce(
+      memory({
+        notes: [
+          { id: 1, scope: 'workspace', workspaceId: 1, file: 'conventions.md', title: 'Conventions', author: 'human', runId: null, state: 'kept', body: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          { id: 2, scope: 'workspace', workspaceId: 1, file: 'testing.md', title: 'Testing', author: 'human', runId: null, state: 'kept', body: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          { id: 3, scope: 'workspace', workspaceId: 1, file: 'note.md', title: 'Reports queries', author: 'agent', runId: 1, state: 'kept', body: 'reports queries paginate past 50k rows', updatedAt: '2026-01-02T00:00:00.000Z' },
+        ],
+      }),
+    )
+    await renderScreen()
+
+    await waitFor(() => expect(screen.getByTestId('memory-card')).toBeTruthy())
+    expect(screen.getByTestId('memory-card')).toHaveTextContent(
+      'conventions · testing · reports queries paginate past 50k rows',
+      { exact: false },
+    )
+    expect(screen.getByTestId('memory-card')).not.toHaveTextContent('testing · ·', { exact: false })
+  })
+
+  test('memory card has no trailing separator when there is no kept agent note', async () => {
+    mockMemory.mockResolvedValueOnce(
+      memory({
+        notes: [
+          { id: 1, scope: 'workspace', workspaceId: 1, file: 'conventions.md', title: 'Conventions', author: 'human', runId: null, state: 'kept', body: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          { id: 2, scope: 'workspace', workspaceId: 1, file: 'testing.md', title: 'Testing', author: 'human', runId: null, state: 'kept', body: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+        ],
+      }),
+    )
+    await renderScreen()
+
+    await waitFor(() => expect(screen.getByTestId('memory-card')).toBeTruthy())
+    expect(screen.getByTestId('memory-card')).toHaveTextContent('conventions · testing', { exact: false })
+    expect(screen.getByTestId('memory-card')).not.toHaveTextContent('testing ·', { exact: false })
+  })
+
   test('thread: feedback comments get a "sent back:" prefix in the user bubble', async () => {
     mockTicket.mockResolvedValueOnce({
       ticket: ticket(),

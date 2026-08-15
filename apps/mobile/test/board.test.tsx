@@ -122,6 +122,7 @@ const mockSendBack = jest.fn()
 const mockProposal = jest.fn()
 const mockMoveTicket = jest.fn()
 const mockPatchTicket = jest.fn()
+const mockRunEvents = jest.fn()
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
     status: number
@@ -145,6 +146,7 @@ jest.mock('../src/api/client', () => {
       proposal: mockProposal,
       moveTicket: mockMoveTicket,
       patchTicket: mockPatchTicket,
+      runEvents: mockRunEvents,
       wsUrl: () => 'wss://example.com/ws',
     })),
   }
@@ -215,6 +217,7 @@ describe('Board screen', () => {
     jest.spyOn(Date, 'now').mockReturnValue(FROZEN_NOW)
     mockGetWorkspace.mockResolvedValue(workspace())
     mockTicket.mockResolvedValue({ ticket: ticket({}), comments: [], runs: [], followUps: [] })
+    mockRunEvents.mockResolvedValue([])
     setWidth(WIDE_WIDTH)
   })
 
@@ -374,10 +377,16 @@ describe('Board screen', () => {
     )
     mockTicket.mockResolvedValue({
       ticket: ticket({ id: 40, columnId: 3 }),
-      comments: [{ id: 1, ticketId: 40, author: 'agent', kind: 'note', body: 'suite ×20 — all green so far', createdAt: '2026-08-13T12:00:00.000Z' }],
+      // A stale agent comment from *before* this run — the well must prefer the run's own
+      // journaled events over it while the run is live (see useLatestRunEvent).
+      comments: [{ id: 1, ticketId: 40, author: 'agent', kind: 'note', body: 'stale comment from an earlier run', createdAt: '2026-08-13T12:00:00.000Z' }],
       runs: [{ id: 77, ticketId: 40, adapter: 'claude', model: 'sonnet', effort: 'default', attemptNumber: 1, status: 'running', branch: null, prUrl: null, summary: null, diffAdditions: null, diffDeletions: null, testsPassed: null, startedAt: '2026-08-15T11:48:00.000Z', finishedAt: null, createdAt: '2026-08-13T12:00:00.000Z' }],
       followUps: [],
     })
+    mockRunEvents.mockResolvedValue([
+      { id: 1, runId: 77, type: 'status', payload: { status: 'running suite ×20' }, createdAt: '2026-08-15T11:49:00.000Z' },
+      { id: 2, runId: 77, type: 'text', payload: { text: 'suite ×20 — all green so far' }, createdAt: '2026-08-15T11:50:00.000Z' },
+    ])
 
     await renderBoard()
 
@@ -390,9 +399,41 @@ describe('Board screen', () => {
         { exact: false },
       )
     })
+    // Never the earlier run's stale comment.
+    expect(screen.getByTestId('ticket-agent-well-40')).not.toHaveTextContent('stale comment', { exact: false })
 
     await fireEvent.press(screen.getByTestId('watch-live-40'))
     expect(mockPush).toHaveBeenCalledWith('/runs/77')
+  })
+
+  test('a running card with no journaled events yet falls back to "working…"', async () => {
+    mockBoard.mockResolvedValueOnce(
+      board({
+        columns: [
+          {
+            id: 3,
+            workspaceId: 1,
+            kind: 'in_progress',
+            title: 'Running',
+            position: 3,
+            tickets: [ticket({ id: 41, columnId: 3, title: 'Rotate the staging cert' })],
+          },
+        ],
+      }),
+    )
+    mockTicket.mockResolvedValue({
+      ticket: ticket({ id: 41, columnId: 3 }),
+      comments: [],
+      runs: [{ id: 78, ticketId: 41, adapter: 'claude', model: 'sonnet', effort: 'default', attemptNumber: 1, status: 'running', branch: null, prUrl: null, summary: null, diffAdditions: null, diffDeletions: null, testsPassed: null, startedAt: '2026-08-15T11:48:00.000Z', finishedAt: null, createdAt: '2026-08-13T12:00:00.000Z' }],
+      followUps: [],
+    })
+    mockRunEvents.mockResolvedValue([])
+
+    await renderBoard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ticket-agent-well-41')).toHaveTextContent('working…', { exact: false })
+    })
   })
 
   test('an in-review card shows your-turn, attempt/pr/tests meta, and wires accept + send back', async () => {

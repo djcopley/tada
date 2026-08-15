@@ -1,4 +1,14 @@
-import type { ApiActivity, ApiBoard, ApiComment, ApiMemory, ApiRun, ApiTicket, ApiWorkspaceListItem, WsMessage } from '@tada/shared'
+import type {
+  ApiActivity,
+  ApiBoard,
+  ApiComment,
+  ApiMemory,
+  ApiRun,
+  ApiRunEvent,
+  ApiTicket,
+  ApiWorkspaceListItem,
+  WsMessage,
+} from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions, Linking } from 'react-native'
@@ -58,6 +68,7 @@ const mockCreateWorkspace = jest.fn()
 const mockCheckName = jest.fn()
 const mockKnownRepos = jest.fn()
 const mockAddSource = jest.fn()
+const mockRunEvents = jest.fn()
 
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
@@ -87,6 +98,7 @@ jest.mock('../src/api/client', () => {
       checkName: mockCheckName,
       knownRepos: mockKnownRepos,
       addSource: mockAddSource,
+      runEvents: mockRunEvents,
       wsUrl: () => 'wss://example.com/ws',
     })),
   }
@@ -257,7 +269,9 @@ function defaultTicketDetails(): Record<number, { ticket: ApiTicket; comments: A
     },
     103: {
       ticket: liveTicket,
-      comments: [comment({ id: 3, ticketId: 103, body: 'running suite ×20 — all green so far' })],
+      // Stale — from an earlier run. The live card's well must prefer run 503's own journaled
+      // events over this while the run is live (see useLatestRunEvent / defaultRunEvents below).
+      comments: [comment({ id: 3, ticketId: 103, body: 'stale comment from an earlier run' })],
       runs: [
         run({
           id: 503,
@@ -269,6 +283,12 @@ function defaultTicketDetails(): Record<number, { ticket: ApiTicket; comments: A
       ],
     },
   }
+}
+
+/** Empty by default — most tests only assert the card exists / its elapsed label, not its well
+ * text, so the true no-events-yet "working…" fallback is what they exercise incidentally. */
+function defaultRunEvents(): Record<number, ApiRunEvent[]> {
+  return {}
 }
 
 function defaultMemory(): ApiMemory {
@@ -298,12 +318,14 @@ function setupMocks({
   ticketDetails = defaultTicketDetails(),
   memory = defaultMemory(),
   activity = defaultActivity(),
+  runEvents = defaultRunEvents(),
 }: {
   workspaces?: ApiWorkspaceListItem[]
   board?: ApiBoard
   ticketDetails?: Record<number, { ticket: ApiTicket; comments: ApiComment[]; runs: ApiRun[] }>
   memory?: ApiMemory
   activity?: ApiActivity[]
+  runEvents?: Record<number, ApiRunEvent[]>
 } = {}) {
   mockListWorkspaces.mockResolvedValue(workspaces)
   mockBoard.mockResolvedValue(board)
@@ -313,6 +335,7 @@ function setupMocks({
   mockCheckName.mockResolvedValue({ id: 'new-one', available: true })
   mockKnownRepos.mockResolvedValue([])
   mockAddSource.mockResolvedValue([])
+  mockRunEvents.mockImplementation(async (runId: number) => runEvents[runId] ?? [])
 }
 
 async function renderControl() {
@@ -365,6 +388,50 @@ describe('Control screen', () => {
     // The queued (not yet running) ticket belongs to neither triage list.
     expect(screen.queryByTestId('needs-you-104')).toBeNull()
     expect(screen.queryByTestId('live-now-104')).toBeNull()
+  })
+
+  test('live-now agent well shows the running run\'s latest journaled event, not the ticket\'s stale comment', async () => {
+    setupMocks({
+      runEvents: {
+        503: [
+          { id: 1, runId: 503, type: 'status', payload: { status: 'running suite ×20' }, createdAt: localTime(9, 49) },
+          { id: 2, runId: 503, type: 'text', payload: { text: 'suite ×20 — all green so far' }, createdAt: localTime(9, 50) },
+        ],
+      },
+    })
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-now-103-panel')).toHaveTextContent('suite ×20 — all green so far', {
+        exact: false,
+      })
+    })
+    expect(screen.getByTestId('live-now-103-panel')).not.toHaveTextContent('stale comment', { exact: false })
+  })
+
+  test('narrow live digest reads the same journaled event, not "working…" and not the stale comment', async () => {
+    setupMocks({
+      runEvents: {
+        503: [{ id: 1, runId: 503, type: 'text', payload: { text: 'suite ×20 — all green so far' }, createdAt: localTime(9, 50) }],
+      },
+    })
+    setWindowWidth(500)
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-digest')).toHaveTextContent('suite ×20 — all green so far', { exact: false })
+    })
+    expect(screen.getByTestId('live-digest')).not.toHaveTextContent('working…', { exact: false })
+    expect(screen.getByTestId('live-digest')).not.toHaveTextContent('stale comment', { exact: false })
+  })
+
+  test('live-now agent well falls back to "working…" when the running run has no journaled events yet', async () => {
+    setupMocks()
+    await renderControl()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-now-103-panel')).toHaveTextContent('working…', { exact: false })
+    })
   })
 
   test('renders the needs-you stat line, badges and agent well from the latest run/comment', async () => {
@@ -533,11 +600,13 @@ describe('Control screen', () => {
 
     // Mobile artboard format: "<workspace> · <elapsed since created> · <short marker>" —
     // reviewTicket was created 3h before the frozen "now" and has a PR; failedTicket was
-    // created 8h before and has a failed-run summary. Neither the verbose wide stat line
-    // ("attempt 2 · pr #481 · +412 −38 · 214 tests pass") nor the wide "N ago" meta should
-    // appear on narrow cards.
+    // created 8h before and has a failed-run summary ("timed out at 30m") that narrow only
+    // ever renders as the short "timed out" marker, never the full text. Neither the verbose
+    // wide stat line ("attempt 2 · pr #481 · +412 −38 · 214 tests pass") nor the wide "N ago"
+    // meta should appear on narrow cards.
     expect(screen.getByText('parlor · 3h · pr #481')).toBeTruthy()
-    expect(screen.getByText('parlor · 8h · timed out at 30m')).toBeTruthy()
+    expect(screen.getByText('parlor · 8h · timed out')).toBeTruthy()
+    expect(screen.queryByText('parlor · 8h · timed out at 30m')).toBeNull()
     expect(screen.queryByText('attempt 2 · pr #481 · +412 −38 · 214 tests pass')).toBeNull()
 
     // Narrow's subline names the first overnight failure's time instead of the wide subline's

@@ -238,6 +238,40 @@ describe('Memory screens', () => {
       expect(screen.getByText('Global')).toBeTruthy()
       expect(screen.getByText('every workspace · 1')).toBeTruthy()
       expect(screen.getByText('shared body')).toBeTruthy()
+
+      // AGENTS.md's fixture body ('# Agents\n\nAgent docs here.') shows body text under the
+      // pinned card's header, with the `# Agents` heading line stripped — not duplicated with
+      // the title above it.
+      expect(screen.getByTestId('memory-note-AGENTS.md')).toHaveTextContent('Agent docs here.', { exact: false })
+      expect(screen.getByTestId('memory-note-AGENTS.md')).not.toHaveTextContent('# Agents', { exact: false })
+    })
+
+    test('note card bodies strip a leading markdown heading line', async () => {
+      mockMemory.mockResolvedValue(
+        memory({
+          notes: [note({ file: 'conventions.md', body: '# Conventions\n\nconventional commits (fix:, feat:).' })],
+        }),
+      )
+
+      await renderMemoryList()
+
+      await waitFor(() => expect(screen.getByTestId('memory-note-conventions.md')).toBeTruthy())
+      expect(screen.getByTestId('memory-note-conventions.md')).toHaveTextContent(
+        'conventional commits (fix:, feat:).',
+        { exact: false },
+      )
+      expect(screen.getByTestId('memory-note-conventions.md')).not.toHaveTextContent('# Conventions', {
+        exact: false,
+      })
+    })
+
+    test('empty AGENTS.md shows a faint "empty" placeholder instead of a blank body', async () => {
+      mockMemory.mockResolvedValue(memory({ agentsMd: '' }))
+
+      await renderMemoryList()
+
+      await waitFor(() => expect(screen.getByTestId('memory-note-AGENTS.md')).toBeTruthy())
+      expect(screen.getByTestId('memory-note-AGENTS.md')).toHaveTextContent('empty', { exact: false })
     })
 
     test('header shows the note count', async () => {

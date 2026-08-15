@@ -117,9 +117,11 @@ export function MemoryReadCard({
       <CardHeader title="Memory it read" />
       <Text style={[type.mono, { color: colors.textMuted }]}>
         {keptTitles.map((title, i) => (
-          <Text key={i}>{`${title} · `}</Text>
+          <Text key={i}>{i > 0 ? ` · ${title}` : title}</Text>
         ))}
-        {highlighted ? <Text style={{ color: colors.okText }}>{highlighted}</Text> : null}
+        {highlighted ? (
+          <Text style={{ color: colors.okText }}>{keptTitles.length > 0 ? ` · ${highlighted}` : highlighted}</Text>
+        ) : null}
       </Text>
     </Card>
   )

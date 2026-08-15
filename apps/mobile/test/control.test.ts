@@ -237,10 +237,25 @@ describe('narrowNeedsYouMeta', () => {
     expect(narrowNeedsYouMeta('parlor', createdAt, now, false, undefined)).toBe('parlor · 2h')
   })
 
-  test('failed with a summary', () => {
+  test('failed with a timeout summary gets the short "timed out" marker, not the full text', () => {
     expect(narrowNeedsYouMeta('parlor', createdAt, now, true, run({ summary: 'timed out at 30m' }))).toBe(
-      'parlor · 2h · timed out at 30m',
+      'parlor · 2h · timed out',
     )
+    expect(narrowNeedsYouMeta('parlor', createdAt, now, true, run({ summary: 'Timeout after 1800000ms' }))).toBe(
+      'parlor · 2h · timed out',
+    )
+  })
+
+  test('failed with a non-timeout summary gets the short "failed" marker, never the full summary', () => {
+    expect(
+      narrowNeedsYouMeta(
+        'parlor',
+        createdAt,
+        now,
+        true,
+        run({ summary: 'vite 6 migration is bigger than a bump — suggest splitting the ticket' }),
+      ),
+    ).toBe('parlor · 2h · failed')
   })
 
   test('failed with no summary falls back to "failed"', () => {

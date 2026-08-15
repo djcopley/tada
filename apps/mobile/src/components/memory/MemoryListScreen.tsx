@@ -45,9 +45,17 @@ function noteAge(iso: string): string {
 
 /** AGENTS.md has no `title` field of its own (it's a raw string, not a note) — pull the first
  * markdown heading as its card title, falling back to a generic label for a headerless file. */
-function agentsMdTitle(agentsMd: string): string {
+export function agentsMdTitle(agentsMd: string): string {
   const match = agentsMd.match(/^#\s+(.+)/m)
   return match?.[1] ? match[1].trim() : 'Charter'
+}
+
+/** Strips a leading `# <heading>` markdown title line (and the blank line usually following it)
+ * from a note/AGENTS.md body before it renders as a card preview. The title already renders in
+ * the card's own header, so the preview underneath should start at the body text — the artboard
+ * never shows the heading twice (e.g. `# Conventions` leaking in as the first preview line). */
+export function stripLeadingHeading(body: string): string {
+  return body.replace(/^#[ \t]+[^\r\n]*\r?\n?\r?\n?/, '').trimStart()
 }
 
 function isValidName(name: string): boolean {
@@ -116,6 +124,8 @@ export function MemoryListScreen(props: Props) {
   const globalNotes = globalMemory.data?.notes ?? []
   const globalKept = globalNotes.filter((n) => n.state === 'kept')
 
+  const agentsMdBody = stripLeadingHeading(data.agentsMd).trim()
+
   const editorHref = (file: string) =>
     scope === 'workspace' ? `/workspaces/${wsId}/memory/${encodeURIComponent(file)}` : `/memory/${encodeURIComponent(file)}`
 
@@ -183,6 +193,13 @@ export function MemoryListScreen(props: Props) {
     <>
       <Card testID="memory-note-AGENTS.md" onPress={() => router.push(editorHref('AGENTS.md'))} style={styles.card}>
         <CardHeader title={agentsMdTitle(data.agentsMd)} meta="pinned" />
+        {agentsMdBody ? (
+          <Text numberOfLines={3} style={[type.monoSmall, { color: colors.textMuted }]}>
+            {agentsMdBody}
+          </Text>
+        ) : (
+          <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>empty</Text>
+        )}
       </Card>
 
       {scope === 'workspace' ? (
@@ -192,7 +209,7 @@ export function MemoryListScreen(props: Props) {
             <View style={styles.globalBody}>
               {globalKept.map((n) => (
                 <Text key={n.id} style={[type.monoSmall, { color: colors.textMuted }]}>
-                  {n.body}
+                  {stripLeadingHeading(n.body)}
                 </Text>
               ))}
             </View>
@@ -213,7 +230,7 @@ export function MemoryListScreen(props: Props) {
             title={n.title}
             meta={n.author === 'human' ? `edited by you · ${bareAge(n.updatedAt)}` : `by agent · ${bareAge(n.updatedAt)}`}
           />
-          <Text style={[type.monoSmall, { color: colors.textMuted }]}>{n.body}</Text>
+          <Text style={[type.monoSmall, { color: colors.textMuted }]}>{stripLeadingHeading(n.body)}</Text>
         </Card>
       ))}
 
