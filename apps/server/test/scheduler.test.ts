@@ -352,4 +352,130 @@ describe('Scheduler', () => {
       expect(runStatus(db, runId)).not.toBe('running')
     })
   })
+
+  test('enqueue: attemptNumber is 1 + count of prior runs for the ticket', async () => {
+    isolateXdg()
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
+    db.drizzle
+      .update(workspaces)
+      .set({ defaultAdapter: 'fake', defaultModel: 'fake-1' })
+      .where(eq(workspaces.id, wsId))
+      .run()
+    const ticket = makeTicket(db, wsId, readyColId, 1, null)
+
+    const never = deferred()
+    const adapters = adaptersWith({ fake: { act: () => never.promise } })
+    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
+
+    // First enqueue: no prior runs -> attempt 1.
+    const run1Id = scheduler.enqueue(ticket.id)
+    expect(
+      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run1Id)).get()?.attemptNumber,
+    ).toBe(1)
+
+    // Seed two more terminal runs directly (as if two more attempts had already happened) and
+    // confirm the next enqueue counts all of them, regardless of status.
+    db.drizzle
+      .insert(agentRuns)
+      .values([
+        { ticketId: ticket.id, adapter: 'fake', model: 'fake-1', status: 'failed', runToken: 'a' },
+        {
+          ticketId: ticket.id,
+          adapter: 'fake',
+          model: 'fake-1',
+          status: 'needs_review',
+          runToken: 'b',
+        },
+      ])
+      .run()
+
+    const run4Id = scheduler.enqueue(ticket.id)
+    expect(
+      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run4Id)).get()?.attemptNumber,
+    ).toBe(4)
+
+    never.resolve()
+    await vi.waitFor(() => {
+      expect(runStatus(db, run1Id)).not.toBe('running')
+    })
+  })
+
+  test('enqueue: resolves effort from opts, falling back to ticket.effortOverride, then workspace.defaultEffort', async () => {
+    isolateXdg()
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
+    db.drizzle
+      .update(workspaces)
+      .set({ defaultAdapter: 'fake', defaultModel: 'fake-1', defaultEffort: 'high' })
+      .where(eq(workspaces.id, wsId))
+      .run()
+
+    const never = deferred()
+    const adapters = adaptersWith({ fake: { act: () => never.promise } })
+    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
+
+    // No override anywhere -> workspace default
+    const ticketDefault = makeTicket(db, wsId, readyColId, 1, null)
+    const runDefaultId = scheduler.enqueue(ticketDefault.id)
+    expect(
+      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runDefaultId)).get()?.effort,
+    ).toBe('high')
+
+    // Ticket override -> used over workspace default
+    const ticketOverride = makeTicket(db, wsId, readyColId, 2, null)
+    db.drizzle
+      .update(tickets)
+      .set({ effortOverride: 'low' })
+      .where(eq(tickets.id, ticketOverride.id))
+      .run()
+    const runOverrideId = scheduler.enqueue(ticketOverride.id)
+    expect(
+      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runOverrideId)).get()?.effort,
+    ).toBe('low')
+
+    // Explicit opts.effort -> wins over everything
+    const runOptsId = scheduler.enqueue(ticketOverride.id, { effort: 'medium' })
+    expect(
+      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runOptsId)).get()?.effort,
+    ).toBe('medium')
+
+    never.resolve()
+    await vi.waitFor(() => {
+      expect(runStatus(db, runDefaultId)).not.toBe('running')
+    })
+  })
+
+  test('tick: a pending-proposal ticket queued in ready is never picked up', async () => {
+    isolateXdg()
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
+
+    const ticket = makeTicket(db, wsId, readyColId, 1, 'queued')
+    db.drizzle
+      .update(tickets)
+      .set({ proposalState: 'pending' })
+      .where(eq(tickets.id, ticket.id))
+      .run()
+
+    let started = false
+    const adapters = adaptersWith({
+      fake: {
+        act: () => {
+          started = true
+          return Promise.resolve()
+        },
+      },
+    })
+    const run = seedQueuedRun(db, ticket.id, 'fake', 'tok')
+
+    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
+    scheduler.tick()
+
+    expect(started).toBe(false)
+    expect(runStatus(db, run.id)).toBe('queued')
+  })
 })

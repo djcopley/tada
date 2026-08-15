@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { composePrompt } from '../src/runs/prompt.js'
+import { composePrompt, type PromptRun } from '../src/runs/prompt.js'
 
 describe('composePrompt', () => {
   const baseInput = {
@@ -9,7 +9,7 @@ describe('composePrompt', () => {
     noteFiles: [] as string[],
     globalAgentsMd: '# Global\n\nCross-workspace charter.',
     globalNoteFiles: [] as string[],
-    priorRunSummaries: [] as string[],
+    priorRuns: [] as PromptRun[],
   }
 
   test('output starts with # Task: <title>', () => {
@@ -26,9 +26,24 @@ describe('composePrompt', () => {
     const input = {
       ...baseInput,
       comments: [
-        { author: 'human' as const, body: 'Please investigate', createdAt: new Date('2026-01-01') },
-        { author: 'agent' as const, body: 'Found the issue', createdAt: new Date('2026-01-02') },
-        { author: 'human' as const, body: 'Good work', createdAt: new Date('2026-01-03') },
+        {
+          author: 'human' as const,
+          kind: 'note' as const,
+          body: 'Please investigate',
+          createdAt: new Date('2026-01-01'),
+        },
+        {
+          author: 'agent' as const,
+          kind: 'note' as const,
+          body: 'Found the issue',
+          createdAt: new Date('2026-01-02'),
+        },
+        {
+          author: 'human' as const,
+          kind: 'note' as const,
+          body: 'Good work',
+          createdAt: new Date('2026-01-03'),
+        },
       ],
     }
     const result = composePrompt(input)
@@ -109,24 +124,60 @@ describe('composePrompt', () => {
     expect(result).toContain('(none yet)')
   })
 
-  test('skips ## Previous attempts when priorRunSummaries is empty', () => {
+  test('skips ## Previous attempts when priorRuns is empty', () => {
     const input = {
       ...baseInput,
-      priorRunSummaries: [],
+      priorRuns: [],
     }
     const result = composePrompt(input)
     expect(result).not.toContain('## Previous attempts')
   })
 
-  test('includes ## Previous attempts with numbered items when priorRunSummaries is non-empty', () => {
+  test('includes ## Previous attempts with items numbered by attemptNumber when priorRuns have summaries', () => {
     const input = {
       ...baseInput,
-      priorRunSummaries: ['First attempt: Tried approach A', 'Second attempt: Tried approach B'],
+      priorRuns: [
+        {
+          attemptNumber: 1,
+          summary: 'First attempt: Tried approach A',
+          startedAt: new Date('2026-01-01T00:00:00Z'),
+          finishedAt: new Date('2026-01-01T01:00:00Z'),
+        },
+        {
+          attemptNumber: 2,
+          summary: 'Second attempt: Tried approach B',
+          startedAt: new Date('2026-01-02T00:00:00Z'),
+          finishedAt: new Date('2026-01-02T01:00:00Z'),
+        },
+      ],
     }
     const result = composePrompt(input)
     expect(result).toContain('## Previous attempts')
     expect(result).toContain('1. First attempt: Tried approach A')
     expect(result).toContain('2. Second attempt: Tried approach B')
+  })
+
+  test('## Previous attempts skips runs with no summary but keeps numbering by attemptNumber', () => {
+    const input = {
+      ...baseInput,
+      priorRuns: [
+        {
+          attemptNumber: 1,
+          summary: null,
+          startedAt: new Date('2026-01-01T00:00:00Z'),
+          finishedAt: new Date('2026-01-01T01:00:00Z'),
+        },
+        {
+          attemptNumber: 2,
+          summary: 'Second attempt succeeded partially',
+          startedAt: new Date('2026-01-02T00:00:00Z'),
+          finishedAt: new Date('2026-01-02T01:00:00Z'),
+        },
+      ],
+    }
+    const result = composePrompt(input)
+    expect(result).toContain('2. Second attempt succeeded partially')
+    expect(result).not.toContain('1. ')
   })
 
   test('includes ## How to work with exact template and ticket id interpolated', () => {
@@ -189,14 +240,31 @@ describe('composePrompt', () => {
     const input = {
       ticket: { id: 7, title: 'Implement authentication', description: 'Add JWT-based auth' },
       comments: [
-        { author: 'human' as const, body: 'Start with JWT', createdAt: new Date('2026-01-01') },
-        { author: 'agent' as const, body: 'JWT implemented', createdAt: new Date('2026-01-02') },
+        {
+          author: 'human' as const,
+          kind: 'note' as const,
+          body: 'Start with JWT',
+          createdAt: new Date('2026-01-01'),
+        },
+        {
+          author: 'agent' as const,
+          kind: 'note' as const,
+          body: 'JWT implemented',
+          createdAt: new Date('2026-01-02'),
+        },
       ],
       agentsMd: '# Agents\n\nAgent list',
       noteFiles: ['jwt-config.md'],
       globalAgentsMd: '# Global\n\nShared charter',
       globalNoteFiles: ['global-note.md'],
-      priorRunSummaries: ['Initial attempt failed'],
+      priorRuns: [
+        {
+          attemptNumber: 1,
+          summary: 'Initial attempt failed',
+          startedAt: new Date('2025-12-31T00:00:00Z'),
+          finishedAt: new Date('2025-12-31T01:00:00Z'),
+        },
+      ],
     }
     const result = composePrompt(input)
 
@@ -238,15 +306,24 @@ describe('composePrompt', () => {
     expect(result).toContain('first.md, second.md, third.md')
   })
 
-  test('maintains section order: heading, description, discussion, charter, global memory, memory, attempts, howtow', () => {
+  test('maintains section order: heading, feedback, description, discussion, charter, global memory, memory, attempts, howto', () => {
     const input = {
       ticket: { id: 99, title: 'Test task', description: 'Test description' },
-      comments: [{ author: 'human' as const, body: 'Comment', createdAt: new Date() }],
+      comments: [
+        { author: 'human' as const, kind: 'note' as const, body: 'Comment', createdAt: new Date() },
+      ],
       agentsMd: 'Agents',
       noteFiles: ['note.md'],
       globalAgentsMd: 'Global agents',
       globalNoteFiles: ['global-note.md'],
-      priorRunSummaries: ['Summary'],
+      priorRuns: [
+        {
+          attemptNumber: 1,
+          summary: 'Summary',
+          startedAt: new Date('2026-01-01T00:00:00Z'),
+          finishedAt: new Date('2026-01-01T01:00:00Z'),
+        },
+      ],
     }
     const result = composePrompt(input)
 
@@ -266,5 +343,153 @@ describe('composePrompt', () => {
     expect(globalMemoryIdx).toBeLessThan(memoryIdx)
     expect(memoryIdx).toBeLessThan(attemptsIdx)
     expect(attemptsIdx).toBeLessThan(howtoIdx)
+  })
+
+  describe('send-back feedback', () => {
+    const priorRun: PromptRun = {
+      attemptNumber: 1,
+      summary: 'Tried approach A',
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      finishedAt: new Date('2026-01-01T01:00:00Z'),
+    }
+
+    test('feedback left after the prior attempt finished renders as the first section after the title', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [priorRun],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'feedback' as const,
+            body: 'Please also handle the edge case where the token is expired.',
+            createdAt: new Date('2026-01-01T02:00:00Z'), // after finishedAt
+          },
+        ],
+      }
+      const result = composePrompt(input)
+
+      expect(result).toContain('## Your feedback on attempt 1')
+      expect(result).toContain('Please also handle the edge case where the token is expired.')
+
+      const titleIdx = result.indexOf('# Task:')
+      const feedbackIdx = result.indexOf('## Your feedback on attempt 1')
+      const descIdx = result.indexOf(baseInput.ticket.description)
+      expect(titleIdx).toBeLessThan(feedbackIdx)
+      expect(feedbackIdx).toBeLessThan(descIdx)
+    })
+
+    test('feedback left before the prior attempt finished (already addressed) is not surfaced as a section', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [priorRun],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'feedback' as const,
+            body: 'Old feedback, already addressed',
+            createdAt: new Date('2026-01-01T00:30:00Z'), // before finishedAt
+          },
+        ],
+      }
+      const result = composePrompt(input)
+      expect(result).not.toContain('## Your feedback on attempt')
+    })
+
+    test('only the latest feedback comment is surfaced as a section', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [priorRun],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'feedback' as const,
+            body: 'Earlier feedback',
+            createdAt: new Date('2026-01-01T02:00:00Z'),
+          },
+          {
+            author: 'human' as const,
+            kind: 'feedback' as const,
+            body: 'Latest feedback',
+            createdAt: new Date('2026-01-01T03:00:00Z'),
+          },
+        ],
+      }
+      const result = composePrompt(input)
+      expect(result).toContain('## Your feedback on attempt 1\n\nLatest feedback')
+    })
+
+    test('no feedback section when there are no prior runs', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'feedback' as const,
+            body: 'Feedback with nothing to critique',
+            createdAt: new Date(),
+          },
+        ],
+      }
+      const result = composePrompt(input)
+      expect(result).not.toContain('## Your feedback on attempt')
+    })
+  })
+
+  describe('nudge comments', () => {
+    test('a nudge comment during an attempt is labeled with that attempt number in Discussion', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [
+          {
+            attemptNumber: 1,
+            summary: 'Tried approach A',
+            startedAt: new Date('2026-01-01T00:00:00Z'),
+            finishedAt: new Date('2026-01-01T01:00:00Z'),
+          },
+          {
+            attemptNumber: 2,
+            summary: null,
+            startedAt: new Date('2026-01-02T00:00:00Z'),
+            finishedAt: new Date('2026-01-02T01:00:00Z'),
+          },
+        ],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'nudge' as const,
+            body: 'Check the auth middleware too',
+            createdAt: new Date('2026-01-02T00:30:00Z'), // during attempt 2
+          },
+        ],
+      }
+      const result = composePrompt(input)
+      expect(result).toContain('**human:** Check the auth middleware too (nudge during attempt 2)')
+    })
+
+    test('note-kind comments are not labeled as nudges', () => {
+      const input = {
+        ...baseInput,
+        priorRuns: [
+          {
+            attemptNumber: 1,
+            summary: 'Tried approach A',
+            startedAt: new Date('2026-01-01T00:00:00Z'),
+            finishedAt: new Date('2026-01-01T01:00:00Z'),
+          },
+        ],
+        comments: [
+          {
+            author: 'human' as const,
+            kind: 'note' as const,
+            body: 'Just a regular note',
+            createdAt: new Date('2026-01-01T00:30:00Z'),
+          },
+        ],
+      }
+      const result = composePrompt(input)
+      expect(result).toContain('**human:** Just a regular note')
+      expect(result).not.toContain('(nudge during attempt')
+    })
   })
 })

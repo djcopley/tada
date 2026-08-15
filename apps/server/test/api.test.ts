@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import type { ApiBoard, ApiWorkspaceListItem } from '@tada/shared'
+import type { ApiBoard, ApiRunDetail, ApiTicketDetail, ApiWorkspaceListItem } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, InjectOptions } from 'fastify'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -12,7 +12,7 @@ import { buildApp } from '../src/app.js'
 import type { Config } from '../src/config.js'
 import { loadConfig } from '../src/config.js'
 import { openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, comments, tickets, workspaces } from '../src/db/schema.js'
+import { activity, agentRuns, comments, tickets, workspaces } from '../src/db/schema.js'
 import { git } from '../src/git.js'
 import { dataDir, stateDir } from '../src/paths.js'
 import { Scheduler } from '../src/runs/scheduler.js'
@@ -821,5 +821,408 @@ describe('REST API + WebSocket events', () => {
       authed(config, { method: 'GET', url: `/runs/${run.id}/transcript` }),
     )
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('Ticket flows: accept, send-back, proposals, attempts, run detail', () => {
+  beforeEach(() => {
+    isolateXdg()
+  })
+
+  function succeedingAdapters(): Map<string, Adapter> {
+    return new Map<string, Adapter>([['fake', new FakeAdapter()]])
+  }
+
+  async function setupInReviewTicket() {
+    let db!: TadaDb
+    const script: FakeScript = {
+      act: async (ctx) => {
+        const runId = Number(basename(ctx.runDir))
+        const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+        if (!run) throw new Error(`run ${runId} not found`)
+        reportOutcome(db, run.id, run.ticketId, 'success', `Attempt ${run.attemptNumber} summary`)
+      },
+    }
+    const adapters = new Map<string, Adapter>([['fake', new FakeAdapter(script)]])
+    const started = await setupApp(adapters)
+    const { app, config } = started
+    db = started.db
+
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'fake', defaultModel: 'fake-1' },
+    })
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const readyColId = columnIdFor(board, 'ready')
+    const inProgressColId = columnIdFor(board, 'in_progress')
+    const inReviewColId = columnIdFor(board, 'in_review')
+    const doneColId = columnIdFor(board, 'done')
+
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'Reviewable ticket', description: 'desc' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: readyColId, position: 1 },
+    })
+
+    await vi.waitFor(async () => {
+      const res = await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` })
+      const t = res.body as ApiTicketDetail
+      if (t.columnId !== inReviewColId) throw new Error('not in review yet')
+    })
+
+    return {
+      app,
+      config,
+      db,
+      wsId,
+      ticketId,
+      readyColId,
+      inProgressColId,
+      inReviewColId,
+      doneColId,
+    }
+  }
+
+  test('POST /tickets/:id/accept when not in review returns 409', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const res = await json(app, config, { method: 'POST', url: `/tickets/${ticketId}/accept` })
+    expect(res.status).toBe(409)
+  })
+
+  test('POST /tickets/:id/accept moves the ticket to Done, writes an accepted activity', async () => {
+    const { app, config, db, ticketId, doneColId, wsId } = await setupInReviewTicket()
+
+    const res = await json(app, config, { method: 'POST', url: `/tickets/${ticketId}/accept` })
+    expect(res.status).toBe(200)
+    expect((res.body as ApiTicketDetail).columnId).toBe(doneColId)
+
+    const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, wsId)).all()
+    expect(acts.some((a) => a.type === 'accepted' && a.ticketId === ticketId)).toBe(true)
+  })
+
+  test('POST /tickets/:id/send-back when not in review returns 409', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/send-back`,
+      payload: { feedback: 'nope' },
+    })
+    expect(res.status).toBe(409)
+  })
+
+  test('POST /tickets/:id/send-back inserts a feedback comment, re-enqueues, moves to ready, writes a sent_back activity', async () => {
+    const { app, config, db, ticketId, readyColId, inProgressColId, wsId } =
+      await setupInReviewTicket()
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/send-back`,
+      payload: { feedback: 'Please handle the edge case' },
+    })
+    expect(res.status).toBe(200)
+    // Card lands in Ready; with scheduler capacity available it may synchronously advance to
+    // in_progress within the same call (the re-enqueue starts a run immediately) - either is the
+    // correct outcome, unlike still sitting in in_review.
+    expect([readyColId, inProgressColId]).toContain((res.body as ApiTicketDetail).columnId)
+
+    const ticketComments = db.drizzle
+      .select()
+      .from(comments)
+      .where(eq(comments.ticketId, ticketId))
+      .all()
+    const feedbackComment = ticketComments.find((c) => c.kind === 'feedback')
+    expect(feedbackComment).toMatchObject({
+      author: 'human',
+      kind: 'feedback',
+      body: 'Please handle the edge case',
+    })
+
+    const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, wsId)).all()
+    expect(acts.some((a) => a.type === 'sent_back' && a.ticketId === ticketId)).toBe(true)
+
+    // re-enqueued: a second run row now exists for the ticket
+    await vi.waitFor(() => {
+      const runs = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, ticketId)).all()
+      if (runs.length < 2) throw new Error('second run not created yet')
+    })
+  })
+
+  test('attempt numbering increments across three runs on the same ticket (send-back twice)', async () => {
+    const { app, config, ticketId } = await setupInReviewTicket()
+
+    await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/send-back`,
+      payload: { feedback: 'round 1 feedback' },
+    })
+    await vi.waitFor(async () => {
+      const t = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
+        .body as ApiTicketDetail
+      if (t.runs.length < 2 || t.runs[1]?.status !== 'needs_review') {
+        throw new Error('second run not needs_review yet')
+      }
+    })
+
+    await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/send-back`,
+      payload: { feedback: 'round 2 feedback' },
+    })
+    await vi.waitFor(async () => {
+      const t = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
+        .body as ApiTicketDetail
+      if (t.runs.length < 3 || t.runs[2]?.status !== 'needs_review') {
+        throw new Error('third run not needs_review yet')
+      }
+    })
+
+    const final = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
+      .body as ApiTicketDetail
+    expect(final.runs.map((r) => r.attemptNumber)).toEqual([1, 2, 3])
+  })
+
+  test('GET /runs/:id returns ApiRunDetail shape (ticketTitle, workspaceId), 404 for missing run', async () => {
+    const { app, config, ticketId, wsId } = await setupInReviewTicket()
+
+    const ticketRes = await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` })
+    const runId = (ticketRes.body as ApiTicketDetail).runs[0]?.id
+    if (runId === undefined) throw new Error('expected at least one run')
+
+    const res = await json(app, config, { method: 'GET', url: `/runs/${runId}` })
+    expect(res.status).toBe(200)
+    const run = res.body as ApiRunDetail
+    expect(run.id).toBe(runId)
+    expect(run.ticketId).toBe(ticketId)
+    expect(run.ticketTitle).toBe('Reviewable ticket')
+    expect(run.workspaceId).toBe(wsId)
+
+    const missing = await json(app, config, { method: 'GET', url: '/runs/999999' })
+    expect(missing.status).toBe(404)
+  })
+
+  test('POST /tickets writes a ticket_created activity', async () => {
+    const { app, config, db } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const created = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'A new ticket', description: '' },
+    })
+    const ticketId = (created.body as { id: number }).id
+
+    const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, wsId)).all()
+    expect(acts.some((a) => a.type === 'ticket_created' && a.ticketId === ticketId)).toBe(true)
+  })
+
+  test('PATCH ticket accepts a valid effortOverride, rejects an unknown one', async () => {
+    const adapters = succeedingAdapters()
+    const { app, config } = await setupApp(adapters)
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'fake', defaultModel: 'fake-1' },
+    })
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't', description: '' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const good = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { adapterOverride: 'fake', effortOverride: 'high' },
+    })
+    expect(good.status).toBe(200)
+    expect((good.body as { effortOverride: string | null }).effortOverride).toBe('high')
+
+    const bad = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { adapterOverride: 'fake', effortOverride: 'ludicrous' },
+    })
+    expect(bad.status).toBe(400)
+  })
+
+  test('proposal keep: clears proposalState and returns the ticket; dismiss: deletes it (204); both 404 unless pending', async () => {
+    const { app, config, db } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const parent = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'parent', description: '' },
+    })
+    const parentId = (parent.body as { id: number }).id
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const backlogColId = columnIdFor(board, 'backlog')
+
+    function makeProposal(title: string) {
+      const [t] = db.drizzle
+        .insert(tickets)
+        .values({
+          workspaceId: wsId,
+          columnId: backlogColId,
+          title,
+          position: 100,
+          origin: 'agent',
+          proposalState: 'pending',
+          followUpOfTicketId: parentId,
+        })
+        .returning()
+        .all()
+      if (!t) throw new Error('proposal insert returned no row')
+      return t
+    }
+
+    // 404 on a non-proposal ticket
+    const notPending = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${parentId}/proposal`,
+      payload: { action: 'keep' },
+    })
+    expect(notPending.status).toBe(404)
+
+    // keep
+    const keepTicket = makeProposal('proposal to keep')
+    const kept = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${keepTicket.id}/proposal`,
+      payload: { action: 'keep' },
+    })
+    expect(kept.status).toBe(200)
+    expect((kept.body as { proposalState: string | null }).proposalState).toBeNull()
+
+    // dismiss
+    const dismissTicket = makeProposal('proposal to dismiss')
+    const dismissRes = await app.inject(
+      authed(config, {
+        method: 'POST',
+        url: `/tickets/${dismissTicket.id}/proposal`,
+        payload: { action: 'dismiss' },
+      }),
+    )
+    expect(dismissRes.statusCode).toBe(204)
+    expect(
+      db.drizzle.select().from(tickets).where(eq(tickets.id, dismissTicket.id)).get(),
+    ).toBeUndefined()
+
+    // dismissing again (already gone) is a 404, not a crash
+    const dismissAgain = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${dismissTicket.id}/proposal`,
+      payload: { action: 'dismiss' },
+    })
+    expect(dismissAgain.status).toBe(404)
+  })
+
+  test('a pending proposal cannot be moved to Ready: 403, and GET /tickets/:id lists followUps', async () => {
+    const { app, config, db } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const parent = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'parent', description: '' },
+    })
+    const parentId = (parent.body as { id: number }).id
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const backlogColId = columnIdFor(board, 'backlog')
+    const readyColId = columnIdFor(board, 'ready')
+
+    const [proposal] = db.drizzle
+      .insert(tickets)
+      .values({
+        workspaceId: wsId,
+        columnId: backlogColId,
+        title: 'a follow-up',
+        position: 100,
+        origin: 'agent',
+        proposalState: 'pending',
+        followUpOfTicketId: parentId,
+      })
+      .returning()
+      .all()
+    if (!proposal) throw new Error('proposal insert returned no row')
+
+    const moveRes = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${proposal.id}/move`,
+      payload: { columnId: readyColId, position: 1 },
+    })
+    expect(moveRes.status).toBe(403)
+
+    const parentDetail = (await json(app, config, { method: 'GET', url: `/tickets/${parentId}` }))
+      .body as ApiTicketDetail
+    expect(parentDetail.followUps).toEqual([
+      { id: proposal.id, title: 'a follow-up', proposalState: 'pending' },
+    ])
   })
 })

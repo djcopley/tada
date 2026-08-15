@@ -9,6 +9,7 @@ export interface FakeScript {
 export class FakeAdapter implements Adapter {
   readonly name = 'fake'
   readonly models = ['fake-1'] as const
+  readonly efforts = ['low', 'medium', 'high'] as const
 
   constructor(private script: FakeScript = {}) {}
 

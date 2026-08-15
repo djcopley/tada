@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { recordActivity } from '../activity.js'
 import type { TadaDb } from '../db/index.js'
-import { agentRuns, comments, events, memoryNotes, tickets } from '../db/schema.js'
+import { agentRuns, columns, comments, events, memoryNotes, tickets } from '../db/schema.js'
 import { stateDir } from '../paths.js'
 import type { WorkspaceManager } from '../workspaces/manager.js'
 
@@ -141,6 +141,57 @@ function createMcpServer(ctx: RunContext): McpServer {
       })
 
       return { content: [{ type: 'text', text: `saved ${file}` }] }
+    },
+  )
+
+  server.registerTool(
+    'propose_ticket',
+    {
+      description:
+        'Propose a follow-up ticket for work discovered but out of scope for this run. Files it in the Backlog as a pending proposal for a human to keep or dismiss.',
+      inputSchema: { title: z.string(), description: z.string().optional() },
+    },
+    async ({ title, description }) => {
+      const backlog = ctx.db.drizzle
+        .select()
+        .from(columns)
+        .where(and(eq(columns.workspaceId, ctx.workspaceId), eq(columns.kind, 'backlog')))
+        .get()
+      if (!backlog) throw new Error(`workspace ${ctx.workspaceId} has no backlog column`)
+
+      const last = ctx.db.drizzle
+        .select()
+        .from(tickets)
+        .where(eq(tickets.columnId, backlog.id))
+        .orderBy(desc(tickets.position))
+        .limit(1)
+        .get()
+
+      const [proposal] = ctx.db.drizzle
+        .insert(tickets)
+        .values({
+          workspaceId: ctx.workspaceId,
+          columnId: backlog.id,
+          title,
+          description: description ?? '',
+          position: (last?.position ?? 0) + 1,
+          origin: 'agent',
+          proposalState: 'pending',
+          followUpOfTicketId: ctx.ticketId,
+        })
+        .returning()
+        .all()
+      if (!proposal) throw new Error('failed to insert proposed ticket')
+
+      recordActivity(ctx.db, {
+        workspaceId: ctx.workspaceId,
+        ticketId: proposal.id,
+        runId: ctx.runId,
+        type: 'follow_up_filed',
+        message: `Filed a follow-up ticket: "${title}"`,
+      })
+
+      return { content: [{ type: 'text', text: String(proposal.id) }] }
     },
   )
 

@@ -37,6 +37,21 @@ export function cancelRun(db: TadaDb, scheduler: Scheduler, runId: number): void
 export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, scheduler } = deps
 
+  app.get('/runs/:id', async (req, reply) => {
+    const id = runIdParam((req.params as { id: string }).id)
+    if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
+
+    const row = db.drizzle
+      .select({ run: agentRuns, ticketTitle: tickets.title, workspaceId: tickets.workspaceId })
+      .from(agentRuns)
+      .innerJoin(tickets, eq(agentRuns.ticketId, tickets.id))
+      .where(eq(agentRuns.id, id))
+      .get()
+    if (!row) return reply.code(404).send({ error: 'run not found' })
+
+    return { ...row.run, ticketTitle: row.ticketTitle, workspaceId: row.workspaceId }
+  })
+
   app.get('/runs/:id/events', async (req, reply) => {
     const id = runIdParam((req.params as { id: string }).id)
     if (id === undefined) return reply.code(400).send({ error: 'invalid id' })

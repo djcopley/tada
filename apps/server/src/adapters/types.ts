@@ -16,5 +16,6 @@ export interface RunContext {
 export interface Adapter {
   readonly name: string
   readonly models: readonly string[]
+  readonly efforts: readonly string[]
   run(ctx: RunContext): Promise<{ exitCode: number }>
 }

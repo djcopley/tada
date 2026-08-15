@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { buildApp } from '../src/app.js'
@@ -139,7 +139,7 @@ describe('MCP server', () => {
     app = undefined
   })
 
-  test('1. tools/list with a valid run token returns the five tools', async () => {
+  test('1. tools/list with a valid run token returns the six tools', async () => {
     const { run } = seedRun(db)
     const started = await startApp(db)
     app = started.app
@@ -152,6 +152,7 @@ describe('MCP server', () => {
     expect(names).toEqual([
       'attach_file',
       'attach_link',
+      'propose_ticket',
       'report_outcome',
       'update_ticket',
       'write_memory_note',
@@ -261,5 +262,46 @@ describe('MCP server', () => {
 
     const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, wsId)).all()
     expect(acts.some((a) => a.type === 'memory_written')).toBe(true)
+  })
+
+  test('6. propose_ticket creates a pending agent-origin backlog ticket, follow-up-linked to the run ticket, with a follow_up_filed activity', async () => {
+    const { ws, ticket, run } = seedRun(db)
+    const started = await startApp(db)
+    app = started.app
+
+    const client = await connectClient(started.url, run.runToken)
+    const result = await client.callTool({
+      name: 'propose_ticket',
+      arguments: { title: 'Follow-up: handle rate limits', description: 'Add backoff logic' },
+    })
+    await client.close()
+
+    const content = result.content as Array<{ type: string; text: string }>
+    const proposedId = Number(content[0]?.text)
+    expect(Number.isInteger(proposedId)).toBe(true)
+
+    const proposal = db.drizzle.select().from(tickets).where(eq(tickets.id, proposedId)).get()
+    expect(proposal).toMatchObject({
+      workspaceId: ws.id,
+      title: 'Follow-up: handle rate limits',
+      description: 'Add backoff logic',
+      origin: 'agent',
+      proposalState: 'pending',
+      followUpOfTicketId: ticket.id,
+    })
+
+    const backlogCol = db.drizzle
+      .select()
+      .from(columns)
+      .where(and(eq(columns.workspaceId, ws.id), eq(columns.kind, 'backlog')))
+      .get()
+    expect(proposal?.columnId).toBe(backlogCol?.id)
+
+    const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, ws.id)).all()
+    expect(
+      acts.some(
+        (a) => a.type === 'follow_up_filed' && a.ticketId === proposedId && a.runId === run.id,
+      ),
+    ).toBe(true)
   })
 })

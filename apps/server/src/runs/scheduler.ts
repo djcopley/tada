@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { canTransitionRun } from '@tada/shared'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
 import { executeRun, type RunnerDeps } from './runner.js'
@@ -65,7 +65,7 @@ export class Scheduler {
   }
 
   /** Create an AgentRun (status 'queued') and mark the ticket queued, then kick the loop. */
-  enqueue(ticketId: number, opts?: { adapter?: string; model?: string }): number {
+  enqueue(ticketId: number, opts?: { adapter?: string; model?: string; effort?: string }): number {
     const { db } = this.deps
     const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticketId)).get()
     if (!ticket) throw new Error(`ticket ${ticketId} not found`)
@@ -79,15 +79,30 @@ export class Scheduler {
 
     const adapter = opts?.adapter ?? ticket.adapterOverride ?? workspace.defaultAdapter
     const model = opts?.model ?? ticket.modelOverride ?? workspace.defaultModel
+    const effort = opts?.effort ?? ticket.effortOverride ?? workspace.defaultEffort
 
     if (!this.deps.adapters.has(adapter)) {
       throw new Error(`unknown adapter: ${adapter}`)
     }
 
+    const priorRunCount = db.drizzle
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.ticketId, ticketId))
+      .all().length
+
     const runToken = randomBytes(24).toString('hex')
     const [run] = db.drizzle
       .insert(agentRuns)
-      .values({ ticketId, adapter, model, status: 'queued', runToken })
+      .values({
+        ticketId,
+        adapter,
+        model,
+        effort,
+        attemptNumber: priorRunCount + 1,
+        status: 'queued',
+        runToken,
+      })
       .returning()
       .all()
     if (!run) throw new Error('failed to insert agent run')
@@ -121,6 +136,7 @@ export class Scheduler {
             eq(tickets.columnId, readyCol.id),
             eq(tickets.queueState, 'queued'),
             eq(agentRuns.status, 'queued'),
+            isNull(tickets.proposalState),
           ),
         )
         .orderBy(asc(tickets.position))

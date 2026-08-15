@@ -164,7 +164,7 @@ export async function executeRun(
       .where(eq(agentRuns.ticketId, ticket.id))
       .orderBy(asc(agentRuns.id))
       .all()
-      .filter((r) => r.id !== runId && r.summary != null)
+      .filter((r) => r.id !== runId)
 
     const memoryDir = wm.memoryDir(ticket.workspaceId)
     const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')
@@ -178,6 +178,7 @@ export async function executeRun(
       ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
       comments: ticketComments.map((c) => ({
         author: c.author,
+        kind: c.kind,
         body: c.body,
         createdAt: c.createdAt,
       })),
@@ -185,7 +186,12 @@ export async function executeRun(
       noteFiles,
       globalAgentsMd,
       globalNoteFiles,
-      priorRunSummaries: priorRuns.map((r) => r.summary).filter((s): s is string => s != null),
+      priorRuns: priorRuns.map((r) => ({
+        attemptNumber: r.attemptNumber,
+        summary: r.summary,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+      })),
     })
 
     // 3. run the adapter with a timeout

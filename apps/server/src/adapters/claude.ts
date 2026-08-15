@@ -56,6 +56,7 @@ function toAdapterEvents(msg: SDKMessage): AdapterEvent[] {
 export class ClaudeAdapter implements Adapter {
   readonly name = 'claude'
   readonly models = ['sonnet', 'opus', 'haiku'] as const
+  readonly efforts = ['low', 'medium', 'high'] as const
 
   async run(ctx: RunContext): Promise<{ exitCode: number }> {
     const q = query({

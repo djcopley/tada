@@ -4,6 +4,7 @@ import { canMoveCard } from '@tada/shared'
 import { asc, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { recordActivity } from '../activity.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
 import { stateDir } from '../paths.js'
 import { cleanupRunDir } from '../runs/runDir.js'
@@ -23,6 +24,7 @@ const patchTicketSchema = z
     position: z.number(),
     adapterOverride: z.string().nullable(),
     modelOverride: z.string().nullable(),
+    effortOverride: z.string().nullable(),
   })
   .partial()
 
@@ -33,7 +35,17 @@ const moveTicketSchema = z.object({
 
 const commentSchema = z.object({ body: z.string().min(1) })
 
-const CONTENT_FIELDS = ['title', 'description', 'adapterOverride', 'modelOverride'] as const
+const sendBackSchema = z.object({ feedback: z.string().min(1) })
+
+const proposalSchema = z.object({ action: z.enum(['keep', 'dismiss']) })
+
+const CONTENT_FIELDS = [
+  'title',
+  'description',
+  'adapterOverride',
+  'modelOverride',
+  'effortOverride',
+] as const
 
 function idParam(id: string): number | undefined {
   const n = Number(id)
@@ -48,8 +60,113 @@ function columnById(deps: RouteDeps, id: number) {
   return deps.db.drizzle.select().from(columns).where(eq(columns.id, id)).get()
 }
 
+function columnByKind(deps: RouteDeps, workspaceId: number, kind: ColumnKind) {
+  return deps.db.drizzle
+    .select()
+    .from(columns)
+    .where(eq(columns.workspaceId, workspaceId))
+    .all()
+    .find((c) => c.kind === kind)
+}
+
+/** Position one past the current last card in `columnId` - the same "append to the end" rule
+ * ticket creation uses for the Backlog. */
+function endOfColumnPosition(deps: RouteDeps, columnId: number): number {
+  const last = deps.db.drizzle
+    .select()
+    .from(tickets)
+    .where(eq(tickets.columnId, columnId))
+    .orderBy(desc(tickets.position))
+    .limit(1)
+    .get()
+  return (last?.position ?? 0) + 1
+}
+
+type TicketRow = NonNullable<ReturnType<typeof ticketOr404>>
+type ColumnRow = NonNullable<ReturnType<typeof columnById>>
+
+/**
+ * Applies a card move that's already been authorized by the caller (human-drag permission via
+ * `canMoveCard`, the "run in progress" 409, the "must be in_review" 409 for accept/send-back,
+ * etc): updates the ticket's column/position, cancels any queued run left behind when leaving
+ * Ready, enqueues a new run when landing on Ready, and cleans up the run directory when landing
+ * on Done. Shared by POST /tickets/:id/move, /accept, and /send-back so none of them duplicate
+ * this bookkeeping. Returns an error message if enqueueing failed (the move is rolled back in
+ * that case); otherwise undefined.
+ */
+async function applyMove(
+  deps: RouteDeps,
+  ticket: TicketRow,
+  fromCol: ColumnRow,
+  toCol: ColumnRow,
+  position: number,
+): Promise<{ error: string } | undefined> {
+  const { db, scheduler, wm, hub } = deps
+  const id = ticket.id
+
+  const existingRuns = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, id)).all()
+
+  const leavingReady = fromCol.kind === 'ready' && toCol.kind !== 'ready'
+  const hasQueuedRun = existingRuns.some((r) => r.status === 'queued')
+  const landingReady = toCol.kind === 'ready' && ticket.queueState !== 'queued' && !hasQueuedRun
+  const landingDone = toCol.kind === 'done'
+
+  const original = {
+    columnId: ticket.columnId,
+    position: ticket.position,
+    queueState: ticket.queueState,
+  }
+
+  db.drizzle
+    .update(tickets)
+    .set({
+      columnId: toCol.id,
+      position,
+      ...(toCol.kind === 'ready' ? {} : { queueState: null }),
+    })
+    .where(eq(tickets.id, id))
+    .run()
+
+  if (leavingReady) {
+    const queuedRuns = existingRuns.filter((r) => r.status === 'queued')
+    for (const run of queuedRuns) cancelRun(db, scheduler, run.id)
+  }
+
+  if (landingReady) {
+    try {
+      scheduler.enqueue(id)
+    } catch (err) {
+      // e.g. a stale/invalid adapterOverride slipped past PATCH validation (direct db write,
+      // adapter removed after the fact, etc). Don't strand the ticket in the new column with no
+      // run behind it - roll back to where it was and surface the failure.
+      db.drizzle.update(tickets).set(original).where(eq(tickets.id, id)).run()
+      return { error: err instanceof Error ? err.message : 'failed to enqueue run' }
+    }
+  }
+
+  if (landingDone) {
+    for (const run of existingRuns) {
+      const path = join(stateDir(), 'runs', String(run.id))
+      const repoDirs = Object.fromEntries(
+        wm
+          .manifest(ticket.workspaceId)
+          .sources.filter((s) => s.type === 'repo')
+          .map((r) => [r.name, join(path, r.name)]),
+      )
+      try {
+        await cleanupRunDir(wm, ticket.workspaceId, { path, repoDirs })
+      } catch {
+        // already cleaned up (or never built) - ignore
+      }
+    }
+  }
+
+  hub.boardChanged(ticket.workspaceId)
+  return undefined
+}
+
 export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, scheduler, wm, hub, adapters } = deps
+  const { db, hub, adapters } = deps
 
   app.post('/tickets', async (req, reply) => {
     const parsed = createTicketSchema.safeParse(req.body)
@@ -86,6 +203,14 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       })
       .returning()
       .all()
+    if (!ticket) return reply.code(500).send({ error: 'failed to create ticket' })
+
+    recordActivity(db, {
+      workspaceId,
+      ticketId: ticket.id,
+      type: 'ticket_created',
+      message: `You created "${ticket.title}"`,
+    })
 
     return reply.code(201).send(ticket)
   })
@@ -109,8 +234,13 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .where(eq(agentRuns.ticketId, id))
       .orderBy(asc(agentRuns.id))
       .all()
+    const followUps = db.drizzle
+      .select({ id: tickets.id, title: tickets.title, proposalState: tickets.proposalState })
+      .from(tickets)
+      .where(eq(tickets.followUpOfTicketId, id))
+      .all()
 
-    return { ...ticket, comments: ticketComments, runs }
+    return { ...ticket, comments: ticketComments, runs, followUps }
   })
 
   app.patch('/tickets/:id', async (req, reply) => {
@@ -138,6 +268,19 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       if (adapterName != null && !adapter?.models.includes(parsed.data.modelOverride)) {
         return reply.code(400).send({
           error: `unknown model: ${parsed.data.modelOverride} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
+        })
+      }
+    }
+
+    if (parsed.data.effortOverride != null) {
+      const adapterName =
+        parsed.data.adapterOverride !== undefined
+          ? parsed.data.adapterOverride
+          : ticket.adapterOverride
+      const adapter = adapterName != null ? adapters.get(adapterName) : undefined
+      if (adapterName != null && !adapter?.efforts.includes(parsed.data.effortOverride)) {
+        return reply.code(400).send({
+          error: `unknown effort: ${parsed.data.effortOverride} for adapter ${adapterName}. valid efforts: ${adapter?.efforts.join(', ') ?? 'none (unknown adapter)'}`,
         })
       }
     }
@@ -180,6 +323,12 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       return reply.code(403).send({ error: 'illegal move' })
     }
 
+    // A pending agent proposal hasn't been reviewed (kept/dismissed) yet - it must never start
+    // running just because it got dragged onto Ready.
+    if (toCol.kind === 'ready' && ticket.proposalState === 'pending') {
+      return reply.code(403).send({ error: 'cannot move a pending proposal to ready' })
+    }
+
     const existingRuns = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, id)).all()
 
     // A run that's actually executing owns the ticket's worktree and card position right now -
@@ -189,63 +338,108 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       return reply.code(409).send({ error: 'run in progress' })
     }
 
-    const leavingReady = fromCol.kind === 'ready' && toCol.kind !== 'ready'
-    const hasQueuedRun = existingRuns.some((r) => r.status === 'queued')
-    const landingReady = toCol.kind === 'ready' && ticket.queueState !== 'queued' && !hasQueuedRun
-    const landingDone = toCol.kind === 'done'
+    const moveErr = await applyMove(deps, ticket, fromCol, toCol, parsed.data.position)
+    if (moveErr) return reply.code(400).send({ error: moveErr.error })
 
-    const original = {
-      columnId: ticket.columnId,
-      position: ticket.position,
-      queueState: ticket.queueState,
+    return ticketOr404(deps, id)
+  })
+
+  app.post('/tickets/:id/accept', async (req, reply) => {
+    const id = idParam((req.params as { id: string }).id)
+    if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
+
+    const ticket = ticketOr404(deps, id)
+    if (!ticket) return reply.code(404).send({ error: 'ticket not found' })
+
+    const fromCol = columnById(deps, ticket.columnId)
+    if (fromCol?.kind !== 'in_review') {
+      return reply.code(409).send({ error: 'ticket is not in review' })
     }
+
+    const doneCol = columnByKind(deps, ticket.workspaceId, 'done')
+    if (!doneCol) return reply.code(400).send({ error: 'workspace has no done column' })
+
+    const moveErr = await applyMove(
+      deps,
+      ticket,
+      fromCol,
+      doneCol,
+      endOfColumnPosition(deps, doneCol.id),
+    )
+    if (moveErr) return reply.code(400).send({ error: moveErr.error })
+
+    recordActivity(db, {
+      workspaceId: ticket.workspaceId,
+      ticketId: id,
+      type: 'accepted',
+      message: `You accepted "${ticket.title}"`,
+    })
+
+    return ticketOr404(deps, id)
+  })
+
+  app.post('/tickets/:id/send-back', async (req, reply) => {
+    const id = idParam((req.params as { id: string }).id)
+    if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
+
+    const ticket = ticketOr404(deps, id)
+    if (!ticket) return reply.code(404).send({ error: 'ticket not found' })
+
+    const fromCol = columnById(deps, ticket.columnId)
+    if (fromCol?.kind !== 'in_review') {
+      return reply.code(409).send({ error: 'ticket is not in review' })
+    }
+
+    const parsed = sendBackSchema.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+
+    const readyCol = columnByKind(deps, ticket.workspaceId, 'ready')
+    if (!readyCol) return reply.code(400).send({ error: 'workspace has no ready column' })
 
     db.drizzle
-      .update(tickets)
-      .set({
-        columnId: toCol.id,
-        position: parsed.data.position,
-        ...(toCol.kind === 'ready' ? {} : { queueState: null }),
-      })
-      .where(eq(tickets.id, id))
+      .insert(comments)
+      .values({ ticketId: id, author: 'human', kind: 'feedback', body: parsed.data.feedback })
       .run()
 
-    if (leavingReady) {
-      const queuedRuns = existingRuns.filter((r) => r.status === 'queued')
-      for (const run of queuedRuns) cancelRun(db, scheduler, run.id)
+    const moveErr = await applyMove(
+      deps,
+      ticket,
+      fromCol,
+      readyCol,
+      endOfColumnPosition(deps, readyCol.id),
+    )
+    if (moveErr) return reply.code(400).send({ error: moveErr.error })
+
+    recordActivity(db, {
+      workspaceId: ticket.workspaceId,
+      ticketId: id,
+      type: 'sent_back',
+      message: `You sent back "${ticket.title}"`,
+    })
+
+    return ticketOr404(deps, id)
+  })
+
+  app.post('/tickets/:id/proposal', async (req, reply) => {
+    const id = idParam((req.params as { id: string }).id)
+    if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
+
+    const ticket = ticketOr404(deps, id)
+    if (ticket?.proposalState !== 'pending') {
+      return reply.code(404).send({ error: 'ticket is not a pending proposal' })
     }
 
-    if (landingReady) {
-      try {
-        scheduler.enqueue(id)
-      } catch (err) {
-        // e.g. a stale/invalid adapterOverride slipped past PATCH validation (direct db write,
-        // adapter removed after the fact, etc). Don't strand the ticket in the new column with no
-        // run behind it - roll back to where it was and surface the failure.
-        db.drizzle.update(tickets).set(original).where(eq(tickets.id, id)).run()
-        return reply.code(400).send({
-          error: err instanceof Error ? err.message : 'failed to enqueue run',
-        })
-      }
+    const parsed = proposalSchema.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+
+    if (parsed.data.action === 'dismiss') {
+      db.drizzle.delete(tickets).where(eq(tickets.id, id)).run()
+      hub.boardChanged(ticket.workspaceId)
+      return reply.code(204).send()
     }
 
-    if (landingDone) {
-      for (const run of existingRuns) {
-        const path = join(stateDir(), 'runs', String(run.id))
-        const repoDirs = Object.fromEntries(
-          wm
-            .manifest(ticket.workspaceId)
-            .sources.filter((s) => s.type === 'repo')
-            .map((r) => [r.name, join(path, r.name)]),
-        )
-        try {
-          await cleanupRunDir(wm, ticket.workspaceId, { path, repoDirs })
-        } catch {
-          // already cleaned up (or never built) - ignore
-        }
-      }
-    }
-
+    // keep: it's no longer a proposal, just a regular backlog ticket.
+    db.drizzle.update(tickets).set({ proposalState: null }).where(eq(tickets.id, id)).run()
     hub.boardChanged(ticket.workspaceId)
     return ticketOr404(deps, id)
   })
