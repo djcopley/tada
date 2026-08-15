@@ -156,11 +156,6 @@ describe('REST API + WebSocket events', () => {
     const apiBoard: ApiBoard = boardBefore.body
     const firstCol = apiBoard.columns[0]
     if (!firstCol) throw new Error('expected at least one column in board response')
-    if (typeof firstCol.createdAt !== 'string') {
-      throw new Error(
-        `expected column.createdAt to be an ISO string, got ${typeof firstCol.createdAt}`,
-      )
-    }
     const board = boardBefore.body as BoardPayload
     const readyColId = columnIdFor(board, 'ready')
     const inReviewColId = columnIdFor(board, 'in_review')

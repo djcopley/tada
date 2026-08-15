@@ -8,9 +8,9 @@ import * as schema from './schema.js'
 const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle')
 const DEFAULT_COLUMNS = [
   ['backlog', 'Backlog'],
-  ['ready', 'Ready'],
-  ['in_progress', 'In Progress'],
-  ['in_review', 'In Review'],
+  ['ready', 'Queued'],
+  ['in_progress', 'Running'],
+  ['in_review', 'In review'],
   ['done', 'Done'],
 ] as const
 

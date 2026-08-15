@@ -1,9 +1,82 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fa17dae3-fd52-4a14-a6bc-d26111d297e7",
+  "id": "d2c4bc9b-9411-4dae-b894-c612e76d9dc4",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "activity": {
+      "name": "activity",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ticket_id": {
+          "name": "ticket_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "activity_workspace_id_workspaces_id_fk": {
+          "name": "activity_workspace_id_workspaces_id_fk",
+          "tableFrom": "activity",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "agent_runs": {
       "name": "agent_runs",
       "columns": {
@@ -34,6 +107,22 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "effort": {
+          "name": "effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'medium'"
+        },
+        "attempt_number": {
+          "name": "attempt_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
         },
         "status": {
           "name": "status",
@@ -77,6 +166,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "diff_additions": {
+          "name": "diff_additions",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "diff_deletions": {
+          "name": "diff_deletions",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tests_passed": {
+          "name": "tests_passed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "started_at": {
           "name": "started_at",
           "type": "integer",
@@ -105,8 +215,12 @@
           "name": "agent_runs_ticket_id_tickets_id_fk",
           "tableFrom": "agent_runs",
           "tableTo": "tickets",
-          "columnsFrom": ["ticket_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "ticket_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -167,8 +281,12 @@
           "name": "columns_workspace_id_workspaces_id_fk",
           "tableFrom": "columns",
           "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -201,6 +319,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'note'"
+        },
         "body": {
           "name": "body",
           "type": "text",
@@ -222,8 +348,12 @@
           "name": "comments_ticket_id_tickets_id_fk",
           "tableFrom": "comments",
           "tableTo": "tickets",
-          "columnsFrom": ["ticket_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "ticket_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -271,14 +401,132 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "events_run_id_idx": {
+          "name": "events_run_id_idx",
+          "columns": [
+            "run_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "events_run_id_agent_runs_id_fk": {
           "name": "events_run_id_agent_runs_id_fk",
           "tableFrom": "events",
           "tableTo": "agent_runs",
-          "columnsFrom": ["run_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "memory_notes": {
+      "name": "memory_notes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file": {
+          "name": "file",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author": {
+          "name": "author",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'human'"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'kept'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "memory_notes_scope_ws_file": {
+          "name": "memory_notes_scope_ws_file",
+          "columns": [
+            "scope",
+            "workspace_id",
+            "file"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "memory_notes_workspace_id_workspaces_id_fk": {
+          "name": "memory_notes_workspace_id_workspaces_id_fk",
+          "tableFrom": "memory_notes",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -315,7 +563,9 @@
       "indexes": {
         "push_tokens_token_unique": {
           "name": "push_tokens_token_unique",
-          "columns": ["token"],
+          "columns": [
+            "token"
+          ],
           "isUnique": true
         }
       },
@@ -391,6 +641,35 @@
           "notNull": false,
           "autoincrement": false
         },
+        "effort_override": {
+          "name": "effort_override",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'human'"
+        },
+        "proposal_state": {
+          "name": "proposal_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "follow_up_of_ticket_id": {
+          "name": "follow_up_of_ticket_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -405,8 +684,12 @@
           "name": "tickets_workspace_id_workspaces_id_fk",
           "tableFrom": "tickets",
           "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -414,9 +697,26 @@
           "name": "tickets_column_id_columns_id_fk",
           "tableFrom": "tickets",
           "tableTo": "columns",
-          "columnsFrom": ["column_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "column_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "tickets_follow_up_of_ticket_id_tickets_id_fk": {
+          "name": "tickets_follow_up_of_ticket_id_tickets_id_fk",
+          "tableFrom": "tickets",
+          "tableTo": "tickets",
+          "columnsFrom": [
+            "follow_up_of_ticket_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -464,6 +764,14 @@
           "autoincrement": false,
           "default": "'sonnet'"
         },
+        "default_effort": {
+          "name": "default_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'medium'"
+        },
         "concurrency": {
           "name": "concurrency",
           "type": "integer",
@@ -491,7 +799,9 @@
       "indexes": {
         "workspaces_name_unique": {
           "name": "workspaces_name_unique",
-          "columns": ["name"],
+          "columns": [
+            "name"
+          ],
           "isUnique": true
         }
       },
