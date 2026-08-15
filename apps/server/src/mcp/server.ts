@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -35,6 +35,41 @@ function slugify(title: string): string {
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
   return slug === '' ? 'note' : slug
+}
+
+/**
+ * The note file this run may write for `slug`, without clobbering anyone else's note.
+ *
+ * `<slug>.md` is taken as soon as a memory_notes row claims it, or a file with that name is
+ * already on disk (a hand-placed note that hasn't been indexed yet) — in which case the next free
+ * `<slug>-2.md`, `<slug>-3.md`, ... is used. The one name this run may reuse is a note it wrote
+ * itself and that is still pending review: rewriting its own draft is an update, not a
+ * collision. Without this, an agent picking a title a human already used would overwrite the
+ * human's kept note and flip it to pending/agent — and a human then discarding the "agent" note
+ * would delete content they wrote.
+ */
+function freeNoteFile(ctx: RunContext, notesDir: string, slug: string): string {
+  for (let n = 1; n <= 1000; n++) {
+    const file = n === 1 ? `${slug}.md` : `${slug}-${n}.md`
+    const row = ctx.db.drizzle
+      .select()
+      .from(memoryNotes)
+      .where(
+        and(
+          eq(memoryNotes.scope, 'workspace'),
+          eq(memoryNotes.workspaceId, ctx.workspaceId),
+          eq(memoryNotes.file, file),
+        ),
+      )
+      .get()
+
+    if (row) {
+      if (row.state === 'pending' && row.runId === ctx.runId) return file
+      continue
+    }
+    if (!existsSync(join(notesDir, file))) return file
+  }
+  throw new Error(`no free memory note filename for slug ${slug}`)
 }
 
 function addAgentComment(db: TadaDb, ticketId: number, body: string): void {
@@ -95,7 +130,7 @@ function createMcpServer(ctx: RunContext): McpServer {
     async ({ title, body }) => {
       const notesDir = join(ctx.wm.memoryDir(ctx.workspaceId), 'notes')
       mkdirSync(notesDir, { recursive: true })
-      const file = `${slugify(title)}.md`
+      const file = freeNoteFile(ctx, notesDir, slugify(title))
       writeFileSync(join(notesDir, file), body)
 
       const existing = ctx.db.drizzle

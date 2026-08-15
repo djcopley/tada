@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import type { ColumnKind } from '@tada/shared'
 import { canMoveCard } from '@tada/shared'
 import { asc, desc, eq } from 'drizzle-orm'
@@ -6,8 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { recordActivity } from '../activity.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
-import { stateDir } from '../paths.js'
-import { cleanupRunDir } from '../runs/runDir.js'
+import { cleanupRunDirs } from '../runs/runDir.js'
 import type { RouteDeps } from './deps.js'
 import { cancelRun } from './runs.js'
 
@@ -145,20 +143,11 @@ async function applyMove(
   }
 
   if (landingDone) {
-    for (const run of existingRuns) {
-      const path = join(stateDir(), 'runs', String(run.id))
-      const repoDirs = Object.fromEntries(
-        wm
-          .manifest(ticket.workspaceId)
-          .sources.filter((s) => s.type === 'repo')
-          .map((r) => [r.name, join(path, r.name)]),
-      )
-      try {
-        await cleanupRunDir(wm, ticket.workspaceId, { path, repoDirs })
-      } catch {
-        // already cleaned up (or never built) - ignore
-      }
-    }
+    await cleanupRunDirs(
+      wm,
+      ticket.workspaceId,
+      existingRuns.map((r) => r.id),
+    )
   }
 
   hub.boardChanged(ticket.workspaceId)

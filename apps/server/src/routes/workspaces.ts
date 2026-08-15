@@ -21,6 +21,7 @@ const patchWorkspaceSchema = z
   .object({
     defaultAdapter: z.string().min(1),
     defaultModel: z.string().min(1),
+    defaultEffort: z.string().min(1),
     concurrency: z.number().int().min(1),
     timeoutMs: z.number().int().min(1),
   })
@@ -134,9 +135,14 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
       })
     }
 
+    // Both model and effort are validated against the adapter this PATCH leaves the workspace
+    // on - the one it is switching to when the same body sets defaultAdapter, otherwise the
+    // stored one - so a harness switch that carries a new model/effort is checked against the
+    // new harness rather than the outgoing one.
+    const adapterName = parsed.data.defaultAdapter ?? existing.defaultAdapter
+    const adapter = adapters.get(adapterName)
+
     if (parsed.data.defaultModel !== undefined) {
-      const adapterName = parsed.data.defaultAdapter ?? existing.defaultAdapter
-      const adapter = adapters.get(adapterName)
       if (!adapter?.models.includes(parsed.data.defaultModel)) {
         return reply.code(400).send({
           error: `unknown model: ${parsed.data.defaultModel} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
@@ -144,7 +150,19 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
       }
     }
 
-    db.drizzle.update(workspaces).set(parsed.data).where(eq(workspaces.id, id)).run()
+    if (parsed.data.defaultEffort !== undefined) {
+      if (!adapter?.efforts.includes(parsed.data.defaultEffort)) {
+        return reply.code(400).send({
+          error: `unknown effort: ${parsed.data.defaultEffort} for adapter ${adapterName}. valid efforts: ${adapter?.efforts.join(', ') ?? 'none (unknown adapter)'}`,
+        })
+      }
+    }
+
+    // An empty patch is a no-op, not an error: drizzle's `set({})` throws ("No values to set"),
+    // which would surface as a 500 for a request that asked for nothing.
+    if (Object.keys(parsed.data).length > 0) {
+      db.drizzle.update(workspaces).set(parsed.data).where(eq(workspaces.id, id)).run()
+    }
     return db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
   })
 

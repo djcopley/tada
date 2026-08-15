@@ -16,7 +16,7 @@ import { completeRun } from './completion.js'
 import { Journal } from './journal.js'
 import { readOutcomeFile } from './outcome.js'
 import { composePrompt } from './prompt.js'
-import { branchFor, buildRunDir } from './runDir.js'
+import { branchFor, buildRunDir, cleanupRunDirs } from './runDir.js'
 
 export type BroadcastFn = (runId: number, e: AdapterEvent) => void
 
@@ -195,7 +195,28 @@ export async function executeRun(
   }
 
   try {
-    // 2. build the run directory (git worktrees per repo) and compose the prompt
+    const priorRuns = db.drizzle
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.ticketId, ticket.id))
+      .orderBy(asc(agentRuns.id))
+      .all()
+      .filter((r) => r.id !== runId)
+
+    // 2. build the run directory (git worktrees per repo) and compose the prompt.
+    //
+    // Earlier attempts' run dirs are torn down first: a finished attempt leaves its worktree in
+    // place (the on-Done cleanup only fires when the ticket is accepted), and that worktree still
+    // has `ticket/<id>` checked out, so `git worktree add` for this attempt would fail with
+    // "branch already used by worktree" and insta-fail every send-back re-run. Safe to do here
+    // rather than at enqueue: runs are per-ticket serial (a ticket has one card, and the
+    // scheduler only starts a run for a queued card), so no other run of this ticket is live.
+    await cleanupRunDirs(
+      wm,
+      ticket.workspaceId,
+      priorRuns.map((r) => r.id),
+    )
+
     const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
 
     const ticketComments = db.drizzle
@@ -204,14 +225,6 @@ export async function executeRun(
       .where(eq(comments.ticketId, ticket.id))
       .orderBy(asc(comments.createdAt), asc(comments.id))
       .all()
-
-    const priorRuns = db.drizzle
-      .select()
-      .from(agentRuns)
-      .where(eq(agentRuns.ticketId, ticket.id))
-      .orderBy(asc(agentRuns.id))
-      .all()
-      .filter((r) => r.id !== runId)
 
     const memoryDir = wm.memoryDir(ticket.workspaceId)
     const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -262,6 +262,88 @@ describe('MCP server', () => {
 
     const acts = db.drizzle.select().from(activity).where(eq(activity.workspaceId, wsId)).all()
     expect(acts.some((a) => a.type === 'memory_written')).toBe(true)
+  })
+
+  test('5b. write_memory_note never overwrites a kept note: it writes the next free slug instead', async () => {
+    const { wm, wsId, run } = await seedRunInRealWorkspace(db)
+
+    // A human's note occupying the slug the agent is about to slugify into.
+    const notesDir = join(wm.memoryDir(wsId), 'notes')
+    mkdirSync(notesDir, { recursive: true })
+    writeFileSync(join(notesDir, 'api-rate-limits.md'), '# API Rate Limits\n\nHuman wisdom.\n')
+    db.drizzle
+      .insert(memoryNotes)
+      .values({
+        scope: 'workspace',
+        workspaceId: wsId,
+        file: 'api-rate-limits.md',
+        title: 'API Rate Limits',
+        author: 'human',
+        state: 'kept',
+      })
+      .run()
+
+    const started = await startApp(db)
+    app = started.app
+    const client = await connectClient(started.url, run.runToken)
+    const result = await client.callTool({
+      name: 'write_memory_note',
+      arguments: { title: 'API rate limits', body: 'agent findings\n' },
+    })
+    await client.close()
+
+    expect((result.content as Array<{ text: string }>)[0]?.text).toBe('saved api-rate-limits-2.md')
+
+    // The human's file and its kept/human row are untouched...
+    expect(readFileSync(join(notesDir, 'api-rate-limits.md'), 'utf-8')).toBe(
+      '# API Rate Limits\n\nHuman wisdom.\n',
+    )
+    const humanRow = db.drizzle
+      .select()
+      .from(memoryNotes)
+      .where(eq(memoryNotes.file, 'api-rate-limits.md'))
+      .get()
+    expect(humanRow).toMatchObject({ author: 'human', state: 'kept', runId: null })
+
+    // ...and the agent's note landed beside it as its own pending row.
+    expect(readFileSync(join(notesDir, 'api-rate-limits-2.md'), 'utf-8')).toBe('agent findings\n')
+    const agentRow = db.drizzle
+      .select()
+      .from(memoryNotes)
+      .where(eq(memoryNotes.file, 'api-rate-limits-2.md'))
+      .get()
+    expect(agentRow).toMatchObject({ author: 'agent', state: 'pending', runId: run.id })
+  })
+
+  test('5c. write_memory_note rewrites its own still-pending note in place rather than suffixing', async () => {
+    const { wm, wsId, run } = await seedRunInRealWorkspace(db)
+    const started = await startApp(db)
+    app = started.app
+
+    const client = await connectClient(started.url, run.runToken)
+    await client.callTool({
+      name: 'write_memory_note',
+      arguments: { title: 'Build quirks', body: 'first draft\n' },
+    })
+    const second = await client.callTool({
+      name: 'write_memory_note',
+      arguments: { title: 'Build quirks', body: 'second draft\n' },
+    })
+    await client.close()
+
+    expect((second.content as Array<{ text: string }>)[0]?.text).toBe('saved build-quirks.md')
+
+    const notesDir = join(wm.memoryDir(wsId), 'notes')
+    expect(existsSync(join(notesDir, 'build-quirks-2.md'))).toBe(false)
+    expect(readFileSync(join(notesDir, 'build-quirks.md'), 'utf-8')).toBe('second draft\n')
+
+    const rows = db.drizzle
+      .select()
+      .from(memoryNotes)
+      .where(eq(memoryNotes.file, 'build-quirks.md'))
+      .all()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ author: 'agent', state: 'pending', runId: run.id })
   })
 
   test('6. propose_ticket creates a pending agent-origin backlog ticket, follow-up-linked to the run ticket, with a follow_up_filed activity', async () => {

@@ -1,13 +1,19 @@
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import type { ApiBoard, ApiRunDetail, ApiTicketDetail, ApiWorkspaceListItem } from '@tada/shared'
+import type {
+  ApiBoard,
+  ApiRunDetail,
+  ApiTicketDetail,
+  ApiWorkspaceDetail,
+  ApiWorkspaceListItem,
+} from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, InjectOptions } from 'fastify'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { FakeScript } from '../src/adapters/fake.js'
 import { FakeAdapter } from '../src/adapters/fake.js'
-import type { Adapter } from '../src/adapters/types.js'
+import type { Adapter, AdapterSession } from '../src/adapters/types.js'
 import { buildApp } from '../src/app.js'
 import type { Config } from '../src/config.js'
 import { loadConfig } from '../src/config.js'
@@ -40,6 +46,35 @@ function authed(config: Config, opts: InjectOptions): InjectOptions {
 async function json(app: FastifyInstance, config: Config, opts: InjectOptions) {
   const res = await app.inject(authed(config, opts))
   return { status: res.statusCode, body: res.body.length > 0 ? res.json() : undefined }
+}
+
+/** Metadata-only Adapter stand-in: never runs, just advertises models and efforts for the
+ * workspace PATCH validation tests. */
+class StubAdapter implements Adapter {
+  readonly supportsInjection = false
+  constructor(
+    readonly id: string,
+    readonly label: string,
+    readonly models: string[],
+    readonly efforts: string[],
+  ) {}
+
+  available(): Promise<boolean> {
+    return Promise.resolve(true)
+  }
+
+  start(): AdapterSession {
+    return { done: Promise.resolve({ exitCode: 0 }), inject: () => false }
+  }
+}
+
+/** The two harnesses a fresh workspace's defaults ('claude'/'sonnet'/'medium') and the
+ * harness-switch tests need, with deliberately disjoint effort lists. */
+function stubAdapters(): Map<string, Adapter> {
+  return new Map<string, Adapter>([
+    ['claude', new StubAdapter('claude', 'Claude', ['sonnet', 'opus'], ['low', 'medium', 'high'])],
+    ['gemini', new StubAdapter('gemini', 'Gemini', ['gemini-3-pro'], ['default'])],
+  ])
 }
 
 interface BoardTicket {
@@ -719,6 +754,84 @@ describe('REST API + WebSocket events', () => {
     expect(res.status).toBe(400)
   })
 
+  // defaultEffort used to be missing from the PATCH schema, so zod stripped it: the effort
+  // picker's PATCH arrived as `{}` (a 500 from drizzle's empty `set`) and a harness switch
+  // silently kept the old harness's effort. These three lock the field in.
+  test('PATCH workspace with defaultEffort alone round-trips and leaves the rest untouched', async () => {
+    const { app, config } = await setupApp(stubAdapters())
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultEffort: 'high' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.body as ApiWorkspaceDetail).toMatchObject({
+      defaultAdapter: 'claude',
+      defaultModel: 'sonnet',
+      defaultEffort: 'high',
+    })
+
+    const fetched = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((fetched.body as ApiWorkspaceDetail).defaultEffort).toBe('high')
+  })
+
+  test('PATCH workspace with an effort the adapter does not offer returns 400 and stores nothing', async () => {
+    const { app, config } = await setupApp(stubAdapters())
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultEffort: 'ludicrous' },
+    })
+    expect(res.status).toBe(400)
+
+    const fetched = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((fetched.body as ApiWorkspaceDetail).defaultEffort).toBe('medium')
+  })
+
+  test('PATCH workspace switching harness applies adapter, model and effort, validated against the new harness', async () => {
+    const { app, config } = await setupApp(stubAdapters())
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const switched = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'gemini', defaultModel: 'gemini-3-pro', defaultEffort: 'default' },
+    })
+    expect(switched.status).toBe(200)
+    expect(switched.body as ApiWorkspaceDetail).toMatchObject({
+      defaultAdapter: 'gemini',
+      defaultModel: 'gemini-3-pro',
+      defaultEffort: 'default',
+    })
+
+    // 'high' is a Claude effort; the new harness only offers 'default'.
+    const rejected = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'gemini', defaultModel: 'gemini-3-pro', defaultEffort: 'high' },
+    })
+    expect(rejected.status).toBe(400)
+  })
+
   test('PATCH ticket with an unknown adapterOverride returns 400', async () => {
     const { app, config } = await setupApp()
     const ws = await json(app, config, {
@@ -1021,6 +1134,123 @@ describe('Ticket flows: accept, send-back, proposals, attempts, run detail', () 
     const final = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
       .body as ApiTicketDetail
     expect(final.runs.map((r) => r.attemptNumber)).toEqual([1, 2, 3])
+  })
+
+  // Regression guard for the send-back path on a workspace that actually has a repo source (the
+  // other attempt tests use a source-less workspace, so buildRunDir never touches git). Attempt
+  // 1's run dir keeps `ticket/<id>` checked out after it finishes - the on-Done cleanup only
+  // fires when the card is accepted - so without cleaning prior attempts' run dirs first,
+  // attempt 2's `git worktree add` fails with "branch already used by worktree", the run
+  // insta-fails and the card lands back in Ready/held having never reached the adapter.
+  test('send-back on a repo-backed workspace: attempt 2 builds its run dir, reaches the adapter, and records a diffstat', async () => {
+    const origin = await makeOrigin('proj')
+    const runDirsSeen: string[] = []
+    let db!: TadaDb
+
+    const script: FakeScript = {
+      act: async (ctx) => {
+        runDirsSeen.push(ctx.runDir)
+        const runId = Number(basename(ctx.runDir))
+        const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+        if (!run) throw new Error(`run ${runId} not found`)
+
+        // Commit inside the worktree the run dir handed us: proof it exists and is on the
+        // ticket branch, and it gives completeRun a real diff to measure.
+        const repoDir = join(ctx.runDir, 'proj')
+        writeFileSync(join(repoDir, `attempt-${run.attemptNumber}.txt`), 'agent work\n')
+        await git(repoDir, 'add', '.')
+        await git(
+          repoDir,
+          '-c',
+          'user.email=t@t',
+          '-c',
+          'user.name=t',
+          'commit',
+          '-m',
+          `attempt ${run.attemptNumber}`,
+        )
+
+        reportOutcome(db, run.id, run.ticketId, 'success', `attempt ${run.attemptNumber} done`)
+      },
+    }
+
+    const started = await setupApp(new Map<string, Adapter>([['fake', new FakeAdapter(script)]]))
+    const { app, config } = started
+    db = started.db
+
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    expect(
+      (
+        await json(app, config, {
+          method: 'POST',
+          url: `/workspaces/${wsId}/sources`,
+          payload: { type: 'repo', url: origin },
+        })
+      ).status,
+    ).toBe(201)
+    await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'fake', defaultModel: 'fake-1' },
+    })
+
+    const board = (await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` }))
+      .body as BoardPayload
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'Repo-backed ticket', description: 'desc' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/move`,
+      payload: { columnId: columnIdFor(board, 'ready'), position: 1 },
+    })
+    await vi.waitFor(async () => {
+      const t = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
+        .body as ApiTicketDetail
+      if (t.runs[0]?.status !== 'needs_review') throw new Error('first run not needs_review yet')
+    })
+
+    const sentBack = await json(app, config, {
+      method: 'POST',
+      url: `/tickets/${ticketId}/send-back`,
+      payload: { feedback: 'one more pass please' },
+    })
+    expect(sentBack.status).toBe(200)
+
+    await vi.waitFor(async () => {
+      const t = (await json(app, config, { method: 'GET', url: `/tickets/${ticketId}` }))
+        .body as ApiTicketDetail
+      if (t.runs.length < 2 || t.runs[1]?.status === 'running' || t.runs[1]?.status === 'queued') {
+        throw new Error('second run not finished yet')
+      }
+    })
+
+    // The adapter ran twice, in two different run dirs.
+    expect(runDirsSeen).toHaveLength(2)
+    expect(new Set(runDirsSeen).size).toBe(2)
+
+    const runs = db.drizzle.select().from(agentRuns).where(eq(agentRuns.ticketId, ticketId)).all()
+    expect(runs.map((r) => r.status)).toEqual(['needs_review', 'needs_review'])
+    expect(runs[1]?.summary).toBe('attempt 2 done')
+    // Diffstat is computed against the repo's default branch, so attempt 2 sees both commits.
+    expect(runs[1]?.diffAdditions).toBe(2)
+    expect(runs[1]?.diffDeletions).toBe(0)
+
+    // Attempt 1's run dir is gone (reclaimed before attempt 2 built its own), attempt 2's is live.
+    const firstRunId = runs[0]?.id
+    const secondRunId = runs[1]?.id
+    if (firstRunId === undefined || secondRunId === undefined) throw new Error('missing run rows')
+    expect(existsSync(join(stateDir(), 'runs', String(firstRunId)))).toBe(false)
+    expect(existsSync(join(stateDir(), 'runs', String(secondRunId), 'proj'))).toBe(true)
   })
 
   test('GET /runs/:id returns ApiRunDetail shape (ticketTitle, workspaceId), 404 for missing run', async () => {

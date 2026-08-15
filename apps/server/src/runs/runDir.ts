@@ -42,6 +42,43 @@ export async function buildRunDir(
   return { path, repoDirs }
 }
 
+/** The RunDir layout a given run id would have had: `<stateDir>/runs/<runId>`, with one worktree
+ * per repo source beneath it, named after the source. Lets callers that only know a run id (the
+ * on-Done cleanup, the pre-build cleanup of earlier attempts) reconstruct what to remove without
+ * having kept the RunDir that `buildRunDir` returned. */
+export function runDirFor(wm: WorkspaceManager, wsId: number, runId: number): RunDir {
+  const path = join(stateDir(), 'runs', String(runId))
+  const repoDirs = Object.fromEntries(
+    wm
+      .manifest(wsId)
+      .sources.filter((s) => s.type === 'repo')
+      .map((s) => [s.name, join(path, s.name)]),
+  )
+  return { path, repoDirs }
+}
+
+/**
+ * Tears down the run dirs of the given (earlier) runs, keeping their branches. Called before
+ * building attempt N+1's run dir: a finished attempt's worktree still holds the `ticket/<id>`
+ * branch checked out, and git refuses to check the same branch out twice ("branch already used
+ * by worktree"), so without this every re-run of a repo-backed ticket would fail at setup.
+ * Each run is cleaned independently and failures are swallowed — a run dir that was already
+ * removed (or never built) is exactly the state we want.
+ */
+export async function cleanupRunDirs(
+  wm: WorkspaceManager,
+  wsId: number,
+  runIds: number[],
+): Promise<void> {
+  for (const runId of runIds) {
+    try {
+      await cleanupRunDir(wm, wsId, runDirFor(wm, wsId, runId))
+    } catch {
+      // already cleaned up (or never built) - ignore
+    }
+  }
+}
+
 export async function cleanupRunDir(
   wm: WorkspaceManager,
   wsId: number,
