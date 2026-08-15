@@ -138,8 +138,8 @@ describe('REST API + WebSocket events', () => {
 
     const repoAdded = await json(app, config, {
       method: 'POST',
-      url: `/workspaces/${wsId}/repos`,
-      payload: { url: origin },
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'repo', url: origin },
     })
     expect(repoAdded.status).toBe(201)
 
@@ -438,7 +438,7 @@ describe('REST API + WebSocket events', () => {
     expect(existsSync(join(dataDir(), 'workspaces', 'evil'))).toBe(false)
   })
 
-  test('DELETE repo with a path-traversal name is rejected with 400, nothing deleted', async () => {
+  test('DELETE source with a path-traversal name is rejected with 400, nothing deleted', async () => {
     const { app, config } = await setupApp()
     const origin = await makeOrigin('proj')
 
@@ -450,20 +450,167 @@ describe('REST API + WebSocket events', () => {
     const wsId = (ws.body as { id: number }).id
     await json(app, config, {
       method: 'POST',
-      url: `/workspaces/${wsId}/repos`,
-      payload: { url: origin },
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'repo', url: origin },
     })
 
     const res = await json(app, config, {
       method: 'DELETE',
-      url: `/workspaces/${wsId}/repos/..%2Fevil`,
+      url: `/workspaces/${wsId}/sources/..%2Fevil`,
     })
     expect(res.status).toBe(400)
 
-    const manifest = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
-    expect((manifest.body as { repos: Array<{ name: string }> }).repos).toEqual([
-      { name: 'proj', url: origin, defaultBranch: 'main' },
+    const detail = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((detail.body as { sources: Array<{ name: string }> }).sources).toEqual([
+      { type: 'repo', name: 'proj', url: origin, defaultBranch: 'main' },
     ])
+  })
+
+  test('old POST/DELETE /workspaces/:id/repos routes are gone', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const postRes = await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/repos`,
+      payload: { url: 'file:///whatever' },
+    })
+    expect(postRes.status).toBe(404)
+
+    const deleteRes = await json(app, config, {
+      method: 'DELETE',
+      url: `/workspaces/${wsId}/repos/proj`,
+    })
+    expect(deleteRes.status).toBe(404)
+  })
+
+  test('POST /workspaces/:id/sources with type folder adds a folder source, symlinked by name', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
+
+    const added = await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'folder', path: folder },
+    })
+    expect(added.status).toBe(201)
+
+    const detail = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((detail.body as { sources: unknown[] }).sources).toEqual([
+      { type: 'folder', name: basename(folder), path: folder },
+    ])
+
+    const removed = await json(app, config, {
+      method: 'DELETE',
+      url: `/workspaces/${wsId}/sources/${basename(folder)}`,
+    })
+    expect(removed.status).toBe(200)
+
+    const afterRemove = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}` })
+    expect((afterRemove.body as { sources: unknown[] }).sources).toEqual([])
+  })
+
+  test('POST /workspaces/:id/sources with a relative folder path is rejected with 400', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'folder', path: 'relative/dir' },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('POST /workspaces/:id/sources with a missing folder path is rejected with 400', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'folder', path: join(tmpdir(), 'tada-does-not-exist-xyz') },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('GET /repos/known returns the union of repo sources across workspaces', async () => {
+    const { app, config } = await setupApp()
+    const origin = await makeOrigin('shared')
+
+    const wsA = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws-a' },
+    })
+    const wsAId = (wsA.body as { id: number }).id
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsAId}/sources`,
+      payload: { type: 'repo', url: origin },
+    })
+
+    const wsB = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws-b' },
+    })
+    const wsBId = (wsB.body as { id: number }).id
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsBId}/sources`,
+      payload: { type: 'repo', url: origin },
+    })
+
+    const known = await json(app, config, { method: 'GET', url: '/repos/known' })
+    expect(known.status).toBe(200)
+    expect(known.body).toEqual([{ url: origin, name: 'shared' }])
+  })
+
+  test('GET /workspaces/check-name slugifies the name and reports availability', async () => {
+    const { app, config } = await setupApp()
+
+    const free = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=Acme%20Web',
+    })
+    expect(free.status).toBe(200)
+    expect(free.body).toEqual({ id: 'acme-web', available: true })
+
+    await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'acme-web' },
+    })
+
+    const taken = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=Acme%20Web',
+    })
+    expect(taken.status).toBe(200)
+    expect(taken.body).toEqual({ id: 'acme-web', available: false })
   })
 
   test('PATCH workspace with an unknown adapter name returns 400', async () => {

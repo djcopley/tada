@@ -25,7 +25,7 @@ async function setup(opts: { timeoutMs?: number } = {}) {
   const manager = new WorkspaceManager(db)
   const wsId = await manager.create('demo')
   const origin = await makeOrigin('proj')
-  await manager.addRepo(wsId, origin)
+  await manager.addRepoSource(wsId, origin)
 
   if (opts.timeoutMs !== undefined) {
     db.drizzle

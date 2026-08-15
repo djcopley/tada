@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, isAbsolute, join } from 'node:path'
+import type { ApiKnownRepo, ApiSource } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { TadaDb } from '../db/index.js'
@@ -7,24 +8,42 @@ import { workspaces } from '../db/schema.js'
 import { git } from '../git.js'
 import { dataDir } from '../paths.js'
 
-export interface RepoEntry {
+export interface RepoSource {
+  type: 'repo'
   name: string
   url: string
   defaultBranch: string
 }
 
-export interface Manifest {
-  repos: RepoEntry[]
+export interface FolderSource {
+  type: 'folder'
+  name: string
+  path: string
 }
 
-const repoEntrySchema = z.object({
+export type Source = RepoSource | FolderSource
+
+export interface Manifest {
+  sources: Source[]
+}
+
+const repoSourceSchema = z.object({
+  type: z.literal('repo'),
   name: z.string(),
   url: z.string(),
   defaultBranch: z.string(),
 })
 
+const folderSourceSchema = z.object({
+  type: z.literal('folder'),
+  name: z.string(),
+  path: z.string(),
+})
+
+const sourceSchema = z.discriminatedUnion('type', [repoSourceSchema, folderSourceSchema])
+
 const manifestSchema = z.object({
-  repos: z.array(repoEntrySchema),
+  sources: z.array(sourceSchema),
 })
 
 /** repo name = basename of the clone URL, minus a trailing `.git` */
@@ -51,7 +70,7 @@ export class WorkspaceManager {
     mkdirSync(join(path, 'repos'), { recursive: true })
     mkdirSync(join(path, 'memory', 'notes'), { recursive: true })
 
-    this.writeManifest(path, { repos: [] })
+    this.writeManifest(path, { sources: [] })
     writeFileSync(
       join(path, 'memory', 'AGENTS.md'),
       `# ${name}\n\nWorkspace charter. Conventions, goals, and gotchas agents should know.\n`,
@@ -62,7 +81,7 @@ export class WorkspaceManager {
     return row.id
   }
 
-  async addRepo(wsId: number, url: string): Promise<void> {
+  async addRepoSource(wsId: number, url: string): Promise<void> {
     const path = this.pathFor(wsId)
     const name = repoNameFromUrl(url)
     const cloneDir = join(path, 'repos', name)
@@ -71,18 +90,63 @@ export class WorkspaceManager {
     const defaultBranch = await git(cloneDir, 'symbolic-ref', '--short', 'HEAD')
 
     const manifest = this.readManifest(path)
-    manifest.repos.push({ name, url, defaultBranch })
+    manifest.sources.push({ type: 'repo', name, url, defaultBranch })
     this.writeManifest(path, manifest)
   }
 
-  async removeRepo(wsId: number, name: string): Promise<void> {
-    assertSafeName(name, 'repo name')
-    const path = this.pathFor(wsId)
-    rmSync(join(path, 'repos', name), { recursive: true, force: true })
+  /** name = basename of the folder path. Rejects non-absolute or missing/non-directory paths. */
+  async addFolderSource(wsId: number, folderPath: string): Promise<void> {
+    if (!isAbsolute(folderPath)) {
+      throw new Error(`invalid folder path (must be absolute): ${folderPath}`)
+    }
+    if (!existsSync(folderPath) || !statSync(folderPath).isDirectory()) {
+      throw new Error(`invalid folder path (must be an existing directory): ${folderPath}`)
+    }
 
+    const name = basename(folderPath)
+    assertSafeName(name, 'folder source name')
+
+    const path = this.pathFor(wsId)
     const manifest = this.readManifest(path)
-    manifest.repos = manifest.repos.filter((r) => r.name !== name)
+    manifest.sources.push({ type: 'folder', name, path: folderPath })
     this.writeManifest(path, manifest)
+  }
+
+  /** Removes a source of either type by name. Repo sources also have their clone dir deleted;
+   * folder sources are just detached from the manifest (the folder itself is server-external and
+   * not owned by tada). */
+  async removeSource(wsId: number, name: string): Promise<void> {
+    assertSafeName(name, 'source name')
+    const path = this.pathFor(wsId)
+    const manifest = this.readManifest(path)
+    const source = manifest.sources.find((s) => s.name === name)
+    if (source?.type === 'repo') {
+      rmSync(join(path, 'repos', name), { recursive: true, force: true })
+    }
+
+    manifest.sources = manifest.sources.filter((s) => s.name !== name)
+    this.writeManifest(path, manifest)
+  }
+
+  listSources(wsId: number): ApiSource[] {
+    return this.manifest(wsId).sources.map((s) => ({ ...s }))
+  }
+
+  /** Union of repo sources across all workspaces, deduped by url (first workspace wins the
+   * display name for a given url). Feeds the new-workspace "attach repos" checkboxes. */
+  knownRepos(): ApiKnownRepo[] {
+    const rows = this.db.drizzle.select({ path: workspaces.path }).from(workspaces).all()
+
+    const byUrl = new Map<string, string>()
+    for (const row of rows) {
+      for (const source of this.readManifest(row.path).sources) {
+        if (source.type === 'repo' && !byUrl.has(source.url)) {
+          byUrl.set(source.url, source.name)
+        }
+      }
+    }
+
+    return [...byUrl.entries()].map(([url, name]) => ({ url, name }))
   }
 
   manifest(wsId: number): Manifest {

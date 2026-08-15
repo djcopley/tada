@@ -23,7 +23,7 @@ async function makeWorkspace(
   opts: { concurrency?: number } = {},
 ): Promise<{ wsId: number; readyColId: number; inProgressColId: number }> {
   const wsId = await manager.create(name)
-  await manager.addRepo(wsId, await makeOrigin(name))
+  await manager.addRepoSource(wsId, await makeOrigin(name))
   if (opts.concurrency !== undefined) {
     db.drizzle
       .update(workspaces)

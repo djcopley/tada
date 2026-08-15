@@ -26,11 +26,23 @@ const patchWorkspaceSchema = z
   })
   .partial()
 
-const addRepoSchema = z.object({ url: z.string().min(1) })
+const addSourceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('repo'), url: z.string().min(1) }),
+  z.object({ type: z.literal('folder'), path: z.string().min(1) }),
+])
 
 function workspaceIdParam(id: string): number | undefined {
   const n = Number(id)
   return Number.isInteger(n) ? n : undefined
+}
+
+/** lowercased, spaces -> '-', stripped to [a-z0-9-] */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
 }
 
 export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -50,10 +62,24 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
           ),
         )
         .all()
+      const queuedCount = db.drizzle
+        .select({ id: tickets.id })
+        .from(tickets)
+        .innerJoin(columns, eq(tickets.columnId, columns.id))
+        .where(
+          and(
+            eq(tickets.workspaceId, ws.id),
+            eq(columns.kind, 'ready'),
+            eq(tickets.queueState, 'queued'),
+          ),
+        )
+        .all().length
       return {
         ...ws,
         runningCount: counts.filter((c) => c.status === 'running').length,
         needsReviewCount: counts.filter((c) => c.status === 'needs_review').length,
+        queuedCount,
+        sourceCount: wm.listSources(ws.id).length,
       }
     })
   })
@@ -75,7 +101,21 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     const row = db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
     if (!row) return reply.code(404).send({ error: 'workspace not found' })
 
-    return { ...row, repos: wm.manifest(id).repos }
+    return { ...row, sources: wm.listSources(id) }
+  })
+
+  app.get('/workspaces/check-name', async (req, reply) => {
+    const { name } = req.query as { name?: string }
+    if (!name) return reply.code(400).send({ error: 'name is required' })
+
+    const id = slugify(name)
+    const rows = db.drizzle.select({ name: workspaces.name }).from(workspaces).all()
+    const available = !rows.some((row) => slugify(row.name) === id)
+    return { id, available }
+  })
+
+  app.get('/repos/known', async () => {
+    return wm.knownRepos()
   })
 
   app.patch('/workspaces/:id', async (req, reply) => {
@@ -108,21 +148,32 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     return db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
   })
 
-  app.post('/workspaces/:id/repos', async (req, reply) => {
+  app.post('/workspaces/:id/sources', async (req, reply) => {
     const id = workspaceIdParam((req.params as { id: string }).id)
     if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
 
-    const parsed = addRepoSchema.safeParse(req.body)
+    const parsed = addSourceSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
 
     const existing = db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
     if (!existing) return reply.code(404).send({ error: 'workspace not found' })
 
-    await wm.addRepo(id, parsed.data.url)
-    return reply.code(201).send(wm.manifest(id))
+    try {
+      if (parsed.data.type === 'repo') {
+        await wm.addRepoSource(id, parsed.data.url)
+      } else {
+        await wm.addFolderSource(id, parsed.data.path)
+      }
+    } catch (err) {
+      return reply.code(400).send({
+        error: err instanceof Error ? err.message : 'failed to add source',
+      })
+    }
+
+    return reply.code(201).send(wm.listSources(id))
   })
 
-  app.delete('/workspaces/:id/repos/:name', async (req, reply) => {
+  app.delete('/workspaces/:id/sources/:name', async (req, reply) => {
     const id = workspaceIdParam((req.params as { id: string }).id)
     if (id === undefined) return reply.code(400).send({ error: 'invalid id' })
 
@@ -130,14 +181,15 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     if (!existing) return reply.code(404).send({ error: 'workspace not found' })
 
     const { name } = req.params as { id: string; name: string }
-    // basename-only: any '/' (or a resolved-away '..') in the repo name is rejected outright, so
-    // the rmSync path this feeds (WorkspaceManager.removeRepo) can never escape the repos dir.
+    // basename-only: any '/' (or a resolved-away '..') in the source name is rejected outright,
+    // so the rmSync path this feeds (WorkspaceManager.removeSource) can never escape the repos
+    // dir.
     if (name !== basename(name) || name === '' || name === '.' || name === '..') {
-      return reply.code(400).send({ error: 'invalid repo name' })
+      return reply.code(400).send({ error: 'invalid source name' })
     }
 
-    await wm.removeRepo(id, name)
-    return wm.manifest(id)
+    await wm.removeSource(id, name)
+    return wm.listSources(id)
   })
 
   app.get('/workspaces/:id/board', async (req, reply) => {

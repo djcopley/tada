@@ -48,7 +48,7 @@ describe.skipIf(!process.env.TADA_IT)('ClaudeAdapter (integration)', () => {
     const wm = new WorkspaceManager(db)
     const wsId = await wm.create('demo')
     const origin = await makeOrigin('proj')
-    await wm.addRepo(wsId, origin)
+    await wm.addRepoSource(wsId, origin)
 
     createDefaultColumns(db, wsId)
     const readyCol = db.drizzle

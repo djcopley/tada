@@ -36,7 +36,7 @@ export async function completeRun(
   const pushedRepos: string[] = []
   const prUrls: string[] = []
 
-  for (const repo of wm.manifest(wsId).repos) {
+  for (const repo of wm.manifest(wsId).sources.filter((s) => s.type === 'repo')) {
     const canonical = join(wm.reposDir(wsId), repo.name)
 
     // Detection (branch --list, rev-list) is deliberately NOT inside the try/catch below: a

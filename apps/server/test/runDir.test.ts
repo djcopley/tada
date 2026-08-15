@@ -1,6 +1,13 @@
-import { existsSync, mkdtempSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb } from '../src/db/index.js'
 import { git } from '../src/git.js'
@@ -18,7 +25,7 @@ async function setup() {
   const manager = new WorkspaceManager(db)
   const wsId = await manager.create('demo')
   const origin = await makeOrigin('proj')
-  await manager.addRepo(wsId, origin)
+  await manager.addRepoSource(wsId, origin)
   return { manager, wsId }
 }
 
@@ -42,6 +49,21 @@ describe('buildRunDir / cleanupRunDir', () => {
     const memoryLink = join(runDir.path, 'memory')
     expect(realpathSync(memoryLink)).toBe(realpathSync(manager.memoryDir(wsId)))
     expect(readlinkSync(memoryLink)).toBe(manager.memoryDir(wsId))
+  })
+
+  test('symlinks a folder source into the run dir by name', async () => {
+    const { manager, wsId } = await setup()
+    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
+    mkdirSync(join(folder, 'sub'))
+    writeFileSync(join(folder, 'notes.txt'), 'hello\n')
+    await manager.addFolderSource(wsId, folder)
+
+    const runDir = await buildRunDir(manager, wsId, 5, 1)
+
+    const link = join(runDir.path, basename(folder))
+    expect(realpathSync(link)).toBe(realpathSync(folder))
+    expect(readlinkSync(link)).toBe(folder)
+    expect(existsSync(join(link, 'notes.txt'))).toBe(true)
   })
 
   test('a commit made in the worktree is visible from the canonical clone (shared object store)', async () => {

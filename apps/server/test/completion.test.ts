@@ -19,7 +19,7 @@ async function setup() {
   const manager = new WorkspaceManager(db)
   const wsId = await manager.create('demo')
   const origin = await makeOrigin('proj')
-  await manager.addRepo(wsId, origin)
+  await manager.addRepoSource(wsId, origin)
   return { manager, wsId, origin }
 }
 

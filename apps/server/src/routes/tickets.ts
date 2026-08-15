@@ -233,7 +233,10 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       for (const run of existingRuns) {
         const path = join(stateDir(), 'runs', String(run.id))
         const repoDirs = Object.fromEntries(
-          wm.manifest(ticket.workspaceId).repos.map((r) => [r.name, join(path, r.name)]),
+          wm
+            .manifest(ticket.workspaceId)
+            .sources.filter((s) => s.type === 'repo')
+            .map((r) => [r.name, join(path, r.name)]),
         )
         try {
           await cleanupRunDir(wm, ticket.workspaceId, { path, repoDirs })

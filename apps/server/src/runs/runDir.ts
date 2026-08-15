@@ -23,14 +23,19 @@ export async function buildRunDir(
 
   const branch = branchFor(ticketId)
   const repoDirs: Record<string, string> = {}
-  for (const repo of wm.manifest(wsId).repos) {
-    const canonical = join(wm.reposDir(wsId), repo.name)
-    const wt = join(path, repo.name)
+  for (const source of wm.manifest(wsId).sources) {
+    if (source.type === 'folder') {
+      symlinkSync(source.path, join(path, source.name))
+      continue
+    }
+
+    const canonical = join(wm.reposDir(wsId), source.name)
+    const wt = join(path, source.name)
     const exists = (await git(canonical, 'branch', '--list', branch)) !== ''
     await (exists
       ? git(canonical, 'worktree', 'add', wt, branch)
-      : git(canonical, 'worktree', 'add', '-b', branch, wt, repo.defaultBranch))
-    repoDirs[repo.name] = wt
+      : git(canonical, 'worktree', 'add', '-b', branch, wt, source.defaultBranch))
+    repoDirs[source.name] = wt
   }
 
   return { path, repoDirs }
@@ -41,9 +46,11 @@ export async function cleanupRunDir(
   wsId: number,
   runDir: RunDir,
 ): Promise<void> {
-  for (const repo of wm.manifest(wsId).repos) {
-    const canonical = join(wm.reposDir(wsId), repo.name)
-    const wt = runDir.repoDirs[repo.name]
+  for (const source of wm.manifest(wsId).sources) {
+    if (source.type === 'folder') continue
+
+    const canonical = join(wm.reposDir(wsId), source.name)
+    const wt = runDir.repoDirs[source.name]
     if (wt) {
       await git(canonical, 'worktree', 'remove', '--force', wt).catch(() => {})
     }
