@@ -2,21 +2,47 @@ import type { ApiComment, ApiRun, ApiTicket } from '@tada/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
-import { keys, useBoard, useComment, usePatchTicket, useTicket, useWorkspace } from '../../src/api/queries'
+import { keys, useAccept, useBoard, useComment, useMemory, usePatchTicket, useSendBack, useTicket, useWorkspace } from '../../src/api/queries'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { CommentThread } from '../../src/components/CommentThread'
-import { RunRow } from '../../src/components/RunRow'
-import { TicketActions } from '../../src/components/TicketActions'
-import { AppHeader, Button, Card, EmptyState, Icon, Input, Screen, Skeleton, StatusTag, Tag } from '../../src/components/ui'
+import {
+  AttemptsCard,
+  CardHeader,
+  LinkedCard,
+  MemoryReadCard,
+  ReviewCard,
+  SendItBackCard,
+} from '../../src/components/ticket/TicketDetailCards'
+import { AppHeader, Badge, Button, Card, Dialog, EmptyState, Input, Screen, Skeleton, Tag } from '../../src/components/ui'
 import { useTheme } from '../../src/design/ThemeContext'
-import { humanize, queueStateVisual } from '../../src/design/status'
-import { radius, space, type } from '../../src/design/tokens'
+import { motion, radius, space, type } from '../../src/design/tokens'
+import { useLayout } from '../../src/layout'
+import { goToControl } from '../../src/nav'
+import { relativeTime } from '../../src/relativeTime'
 import { showToast } from '../../src/toast'
+import {
+  attemptRows,
+  memorySummary,
+  sendItBackCopy,
+  ticketMetaLine,
+  ticketStatusBadge,
+} from '../../src/ticketDetail'
+import type { LinkedFollowUp } from '../../src/ticketDetail'
 
 const RUN_IN_PROGRESS_TOAST = 'Agent is working on this ticket — wait or cancel the run'
 const ACTIVE_RUN_STATUSES: ReadonlySet<ApiRun['status']> = new Set(['queued', 'running'])
+/** How long the accept-run TadaStar plays before the celebration flag clears — matches Control's
+ * NeedsYouCard star (motion.tada + a small settle margin). */
+const TADA_LIFETIME_MS = motion.tada + 400
+
+type TicketDetailData = {
+  ticket: ApiTicket
+  comments: ApiComment[]
+  runs: ApiRun[]
+  followUps: LinkedFollowUp[]
+}
 
 export default function TicketDetail() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -47,31 +73,34 @@ export default function TicketDetail() {
   return <TicketDetailBody ticketId={ticketId} data={data} />
 }
 
-function TicketDetailBody({
-  ticketId,
-  data,
-}: {
-  ticketId: number
-  data: { ticket: ApiTicket; comments: ApiComment[]; runs: ApiRun[] }
-}) {
+function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDetailData }) {
   const router = useRouter()
   const qc = useQueryClient()
   const { colors } = useTheme()
-  const { ticket, comments, runs } = data
+  const { wide } = useLayout()
+  const { ticket, comments, runs, followUps } = data
 
   useWorkspaceSocket(ticket.workspaceId)
 
   const { data: board } = useBoard(ticket.workspaceId)
   const { data: workspace } = useWorkspace(ticket.workspaceId)
+  const { data: memory } = useMemory(ticket.workspaceId)
   const patchTicket = usePatchTicket(ticket.workspaceId)
   const comment = useComment(ticketId)
+  const accept = useAccept()
+  const sendBack = useSendBack()
 
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(ticket.title)
   const [descriptionDraft, setDescriptionDraft] = useState(ticket.description)
-  const [actionsVisible, setActionsVisible] = useState(false)
+  const [celebrating, setCelebrating] = useState(false)
+  const [sendBackVisible, setSendBackVisible] = useState(false)
+  const [sendBackFeedback, setSendBackFeedback] = useState('')
 
   const hasActiveRun = runs.some((r) => ACTIVE_RUN_STATUSES.has(r.status))
+  const latestRun = runs[runs.length - 1]
+  const column = board?.columns.find((c) => c.id === ticket.columnId)
+  const inReview = column?.kind === 'in_review' && latestRun !== undefined
 
   const startEdit = () => {
     if (hasActiveRun) return
@@ -82,6 +111,14 @@ function TicketDetailBody({
 
   const cancelEdit = () => setEditing(false)
 
+  const handle409 = (error: unknown, after?: () => void) => {
+    if (error instanceof ApiError && error.status === 409) {
+      showToast(RUN_IN_PROGRESS_TOAST)
+      void qc.invalidateQueries({ queryKey: keys.ticket(ticketId) })
+      after?.()
+    }
+  }
+
   const saveEdit = () => {
     const trimmedTitle = titleDraft.trim()
     if (!trimmedTitle) return
@@ -89,13 +126,7 @@ function TicketDetailBody({
       { id: ticket.id, patch: { title: trimmedTitle, description: descriptionDraft } },
       {
         onSuccess: () => setEditing(false),
-        onError: (error) => {
-          if (error instanceof ApiError && error.status === 409) {
-            showToast(RUN_IN_PROGRESS_TOAST)
-            void qc.invalidateQueries({ queryKey: keys.ticket(ticketId) })
-            setEditing(false)
-          }
-        },
+        onError: (error) => handle409(error, () => setEditing(false)),
       },
     )
   }
@@ -108,136 +139,193 @@ function TicketDetailBody({
       })
     })
 
-  const column = board?.columns.find((c) => c.id === ticket.columnId)
-  const adapter = ticket.adapterOverride ?? workspace?.defaultAdapter ?? '—'
-  const model = ticket.modelOverride ?? workspace?.defaultModel ?? '—'
-  const queueVisual = queueStateVisual(ticket.queueState)
+  const celebrate = () => {
+    setCelebrating(true)
+    setTimeout(() => setCelebrating(false), TADA_LIFETIME_MS)
+  }
+
+  const doAccept = () => {
+    accept.mutate(ticket.id, {
+      onSuccess: () => celebrate(),
+      onError: (error) => handle409(error),
+    })
+  }
+
+  const closeSendBack = () => {
+    setSendBackVisible(false)
+    setSendBackFeedback('')
+  }
+
+  const confirmSendBack = () => {
+    const feedback = sendBackFeedback.trim()
+    if (!feedback) return
+    sendBack.mutate(
+      { ticketId: ticket.id, feedback },
+      {
+        onSuccess: closeSendBack,
+        onError: (error) => handle409(error, closeSendBack),
+      },
+    )
+  }
+
+  const badge = ticketStatusBadge(column?.kind, ticket.queueState)
+  const metaLine = ticketMetaLine(workspace?.name ?? '—', workspace?.sources[0]?.name, ticket.createdAt, ticket.origin)
+  const rows = attemptRows(runs, comments)
+  const memoryInfo = memorySummary(memory?.notes ?? [])
+
+  const header = (
+    <View style={styles.headerRow}>
+      <Button
+        testID="ticket-back"
+        variant="ghost"
+        small
+        icon="chevron-left"
+        label="Control"
+        onPress={() => goToControl(router)}
+      />
+      <View style={styles.spacer} />
+      {badge ? <Badge testID="ticket-status-badge" status={badge.status} label={badge.label} /> : null}
+      {latestRun ? <Tag testID="ticket-attempt-tag" label={`attempt ${latestRun.attemptNumber}`} /> : null}
+    </View>
+  )
+
+  const titleBlock = (
+    <View style={styles.titleBlock}>
+      <Text testID="ticket-title" style={[type.title, { color: colors.text }]}>
+        {ticket.title}
+      </Text>
+      <Text testID="ticket-meta" style={[type.mono, styles.metaText, { color: colors.textFaintSolid }]}>
+        {metaLine}
+      </Text>
+    </View>
+  )
+
+  const reviewCard =
+    inReview && latestRun ? (
+      <ReviewCard
+        testID="review-card"
+        run={latestRun}
+        agoLabel={relativeTime(latestRun.finishedAt ?? latestRun.createdAt)}
+        accepting={accept.isPending}
+        celebrate={celebrating}
+        onAccept={doAccept}
+        onSendBack={() => setSendBackVisible(true)}
+        onOpenPr={() => {
+          if (latestRun.prUrl) void Linking.openURL(latestRun.prUrl)
+        }}
+      />
+    ) : null
+
+  const briefCard = (
+    <Card testID="brief-card" style={styles.card}>
+      <CardHeader title="Brief" meta="what the agent reads" />
+      {editing ? (
+        <View style={styles.editForm}>
+          <Input testID="brief-title-input" label="Title" value={titleDraft} onChangeText={setTitleDraft} />
+          <Input
+            testID="brief-description-input"
+            label="Description"
+            value={descriptionDraft}
+            onChangeText={setDescriptionDraft}
+            multiline
+            placeholder="What should the agent do, in detail?"
+          />
+          <View style={styles.editActions}>
+            <Button testID="brief-edit-cancel" variant="ghost" small label="Cancel" onPress={cancelEdit} />
+            <Button
+              testID="brief-edit-save"
+              small
+              label="Save changes"
+              loading={patchTicket.isPending}
+              onPress={saveEdit}
+            />
+          </View>
+        </View>
+      ) : (
+        <>
+          <Text style={[type.body, { color: colors.textMuted }]}>{ticket.description || 'No description yet.'}</Text>
+          <Button
+            testID="brief-edit-trigger"
+            variant="ghost"
+            small
+            label={hasActiveRun ? 'Locked while running' : 'Edit brief'}
+            disabled={hasActiveRun}
+            onPress={startEdit}
+            style={styles.selfStart}
+          />
+        </>
+      )}
+    </Card>
+  )
+
+  const threadSection = (
+    <View style={styles.section}>
+      <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>THREAD</Text>
+      <CommentThread comments={comments} onSend={sendComment} sending={comment.isPending} />
+    </View>
+  )
+
+  const rightRail = (
+    <View style={styles.rightRail}>
+      <AttemptsCard testID="attempts-card" rows={rows} />
+      <LinkedCard testID="linked-card" followUps={followUps} />
+      <MemoryReadCard testID="memory-card" keptTitles={memoryInfo.keptTitles} highlighted={memoryInfo.highlighted} />
+      <SendItBackCard testID="send-it-back-card" copy={sendItBackCopy((latestRun?.attemptNumber ?? 0) + 1)} />
+    </View>
+  )
 
   return (
-    <Screen edges={['top', 'bottom']}>
-      <AppHeader title={`Ticket #${ticket.id}`} back />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
-      >
+    <Screen edges={['top', 'bottom']} testID="ticket-detail-screen">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView testID="ticket-detail" style={styles.flex} contentContainerStyle={styles.content}>
-          <Card style={styles.titleCard}>
-            {editing ? (
-              <View style={styles.editForm}>
-                <Input
-                  testID="ticket-title-input"
-                  label="Title"
-                  value={titleDraft}
-                  onChangeText={setTitleDraft}
-                />
-                <Input
-                  testID="ticket-description-input"
-                  label="Description"
-                  value={descriptionDraft}
-                  onChangeText={setDescriptionDraft}
-                  multiline
-                  placeholder="What should the agent do, in detail?"
-                />
-                <View style={styles.editActions}>
-                  <Button testID="ticket-edit-cancel" variant="ghost" label="Cancel" onPress={cancelEdit} small />
-                  <Button
-                    testID="ticket-edit-save"
-                    label="Save changes"
-                    onPress={saveEdit}
-                    loading={patchTicket.isPending}
-                    small
-                  />
-                </View>
+          {header}
+          {titleBlock}
+          {wide ? (
+            <View style={styles.wideGrid}>
+              <View style={styles.leftColumn}>
+                {reviewCard}
+                {briefCard}
+                {threadSection}
               </View>
-            ) : (
-              <Pressable
-                testID="ticket-edit-trigger"
-                accessibilityRole="button"
-                accessibilityLabel={hasActiveRun ? 'Editing locked while a run is active' : 'Edit ticket'}
-                onPress={startEdit}
-                disabled={hasActiveRun}
-              >
-                <View style={styles.titleRow}>
-                  <Text testID="ticket-title" style={[type.title, styles.title, { color: colors.text }]}>
-                    {ticket.title}
-                  </Text>
-                  <Icon
-                    name={hasActiveRun ? 'lock' : 'edit-2'}
-                    size={16}
-                    color={colors.textFaintSolid}
-                  />
-                </View>
-                {ticket.description ? (
-                  <Text testID="ticket-description" style={[type.body, styles.description, { color: colors.textMuted }]}>
-                    {ticket.description}
-                  </Text>
-                ) : (
-                  <Text style={[type.caption, styles.description, { color: colors.textFaintSolid }]}>
-                    {hasActiveRun ? 'Editing is locked while an agent is working.' : 'Tap to add a description.'}
-                  </Text>
-                )}
-              </Pressable>
-            )}
-
-            <View style={styles.chipRow}>
-              {column && (
-                <View testID="chip-column">
-                  <Tag label={column.title.toLowerCase()} />
-                </View>
-              )}
-              <View testID="chip-agent">
-                <Tag label={`${humanize(adapter).toLowerCase()} · ${humanize(model).toLowerCase()}`} />
-              </View>
-              {queueVisual && (
-                <View testID="chip-queue-state">
-                  <StatusTag status={queueVisual} />
-                </View>
-              )}
+              <View style={styles.rightColumn}>{rightRail}</View>
             </View>
-          </Card>
-
-          <View style={styles.section}>
-            <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>THREAD</Text>
-            <CommentThread comments={comments} onSend={sendComment} sending={comment.isPending} />
-          </View>
-
-          <View style={styles.section}>
-            <Text style={[type.monoCaps, styles.sectionTitle, { color: colors.textFaintSolid }]}>ATTEMPTS</Text>
-            {runs.length === 0 ? (
-              <Text style={[type.caption, { color: colors.textFaintSolid }]}>
-                No runs yet — send this ticket to Ready to dispatch an agent.
-              </Text>
-            ) : (
-              runs.map((run) => (
-                <RunRow
-                  key={run.id}
-                  run={run}
-                  onPress={() => router.push(`/runs/${run.id}`)}
-                />
-              ))
-            )}
-          </View>
+          ) : (
+            <View style={styles.narrowStack}>
+              {reviewCard}
+              {briefCard}
+              {threadSection}
+              {rightRail}
+            </View>
+          )}
         </ScrollView>
-
-        <View style={[styles.actionBar, { borderTopColor: colors.borderSubtle, backgroundColor: colors.ground }]}>
-          <Button
-            testID="ticket-actions-button"
-            icon="more-horizontal"
-            label="Actions"
-            onPress={() => setActionsVisible(true)}
-          />
-        </View>
       </KeyboardAvoidingView>
 
-      {workspace && board && (
-        <TicketActions
-          ticket={ticket}
-          columns={board.columns}
-          workspace={workspace}
-          visible={actionsVisible}
-          onClose={() => setActionsVisible(false)}
+      <Dialog
+        visible={sendBackVisible}
+        title="Send back"
+        onClose={closeSendBack}
+        testID="send-back-dialog"
+        confirm={{
+          label: 'Send back',
+          onPress: confirmSendBack,
+          disabled: sendBack.isPending || sendBackFeedback.trim().length === 0,
+          loading: sendBack.isPending,
+          testID: 'send-back-confirm',
+        }}
+      >
+        <Text style={[type.caption, { color: colors.textMuted }]}>
+          What should the agent change before its next attempt?
+        </Text>
+        <Input
+          testID="send-back-feedback-input"
+          label="Feedback"
+          placeholder="What needs to change?"
+          multiline
+          autoFocus
+          value={sendBackFeedback}
+          onChangeText={setSendBackFeedback}
         />
-      )}
+      </Dialog>
     </Screen>
   )
 }
@@ -252,21 +340,43 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: space.lg,
-    gap: space.xxl,
-  },
-  titleCard: {
     gap: space.lg,
   },
-  titleRow: {
+  headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: space.sm,
   },
-  title: {
+  spacer: {
     flex: 1,
   },
-  description: {
-    marginTop: space.sm,
+  titleBlock: {
+    gap: 5,
+  },
+  metaText: {
+    marginTop: 1,
+  },
+  wideGrid: {
+    flexDirection: 'row',
+    gap: space.xl,
+    alignItems: 'flex-start',
+  },
+  leftColumn: {
+    flex: 1.5,
+    gap: space.md,
+  },
+  rightColumn: {
+    flex: 1,
+    gap: space.md,
+  },
+  narrowStack: {
+    gap: space.md,
+  },
+  rightRail: {
+    gap: space.md,
+  },
+  card: {
+    gap: space.sm + 2,
   },
   editForm: {
     gap: space.md,
@@ -276,20 +386,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: space.sm,
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-    alignItems: 'center',
+  selfStart: {
+    alignSelf: 'flex-start',
   },
   section: {
     gap: space.sm,
   },
   sectionTitle: {
     letterSpacing: 1.2,
-  },
-  actionBar: {
-    padding: space.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
 })

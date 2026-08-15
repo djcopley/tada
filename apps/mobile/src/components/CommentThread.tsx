@@ -45,6 +45,8 @@ function CommentBody({
   color,
   linkColor,
   mono = false,
+  prefix,
+  suffix,
 }: {
   body: string
   commentId: number
@@ -52,10 +54,22 @@ function CommentBody({
   linkColor: string
   /** Agent comments render in the mono voice. */
   mono?: boolean
+  /** Sans prefix before the body — feedback comments read "sent back: …". */
+  prefix?: ReactNode
+  /** Trailing node after the body — nudge comments get a mono " (nudge)" marker. */
+  suffix?: ReactNode
 }) {
   const bodyStyle = [mono ? type.mono : type.body, { color }]
   const matches = [...body.matchAll(URL_REGEX)]
-  if (matches.length === 0) return <Text style={bodyStyle}>{body}</Text>
+  if (matches.length === 0) {
+    return (
+      <Text style={bodyStyle}>
+        {prefix}
+        {body}
+        {suffix}
+      </Text>
+    )
+  }
 
   const nodes: ReactNode[] = []
   let cursor = 0
@@ -79,7 +93,13 @@ function CommentBody({
   })
   if (cursor < body.length) nodes.push(<Text key="t-end">{body.slice(cursor)}</Text>)
 
-  return <Text style={bodyStyle}>{nodes}</Text>
+  return (
+    <Text style={bodyStyle}>
+      {prefix}
+      {nodes}
+      {suffix}
+    </Text>
+  )
 }
 
 export function CommentThread({
@@ -139,6 +159,12 @@ export function CommentThread({
                   commentId={item.id}
                   color={colors.textMuted}
                   linkColor={colors.liveText}
+                  prefix={item.kind === 'feedback' ? 'sent back: ' : undefined}
+                  suffix={
+                    item.kind === 'nudge' ? (
+                      <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{' (nudge)'}</Text>
+                    ) : undefined
+                  }
                 />
               </View>
             )

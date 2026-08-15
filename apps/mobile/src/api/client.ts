@@ -13,6 +13,7 @@ import type {
   ApiSource,
   ApiStatus,
   ApiTicket,
+  ApiTicketDetail,
   ApiWorkspace,
   ApiWorkspaceDetail,
   ApiWorkspaceListItem,
@@ -166,11 +167,16 @@ export class TadaClient {
     return this.req('POST', '/tickets', t)
   }
 
-  async ticket(id: number): Promise<{ ticket: ApiTicket; comments: ApiComment[]; runs: ApiRun[] }> {
-    const { comments, runs, ...ticket } = await this.req<
-      ApiTicket & { comments: ApiComment[]; runs: ApiRun[] }
+  async ticket(id: number): Promise<{
+    ticket: ApiTicket
+    comments: ApiComment[]
+    runs: ApiRun[]
+    followUps: ApiTicketDetail['followUps']
+  }> {
+    const { comments, runs, followUps, ...ticket } = await this.req<
+      ApiTicket & { comments: ApiComment[]; runs: ApiRun[]; followUps: ApiTicketDetail['followUps'] }
     >('GET', `/tickets/${id}`)
-    return { ticket, comments, runs }
+    return { ticket, comments, runs, followUps }
   }
 
   patchTicket(

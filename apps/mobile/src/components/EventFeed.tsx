@@ -1,30 +1,27 @@
 import type { ApiRunEvent } from '@tada/shared'
-import { useEffect, useRef, useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { useTheme } from '../design/ThemeContext'
-import { radius, space, type } from '../design/tokens'
-import { Icon } from './ui/Icon'
+import { space, type } from '../design/tokens'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
-}
-
-/** `payload` is `unknown` on the wire — render defensively: pull known
- * fields off objects when present, otherwise fall back to a JSON preview
- * so unexpected shapes still show something useful instead of crashing. */
-function jsonPreview(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
-  }
 }
 
 function stringField(payload: unknown, field: string): string | undefined {
   return isRecord(payload) && typeof payload[field] === 'string' ? (payload[field] as string) : undefined
 }
 
-/** "09:41" clock stamp for an event's mono line. */
+/** "09:41" clock stamp for a narration line. */
 function timeStamp(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '--:--'
@@ -33,170 +30,117 @@ function timeStamp(iso: string): string {
   return `${hh}:${mm}`
 }
 
-function Stamp({ event }: { event: ApiRunEvent }) {
-  const { colors } = useTheme()
-  return <Text style={{ color: colors.agentTextMuted }}>{`${timeStamp(event.createdAt)}  `}</Text>
+/** Pulls a file path out of a tool call's JSON `inputPreview` — the common shapes across tools
+ * (`file_path`, `path`, `filePath`, `notebook_path`). `inputPreview` can be truncated mid-JSON
+ * (the server caps its length), so a parse failure just means no path, not an error. */
+function pathFromInputPreview(inputPreview: string | undefined): string | undefined {
+  if (!inputPreview) return undefined
+  try {
+    const parsed: unknown = JSON.parse(inputPreview)
+    if (!isRecord(parsed)) return undefined
+    const candidate = parsed.file_path ?? parsed.path ?? parsed.filePath ?? parsed.notebook_path
+    return typeof candidate === 'string' ? candidate : undefined
+  } catch {
+    return undefined
+  }
 }
 
-function StatusRow({ event }: { event: ApiRunEvent }) {
-  const { colors } = useTheme()
-  const status = stringField(event.payload, 'status') ?? jsonPreview(event.payload)
-  return (
-    <Text testID={`event-status-${event.id}`} style={[type.mono, styles.line, { color: colors.agentTextMuted }]}>
-      <Stamp event={event} />
-      {/* Visual lowercase only — the payload text itself must stay intact. */}
-      <Text style={styles.lower}>{status}</Text>
-    </Text>
-  )
+/** Concise narration for a tool call — "editing src/auth/session.ts" when the input names a
+ * path, otherwise just the tool's name lowercased, or `null` (skip the line entirely) when
+ * there's nothing worth narrating. */
+function toolNarration(payload: unknown): string | null {
+  const name = stringField(payload, 'name')
+  const path = pathFromInputPreview(stringField(payload, 'inputPreview'))
+  if (path) {
+    const verb = name && /read/i.test(name) ? 'reading' : name && /bash|run|exec/i.test(name) ? 'running' : 'editing'
+    return `${verb} ${path}`
+  }
+  return name ? name.toLowerCase() : null
 }
 
-function TextRow({ event }: { event: ApiRunEvent }) {
-  const { colors } = useTheme()
-  const text = stringField(event.payload, 'text') ?? jsonPreview(event.payload)
-  return (
-    <Text testID={`event-text-${event.id}`} style={[type.mono, styles.line, { color: colors.agentText }]}>
-      <Stamp event={event} />
-      {text}
-    </Text>
-  )
-}
-
-/** Tool calls are collapsible mono lines: name up front, input on tap. */
-function ToolUseRow({ event }: { event: ApiRunEvent }) {
-  const { colors } = useTheme()
-  const [expanded, setExpanded] = useState(false)
-  const name = stringField(event.payload, 'name') ?? 'tool'
-  const inputPreview = stringField(event.payload, 'inputPreview') ?? jsonPreview(event.payload)
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Tool call ${name}`}
-      onPress={() => setExpanded((v) => !v)}
-      style={styles.toolRow}
-    >
-      <Text
-        testID={`event-tool-${event.id}`}
-        numberOfLines={expanded ? undefined : 1}
-        style={[type.mono, styles.toolName, { color: colors.agentTextMuted }]}
-      >
-        <Stamp event={event} />
-        {`${name}(${inputPreview})`}
-      </Text>
-      <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.agentTextMuted} />
-    </Pressable>
-  )
-}
-
-function ErrorRow({ event }: { event: ApiRunEvent }) {
-  const { colors } = useTheme()
-  const message = stringField(event.payload, 'message') ?? jsonPreview(event.payload)
-  return (
-    <Text testID={`event-error-${event.id}`} style={[type.mono, styles.line, { color: colors.failText }]}>
-      <Stamp event={event} />
-      {`✕ ${message}`}
-    </Text>
-  )
-}
-
-function EventRow({ event }: { event: ApiRunEvent }) {
+/** The narration text for one run event, or `null` to skip it (an event type this feed doesn't
+ * narrate, or a tool call with nothing concise to say). */
+export function narrationText(event: ApiRunEvent): string | null {
   switch (event.type) {
     case 'status':
-      return <StatusRow event={event} />
+      return stringField(event.payload, 'status') ?? null
     case 'text':
-      return <TextRow event={event} />
-    case 'tool_use':
-      return <ToolUseRow event={event} />
+      return stringField(event.payload, 'text') ?? null
     case 'error':
-      return <ErrorRow event={event} />
+      return stringField(event.payload, 'message') ?? 'error'
+    case 'tool_use':
+      return toolNarration(event.payload)
     default:
       return null
   }
 }
 
-/**
- * The agent narrates its run as timestamped mono lines on recessed dark
- * ink — one panel, identical in both themes.
- */
-export function EventFeed({ events, live }: { events: ApiRunEvent[]; live: boolean }) {
-  const { colors, shadow } = useTheme()
-  const listRef = useRef<FlatList<ApiRunEvent>>(null)
-  const count = events.length
-  const [pinnedToEnd, setPinnedToEnd] = useState(true)
+function testIdFor(event: ApiRunEvent): string {
+  const kind = event.type === 'tool_use' ? 'tool' : event.type
+  return `event-${kind}-${event.id}`
+}
+
+/** The pulsing ▮ marking the single most-recent narration line while the run is live —
+ * reduced-motion users get a plain static glyph. */
+function LiveGlyph({ color }: { color: string }) {
+  const reducedMotion = useReducedMotion()
+  const opacity = useSharedValue(1)
 
   useEffect(() => {
-    if (live && count > 0 && pinnedToEnd) {
-      listRef.current?.scrollToEnd({ animated: true })
+    if (reducedMotion) {
+      opacity.value = 1
+      return
     }
-  }, [count, live, pinnedToEnd])
+    opacity.value = withRepeat(withSequence(withTiming(0.25, { duration: 700 }), withTiming(1, { duration: 700 })), -1)
+    return () => cancelAnimation(opacity)
+  }, [reducedMotion, opacity])
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+
+  return <Animated.Text style={[{ color }, style]}>{'▮ '}</Animated.Text>
+}
+
+/**
+ * The agent's narration, meant to sit directly inside an `<AgentPanel>`: one stamped mono line
+ * per event, oldest first. The latest line pulses in live-text while the run is still going;
+ * error lines render in fail-text. Raw output lives in the panel's own `rawOutput` prop, not here.
+ */
+export function EventFeed({ events, live, testID }: { events: ApiRunEvent[]; live: boolean; testID?: string }) {
+  const { colors } = useTheme()
+  const entries = events
+    .map((event) => ({ event, text: narrationText(event) }))
+    .filter((entry): entry is { event: ApiRunEvent; text: string } => entry.text !== null)
+  const lastIndex = entries.length - 1
 
   return (
-    <View
-      style={[styles.feed, { backgroundColor: colors.agentSurface, borderColor: colors.agentSurfaceEdge }]}
-    >
-      <FlatList
-        testID="event-feed"
-        ref={listRef}
-        data={events}
-        keyExtractor={(event) => String(event.id)}
-        renderItem={({ item }) => <EventRow event={item} />}
-        onScrollBeginDrag={() => setPinnedToEnd(false)}
-        onEndReached={() => setPinnedToEnd(true)}
-        onEndReachedThreshold={0.05}
-        contentContainerStyle={styles.feedContent}
-      />
-      {live && !pinnedToEnd && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Jump to latest"
-          onPress={() => {
-            setPinnedToEnd(true)
-            listRef.current?.scrollToEnd({ animated: true })
-          }}
-          style={[styles.jumpPill, { backgroundColor: colors.primaryBg }, shadow.card]}
-        >
-          <Icon name="arrow-down" size={14} color={colors.primaryText} />
-          <Text style={[type.caption, { color: colors.primaryText }]}>Latest</Text>
-        </Pressable>
-      )}
+    <View testID={testID} style={styles.list}>
+      {entries.map(({ event, text }, index) => {
+        const isError = event.type === 'error'
+        const isLatestLive = live && !isError && index === lastIndex
+        const color = isError
+          ? colors.failText
+          : isLatestLive
+            ? colors.liveText
+            : event.type === 'text'
+              ? colors.agentText
+              : colors.agentTextMuted
+        return (
+          <Text key={event.id} testID={testIdFor(event)} style={[type.mono, styles.line, { color }]}>
+            <Text style={{ color: colors.agentTextMuted }}>{`${timeStamp(event.createdAt)}  `}</Text>
+            {isLatestLive ? <LiveGlyph color={colors.liveText} /> : null}
+            {isError ? `✕ ${text}` : text}
+          </Text>
+        )
+      })}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  feed: {
-    flex: 1,
-    borderRadius: radius.control,
-    borderWidth: 1,
-  },
-  feedContent: {
-    padding: space.lg,
-    paddingBottom: space.xxl,
+  list: {
     gap: space.xs,
   },
   line: {
     lineHeight: 22,
-  },
-  lower: {
-    textTransform: 'lowercase',
-  },
-  toolRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  toolName: {
-    flex: 1,
-    lineHeight: 22,
-  },
-  jumpPill: {
-    position: 'absolute',
-    bottom: space.lg,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
-    borderRadius: radius.full,
   },
 })

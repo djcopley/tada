@@ -118,9 +118,15 @@ export function useGlobalMemory() {
   return useQuery({ queryKey: keys.globalMemory, queryFn: () => client.globalMemory() })
 }
 
-export function useWorkspace(wsId: number) {
+/** `wsId` may be `undefined` (e.g. the run screen before `useRun` has resolved a `workspaceId`
+ * to fetch) — in that case the query simply stays disabled rather than fetching a bogus id. */
+export function useWorkspace(wsId: number | undefined) {
   const client = useClient()
-  return useQuery({ queryKey: keys.workspace(wsId), queryFn: () => client.getWorkspace(wsId) })
+  return useQuery({
+    queryKey: keys.workspace(wsId ?? -1),
+    queryFn: () => client.getWorkspace(wsId as number),
+    enabled: wsId !== undefined,
+  })
 }
 
 export function useRun(runId: number) {
