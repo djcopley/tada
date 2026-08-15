@@ -94,6 +94,26 @@ describe('WorkspaceSwitcher', () => {
     expect(screen.getByTestId('switcher-new-workspace')).toBeTruthy()
   })
 
+  test('selecting Global closes the menu and navigates to /memory', async () => {
+    mockListWorkspaces.mockResolvedValue([workspace({ id: 1, name: 'parlor' })])
+
+    await renderSwitcher()
+    await act(async () => {
+      openWorkspaceSwitcher()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switcher-scope-global')).toBeTruthy()
+    })
+
+    await fireEvent.press(screen.getByTestId('switcher-scope-global'))
+
+    expect(mockPush).toHaveBeenCalledWith('/memory')
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-switcher')).toBeNull()
+    })
+  })
+
   test('selecting a workspace closes the menu and navigates to its board', async () => {
     mockListWorkspaces.mockResolvedValue([workspace({ id: 5, name: 'ops' })])
 

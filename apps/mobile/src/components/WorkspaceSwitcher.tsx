@@ -53,7 +53,7 @@ export function WorkspaceSwitcher() {
 
   const selectGlobal = () => {
     close()
-    router.push('/workspaces')
+    router.push('/memory')
   }
 
   const selectWorkspace = (id: number) => {
