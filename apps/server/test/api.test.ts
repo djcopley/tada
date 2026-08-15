@@ -613,6 +613,95 @@ describe('REST API + WebSocket events', () => {
     expect(taken.body).toEqual({ id: 'acme-web', available: false })
   })
 
+  test('GET /workspaces reports sourceCount and queuedCount (ready column + queueState=queued only), scoped per workspace', async () => {
+    const { app, config, db } = await setupApp()
+
+    // Workspace A: two sources (sourceCount = 2), three tickets - one ready+queued (counts), one
+    // ready+held (doesn't count - held, not queued), one left in backlog (doesn't count - wrong
+    // column).
+    const wsA = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws-a' },
+    })
+    const wsAId = (wsA.body as { id: number }).id
+
+    const origin = await makeOrigin('proj')
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsAId}/sources`,
+      payload: { type: 'repo', url: origin },
+    })
+    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsAId}/sources`,
+      payload: { type: 'folder', path: folder },
+    })
+
+    const boardA = await json(app, config, { method: 'GET', url: `/workspaces/${wsAId}/board` })
+    const readyColIdA = columnIdFor(boardA.body as BoardPayload, 'ready')
+
+    const queuedTicket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsAId, title: 'queued', description: '' },
+    })
+    const heldTicket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsAId, title: 'held', description: '' },
+    })
+    await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsAId, title: 'still in backlog', description: '' },
+    })
+
+    db.drizzle
+      .update(tickets)
+      .set({ columnId: readyColIdA, queueState: 'queued' })
+      .where(eq(tickets.id, (queuedTicket.body as { id: number }).id))
+      .run()
+    db.drizzle
+      .update(tickets)
+      .set({ columnId: readyColIdA, queueState: 'held' })
+      .where(eq(tickets.id, (heldTicket.body as { id: number }).id))
+      .run()
+
+    // Workspace B: no sources, one ready+queued ticket of its own - proves counts don't leak
+    // across workspaces (if the query dropped its workspaceId filter, A would read 2 not 1).
+    const wsB = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws-b' },
+    })
+    const wsBId = (wsB.body as { id: number }).id
+    const boardB = await json(app, config, { method: 'GET', url: `/workspaces/${wsBId}/board` })
+    const readyColIdB = columnIdFor(boardB.body as BoardPayload, 'ready')
+    const ticketB = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsBId, title: 'b-queued', description: '' },
+    })
+    db.drizzle
+      .update(tickets)
+      .set({ columnId: readyColIdB, queueState: 'queued' })
+      .where(eq(tickets.id, (ticketB.body as { id: number }).id))
+      .run()
+
+    const list = await json(app, config, { method: 'GET', url: '/workspaces' })
+    const items = list.body as ApiWorkspaceListItem[]
+    const wsAItem = items.find((w) => w.id === wsAId)
+    const wsBItem = items.find((w) => w.id === wsBId)
+    if (!wsAItem || !wsBItem) throw new Error('missing workspace in GET /workspaces')
+
+    expect(wsAItem.sourceCount).toBe(2)
+    expect(wsAItem.queuedCount).toBe(1)
+    expect(wsBItem.sourceCount).toBe(0)
+    expect(wsBItem.queuedCount).toBe(1)
+  })
+
   test('PATCH workspace with an unknown adapter name returns 400', async () => {
     const { app, config } = await setupApp()
     const ws = await json(app, config, {

@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readlinkSync,
   realpathSync,
   writeFileSync,
@@ -123,5 +124,27 @@ describe('buildRunDir / cleanupRunDir', () => {
     expect(branches).toContain(branchFor(3))
 
     expect(existsSync(runDir.path)).toBe(false)
+  })
+
+  // Regression guard: a folder source is symlinked (not copied) into the run dir. If
+  // cleanupRunDir (or the rmSync it ultimately relies on) ever started following that symlink
+  // instead of just unlinking it, this would delete the user's real folder and its contents -
+  // a data-loss bug. Assert the source folder and its contents survive cleanup untouched.
+  test('cleanupRunDir removes the run dir but leaves a folder source and its contents untouched', async () => {
+    const { manager, wsId } = await setup()
+    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
+    writeFileSync(join(folder, 'keep.txt'), 'important\n')
+    await manager.addFolderSource(wsId, folder)
+
+    const runDir = await buildRunDir(manager, wsId, 11, 1)
+    const link = join(runDir.path, basename(folder))
+    expect(existsSync(link)).toBe(true)
+
+    await cleanupRunDir(manager, wsId, runDir)
+
+    expect(existsSync(runDir.path)).toBe(false)
+    expect(existsSync(folder)).toBe(true)
+    expect(existsSync(join(folder, 'keep.txt'))).toBe(true)
+    expect(readFileSync(join(folder, 'keep.txt'), 'utf-8')).toBe('important\n')
   })
 })
