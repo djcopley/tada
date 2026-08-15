@@ -155,26 +155,20 @@ describe('query cache reset across connections', () => {
     jest.clearAllMocks()
   })
 
-  test('cached data does not survive disconnect -> reconnect (incl. a same-server token replace)', async () => {
-    const probeFetch = jest.fn(async () => 'seeded')
-
-    function Probe() {
-      // Seeds ['probe-data'] into the QueryClient this test's tree shares with AppQueryProvider.
-      useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
-      return null
-    }
-
-    // Reads straight from the QueryClient rather than relying on some other observer noticing
-    // the removal and reactively refetching (a real screen would instead unmount/remount around
-    // the redirect to/from /connect, which naturally produces a fresh observer either way) —
-    // this is a direct check of the one thing that actually matters: does the cache entry
-    // survive a connection-identity change.
+  test('an inactive cache entry (no live observer) does not survive disconnect -> reconnect', async () => {
+    // Seeded directly rather than via a mounted useQuery: with resetQueries() (not clear()),
+    // an *active* observer's entry gets reset AND refetched — this test is specifically about
+    // the no-observer case, where reset must still leave no stale data behind for whenever
+    // something eventually reads this key again.
     function CacheInspector() {
       const qc = useQueryClient()
       const { connect, disconnect } = useConnection()
       const [snapshot, setSnapshot] = useState('unchecked')
       return (
         <>
+          <Pressable testID="seed-cache" onPress={() => qc.setQueryData(['probe-data'], 'seeded')}>
+            <Text>seed</Text>
+          </Pressable>
           <Pressable
             testID="check-cache"
             onPress={() => setSnapshot(String(qc.getQueryData(['probe-data'])))}
@@ -195,16 +189,9 @@ describe('query cache reset across connections', () => {
       )
     }
 
-    await renderWithProvider(
-      <>
-        <Probe />
-        <CacheInspector />
-      </>,
-    )
+    await renderWithProvider(<CacheInspector />)
 
-    await waitFor(() => {
-      expect(probeFetch).toHaveBeenCalledTimes(1)
-    })
+    await fireEvent.press(screen.getByTestId('seed-cache'))
     await fireEvent.press(screen.getByTestId('check-cache'))
     expect(screen.getByTestId('cache-snapshot')).toHaveTextContent('seeded')
 
@@ -216,6 +203,57 @@ describe('query cache reset across connections', () => {
     await fireEvent.press(screen.getByTestId('do-reconnect'))
     await fireEvent.press(screen.getByTestId('check-cache'))
     expect(screen.getByTestId('cache-snapshot')).toHaveTextContent('undefined')
+  })
+
+  test('a same-server token replace makes a still-mounted live observer actually refetch and re-render with new data', async () => {
+    // This is the case clear() got wrong: Settings' "Replace" flow never navigates away, so its
+    // useWorkspace/useAdapters-style observers stay mounted and subscribed straight through the
+    // identity change. Proving this needs more than checking the store — the queryFn must be
+    // called again AND the still-mounted component must re-render with the new result, not just
+    // have its cache entry silently wiped out from under it.
+    let call = 0
+    const probeFetch = jest.fn(async () => {
+      call += 1
+      return call === 1 ? 'pre-replace' : 'post-replace'
+    })
+
+    function Probe() {
+      const { data } = useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
+      return <Text testID="probe-value">{data ?? 'loading'}</Text>
+    }
+
+    function ReplaceTokenButton() {
+      const { connect } = useConnection()
+      return (
+        <Pressable
+          testID="do-replace-token"
+          onPress={() => void connect({ baseUrl: 'https://example.com', token: 'tok2' })}
+        >
+          <Text>replace token</Text>
+        </Pressable>
+      )
+    }
+
+    await renderWithProvider(
+      <>
+        <Probe />
+        <ReplaceTokenButton />
+      </>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-value')).toHaveTextContent('pre-replace')
+    })
+    expect(probeFetch).toHaveBeenCalledTimes(1)
+
+    // Same baseUrl as the settings mock's initial connection ('https://example.com'), only the
+    // token changes — the in-place "Replace" path, not a full disconnect/reconnect.
+    await fireEvent.press(screen.getByTestId('do-replace-token'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-value')).toHaveTextContent('post-replace')
+    })
+    expect(probeFetch).toHaveBeenCalledTimes(2)
   })
 
   test('a normal launch (connection already settled before AppQueryProvider mounts) does not clear on mount', async () => {

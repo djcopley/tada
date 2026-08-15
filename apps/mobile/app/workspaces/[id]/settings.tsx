@@ -197,19 +197,28 @@ export default function WorkspaceSettings() {
 
   const chooseHarness = (adapter: ApiAdapterInfo) => {
     if (!adapter.available || adapter.id === local.adapter) return
-    const previous = local
-    const model = adapter.models[0] ?? ''
-    const effort = adapter.efforts[0] ?? ''
-    setLocal((prev) => ({ ...prev, adapter: adapter.id, model, effort }))
+    const previousAdapter = local.adapter
+    const previousModel = local.model
+    const previousEffort = local.effort
+    const nextModel = adapter.models[0] ?? ''
+    const nextEffort = adapter.efforts[0] ?? ''
+    setLocal((prev) => ({ ...prev, adapter: adapter.id, model: nextModel, effort: nextEffort }))
     setAgentError('')
     void patchWorkspace
-      .mutateAsync({ defaultAdapter: adapter.id, defaultModel: model, defaultEffort: effort })
+      .mutateAsync({ defaultAdapter: adapter.id, defaultModel: nextModel, defaultEffort: nextEffort })
       .catch((err) => {
-        // The server rejected the switch (e.g. a 400) — roll the optimistic update back so the
-        // UI doesn't keep showing a harness/model/effort combination the server never accepted;
-        // a stale-looking success here would also make the *next* patch (e.g. a model pick)
-        // send a model that isn't valid for whatever harness the server actually has on file.
-        setLocal(previous)
+        // Field-level, compare-and-swap restore — not a whole-object snapshot restore. This
+        // harness switch touches three fields, so a later-arriving rejection here must only roll
+        // back whichever of them still hold what THIS switch optimistically set. If e.g. a model
+        // pick landed successfully while this PATCH was still in flight, `model` has already
+        // moved on to that confirmed value and must be left alone; overwriting it with this
+        // switch's pre-change value would silently stomp the later success.
+        setLocal((cur) => ({
+          ...cur,
+          adapter: cur.adapter === adapter.id ? previousAdapter : cur.adapter,
+          model: cur.model === nextModel ? previousModel : cur.model,
+          effort: cur.effort === nextEffort ? previousEffort : cur.effort,
+        }))
         setAgentError(apiErrorMessage(err, 'Failed to update the harness'))
       })
   }
@@ -217,38 +226,42 @@ export default function WorkspaceSettings() {
   const chooseModel = (model: string) => {
     setShowModelMenu(false)
     if (model === local.model) return
-    const previous = local
+    const previousModel = local.model
     setLocal((prev) => ({ ...prev, model }))
     setAgentError('')
     void patchWorkspace
       .mutateAsync({ defaultModel: model })
       .catch((err) => {
-        setLocal(previous)
+        setLocal((cur) => (cur.model === model ? { ...cur, model: previousModel } : cur))
         setAgentError(apiErrorMessage(err, 'Failed to update the model'))
       })
   }
 
   const chooseEffort = (effort: string) => {
     if (effort === local.effort) return
-    const previous = local
+    const previousEffort = local.effort
     setLocal((prev) => ({ ...prev, effort }))
     setAgentError('')
     void patchWorkspace
       .mutateAsync({ defaultEffort: effort })
       .catch((err) => {
-        setLocal(previous)
+        setLocal((cur) => (cur.effort === effort ? { ...cur, effort: previousEffort } : cur))
         setAgentError(apiErrorMessage(err, 'Failed to update the effort'))
       })
   }
 
   // ---------------------------------------------------------------- run limits
   const setConcurrency = (next: number) => {
-    const previous = local
+    const previousConcurrency = local.concurrency
     setLocal((prev) => ({ ...prev, concurrency: next }))
     // No local error text for these two (the global mutation-error toast already covers it) —
     // but a rejected patch still has to roll the optimistic value back, or the stepper would
-    // keep showing a concurrency the server never accepted.
-    void patchWorkspace.mutateAsync({ concurrency: next }).catch(() => setLocal(previous))
+    // keep showing a concurrency the server never accepted. Field-scoped and compare-and-swap
+    // like the agent handlers above, for the same reason: don't stomp a value some other,
+    // later-resolving patch already moved on from.
+    void patchWorkspace
+      .mutateAsync({ concurrency: next })
+      .catch(() => setLocal((cur) => (cur.concurrency === next ? { ...cur, concurrency: previousConcurrency } : cur)))
   }
   const incrementConcurrency = () => {
     if (local.concurrency < CONCURRENCY_MAX) setConcurrency(local.concurrency + 1)
@@ -261,9 +274,11 @@ export default function WorkspaceSettings() {
     setShowTimeoutMenu(false)
     const timeoutMs = minutes * 60_000
     if (timeoutMs === local.timeoutMs) return
-    const previous = local
+    const previousTimeoutMs = local.timeoutMs
     setLocal((prev) => ({ ...prev, timeoutMs }))
-    void patchWorkspace.mutateAsync({ timeoutMs }).catch(() => setLocal(previous))
+    void patchWorkspace
+      .mutateAsync({ timeoutMs })
+      .catch(() => setLocal((cur) => (cur.timeoutMs === timeoutMs ? { ...cur, timeoutMs: previousTimeoutMs } : cur)))
   }
 
   // ---------------------------------------------------------------- global

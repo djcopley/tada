@@ -1,6 +1,6 @@
 import type { ApiAdapterInfo, ApiSource, ApiWorkspaceDetail } from '@tada/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions } from 'react-native'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ToastHost } from '../src/toast'
@@ -346,6 +346,64 @@ describe('Workspace settings screen', () => {
       // A subsequent model pick now correctly targets claude's model list, not gemini's.
       await fireEvent.press(screen.getByTestId('model-menu-trigger'))
       expect(screen.getByTestId('model-option-opus')).toBeTruthy()
+    })
+
+    test('overlapping PATCHes: a late-rejecting harness switch does not stomp a model pick that already succeeded', async () => {
+      const { ApiError } = require('../src/api/client')
+      mockAdapters.mockResolvedValue([
+        adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus'], efforts: ['low', 'medium'] }),
+        adapter({ id: 'gemini', label: 'Gemini', available: true, models: ['pro', 'flash'], efforts: ['fast', 'thorough'] }),
+      ])
+
+      // The harness-switch PATCH (first mutateAsync call) stays pending until we reject it
+      // ourselves, below — simulating it resolving *after* a second, unrelated PATCH.
+      let rejectHarnessPatch: (err: unknown) => void = () => {}
+      const harnessPatchPromise = new Promise((_resolve, reject) => {
+        rejectHarnessPatch = reject
+      })
+      mockPatchWorkspace.mockImplementationOnce(() => harnessPatchPromise)
+      // The model-pick PATCH (second call) resolves immediately.
+      mockPatchWorkspace.mockResolvedValueOnce(workspace({ defaultModel: 'flash' }))
+
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('harness-gemini')).toBeTruthy())
+
+      // 1. Switch harness — its PATCH is now in flight (pending).
+      await fireEvent.press(screen.getByTestId('harness-gemini'))
+      await waitFor(() => {
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, {
+          defaultAdapter: 'gemini',
+          defaultModel: 'pro',
+          defaultEffort: 'fast',
+        })
+      })
+      expect(screen.getByTestId('model-menu-trigger')).toHaveTextContent('Pro ▾')
+
+      // 2. While the harness PATCH is still pending, pick a different model — its PATCH
+      // resolves right away.
+      await fireEvent.press(screen.getByTestId('model-menu-trigger'))
+      await fireEvent.press(screen.getByTestId('model-option-flash'))
+      await waitFor(() => {
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { defaultModel: 'flash' })
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('model-menu-trigger')).toHaveTextContent('Flash ▾')
+      })
+
+      // 3. Only now does the harness switch's PATCH reject.
+      await act(async () => {
+        rejectHarnessPatch(new ApiError(400, { error: 'Invalid adapter' }))
+        await harnessPatchPromise.catch(() => {})
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-error')).toHaveTextContent('Invalid adapter')
+      })
+      // The harness field-level-rolls-back (adapter/effort revert to claude/medium), but the
+      // model field must keep the value the *later* PATCH actually got the server to accept —
+      // a whole-object rollback would have stomped it back to "sonnet" here.
+      expect(screen.getByTestId('model-menu-trigger')).toHaveTextContent('Flash ▾')
+      expect(screen.getByTestId('effort-medium')).toBeTruthy()
     })
 
     test('a failed concurrency patch rolls the stepper back', async () => {

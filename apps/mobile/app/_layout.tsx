@@ -93,9 +93,29 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
   // nothing implicitly wipes the query cache anymore either: without this, a disconnect (incl.
   // the global 401 path) followed by reconnecting — same server with a replaced token, or a
   // different server entirely — would render stale workspaces/boards/memory/activity from the
-  // old connection, and server-assigned ids could collide across servers. Clear explicitly
-  // whenever the connection's identity changes, skipping the initial mount (nothing cached yet,
-  // no need to clear and no reason to force a double-fetch on a normal launch).
+  // old connection, and server-assigned ids could collide across servers.
+  //
+  // resetQueries() — not clear() — whenever the connection's identity changes, skipping the
+  // initial mount (nothing cached yet, no need to reset and no reason to force a double-fetch on
+  // a normal launch). This matters for the in-place case specifically: replacing the API token
+  // for the *same* server (Settings' "Replace" flow) doesn't navigate anywhere, so the screen
+  // stays mounted with live query observers throughout. queryCache.clear() only removes cache
+  // entries from the store — it doesn't notify a still-subscribed observer, so a mounted screen
+  // would keep rendering its pre-replace data indefinitely (the old bug this replaced). Query's
+  // own reset(), which resetQueries() calls per matching query, dispatches a state change that
+  // *does* notify observers, and resetQueries() additionally refetches every currently-active
+  // one — exactly what a still-mounted screen needs to pick up data from the new connection.
+  // (Screens that unmount instead, e.g. after a full disconnect, become inactive as part of the
+  // same render pass via GuardedStack's redirect — see src/components/GuardedStack.tsx — so
+  // resetQueries() never tries to refetch them with a stale or absent client.)
+  //
+  // Deliberately not layering clear() in alongside this: queryCache.findAll() (which
+  // resetQueries() uses to find what to reset) only sees entries still in the cache, so clear()
+  // before it would leave resetQueries() with nothing to act on, and clear()'s cancel-in-flight-
+  // fetch behavior right after would abort the very refetches resetQueries() just kicked off.
+  // resetQueries() alone is the minimal combination that's actually correct — inactive entries
+  // it resets (rather than removes) still show no stale data (state resets to empty/pending) and
+  // fall out of the cache normally via their configured gcTime once nothing observes them.
   const identity = connection ? `${connection.baseUrl}::${connection.token}` : null
   const previousIdentityRef = useRef<string | null | undefined>(undefined)
   useEffect(() => {
@@ -104,7 +124,7 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
       return
     }
     if (previousIdentityRef.current !== identity) {
-      queryClient.clear()
+      void queryClient.resetQueries()
     }
     previousIdentityRef.current = identity
   }, [identity, queryClient])
