@@ -158,7 +158,7 @@ function deleteMemory(
 }
 
 export function registerMemoryRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, wm } = deps
+  const { db, wm, hub } = deps
 
   app.get('/memory', async () => readMemory(db, 'global', null, ensureGlobalMemoryDir()))
 
@@ -242,7 +242,7 @@ export function registerMemoryRoutes(app: FastifyInstance, deps: RouteDeps): voi
     // Pending notes only ever come from write_memory_note, which targets workspace scope - so a
     // pending row always carries a workspaceId. Guard anyway rather than assume.
     if (row.workspaceId != null) {
-      recordActivity(db, {
+      recordActivity(db, hub, {
         workspaceId: row.workspaceId,
         runId: row.runId ?? undefined,
         type: 'note_kept',
@@ -266,7 +266,7 @@ export function registerMemoryRoutes(app: FastifyInstance, deps: RouteDeps): voi
     db.drizzle.delete(memoryNotes).where(eq(memoryNotes.id, id)).run()
 
     if (row.workspaceId != null) {
-      recordActivity(db, {
+      recordActivity(db, hub, {
         workspaceId: row.workspaceId,
         runId: row.runId ?? undefined,
         type: 'note_discarded',

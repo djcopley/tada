@@ -205,7 +205,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .all()
     if (!ticket) return reply.code(500).send({ error: 'failed to create ticket' })
 
-    recordActivity(db, {
+    recordActivity(db, hub, {
       workspaceId,
       ticketId: ticket.id,
       type: 'ticket_created',
@@ -368,7 +368,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     )
     if (moveErr) return reply.code(400).send({ error: moveErr.error })
 
-    recordActivity(db, {
+    recordActivity(db, hub, {
       workspaceId: ticket.workspaceId,
       ticketId: id,
       type: 'accepted',
@@ -410,7 +410,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     )
     if (moveErr) return reply.code(400).send({ error: moveErr.error })
 
-    recordActivity(db, {
+    recordActivity(db, hub, {
       workspaceId: ticket.workspaceId,
       ticketId: id,
       type: 'sent_back',

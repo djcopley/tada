@@ -19,6 +19,7 @@ export function makeAppDeps(
     wm,
     adapters: opts.adapters ?? new Map(),
     broadcast: hub.broadcast,
+    hub,
     pr: false,
   })
   return { db, config, wm, scheduler, broadcastHub: hub, adapters: opts.adapters ?? new Map() }

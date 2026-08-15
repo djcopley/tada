@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import type { ActivityBroadcaster } from '../activity.js'
 import { recordActivity } from '../activity.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, comments, events, memoryNotes, tickets } from '../db/schema.js'
@@ -19,6 +20,7 @@ export interface RunOutcome {
 interface RunContext {
   db: TadaDb
   wm: WorkspaceManager
+  hub: ActivityBroadcaster
   runId: number
   ticketId: number
   workspaceId: number
@@ -133,7 +135,7 @@ function createMcpServer(ctx: RunContext): McpServer {
           .run()
       }
 
-      recordActivity(ctx.db, {
+      recordActivity(ctx.db, ctx.hub, {
         workspaceId: ctx.workspaceId,
         runId: ctx.runId,
         type: 'memory_written',
@@ -183,7 +185,7 @@ function createMcpServer(ctx: RunContext): McpServer {
         .all()
       if (!proposal) throw new Error('failed to insert proposed ticket')
 
-      recordActivity(ctx.db, {
+      recordActivity(ctx.db, ctx.hub, {
         workspaceId: ctx.workspaceId,
         ticketId: proposal.id,
         runId: ctx.runId,
@@ -248,7 +250,12 @@ function bearerToken(header: string | undefined): string | undefined {
 }
 
 /** Registers the stateless MCP endpoint at POST /mcp, authed per-request by run token. */
-export function registerMcpRoute(app: FastifyInstance, db: TadaDb, wm: WorkspaceManager): void {
+export function registerMcpRoute(
+  app: FastifyInstance,
+  db: TadaDb,
+  wm: WorkspaceManager,
+  hub: ActivityBroadcaster,
+): void {
   app.post('/mcp', async (req, reply) => {
     const token = bearerToken(req.headers.authorization)
     const run = token
@@ -269,6 +276,7 @@ export function registerMcpRoute(app: FastifyInstance, db: TadaDb, wm: Workspace
     const server = createMcpServer({
       db,
       wm,
+      hub,
       runId: run.id,
       ticketId: run.ticketId,
       workspaceId: ticket.workspaceId,

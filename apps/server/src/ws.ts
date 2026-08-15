@@ -44,6 +44,10 @@ export class BroadcastHub {
     this.send(workspaceId, { type: 'board_changed', workspaceId })
   }
 
+  activityChanged = (workspaceId: number): void => {
+    this.send(workspaceId, { type: 'activity', workspaceId })
+  }
+
   private workspaceIdForRun(runId: number): number | undefined {
     const row = this.db.drizzle
       .select({ workspaceId: tickets.workspaceId })

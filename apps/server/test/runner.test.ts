@@ -7,13 +7,26 @@ import type { FakeScript } from '../src/adapters/fake.js'
 import { FakeAdapter } from '../src/adapters/fake.js'
 import type { Adapter } from '../src/adapters/types.js'
 import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, columns, events, pushTokens, tickets, workspaces } from '../src/db/schema.js'
+import {
+  activity,
+  agentRuns,
+  columns,
+  events,
+  pushTokens,
+  tickets,
+  workspaces,
+} from '../src/db/schema.js'
 import { git } from '../src/git.js'
 import { branchFor } from '../src/runs/runDir.js'
 import { executeRun } from '../src/runs/runner.js'
 import { WorkspaceManager } from '../src/workspaces/manager.js'
+import { BroadcastHub } from '../src/ws.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
 import { reportOutcome } from './helpers/reportOutcome.js'
+
+function activityRows(db: TadaDb, runId: number) {
+  return db.drizzle.select().from(activity).where(eq(activity.runId, runId)).all()
+}
 
 function testDb() {
   return openDb(join(mkdtempSync(join(tmpdir(), 'tada-db-')), 'test.db'))
@@ -83,6 +96,7 @@ describe('executeRun', () => {
   test('1. success: report_outcome success -> needs_review, ticket in_review, events include transitions', async () => {
     const { db, manager, ticket } = await setup()
     const run = seedRun(db, ticket.id)
+    const hub = new BroadcastHub(db)
 
     await executeRun(
       {
@@ -92,6 +106,7 @@ describe('executeRun', () => {
           act: async () => reportOutcome(db, run.id, ticket.id, 'success', 'done it'),
         }),
         pr: false,
+        hub,
       },
       run.id,
     )
@@ -110,13 +125,21 @@ describe('executeRun', () => {
       .map((e) => (e.payload as { status?: string }).status)
     expect(statuses).toContain('running')
     expect(statuses).toContain('needs_review')
+
+    const acts = activityRows(db, run.id)
+    expect(acts.map((a) => a.type)).toEqual(['run_started', 'needs_review'])
+    expect(
+      acts.every((a) => a.ticketId === ticket.id && a.workspaceId === ticket.workspaceId),
+    ).toBe(true)
+    expect(acts.find((a) => a.type === 'needs_review')?.message).toContain('done it')
   })
 
   test('2. no outcome reported -> failed, ticket back in ready, queueState held', async () => {
     const { db, manager, ticket } = await setup()
     const run = seedRun(db, ticket.id)
+    const hub = new BroadcastHub(db)
 
-    await executeRun({ db, wm: manager, adapters: adapters({}), pr: false }, run.id)
+    await executeRun({ db, wm: manager, adapters: adapters({}), pr: false, hub }, run.id)
 
     const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
     expect(updatedRun?.status).toBe('failed')
@@ -124,21 +147,35 @@ describe('executeRun', () => {
     const updatedTicket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticket.id)).get()
     expect(columnKind(db, updatedTicket?.columnId ?? -1)).toBe('ready')
     expect(updatedTicket?.queueState).toBe('held')
+
+    const acts = activityRows(db, run.id)
+    expect(acts.map((a) => a.type)).toEqual(['run_started', 'run_failed'])
+    expect(acts.find((a) => a.type === 'run_failed')?.message).toContain(
+      'agent did not report an outcome',
+    )
   })
 
   test('3. exitCode 1 -> failed', async () => {
     const { db, manager, ticket } = await setup()
     const run = seedRun(db, ticket.id)
+    const hub = new BroadcastHub(db)
 
-    await executeRun({ db, wm: manager, adapters: adapters({ exitCode: 1 }), pr: false }, run.id)
+    await executeRun(
+      { db, wm: manager, adapters: adapters({ exitCode: 1 }), pr: false, hub },
+      run.id,
+    )
 
     const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
     expect(updatedRun?.status).toBe('failed')
+
+    const acts = activityRows(db, run.id)
+    expect(acts.find((a) => a.type === 'run_failed')?.message).toContain('exited with code 1')
   })
 
   test('4. timeout -> failed within ~1s, abort signal fired', async () => {
     const { db, manager, ticket } = await setup({ timeoutMs: 50 })
     const run = seedRun(db, ticket.id)
+    const hub = new BroadcastHub(db)
 
     let sawAbort = false
     const script: FakeScript = {
@@ -152,7 +189,7 @@ describe('executeRun', () => {
     }
 
     const start = Date.now()
-    await executeRun({ db, wm: manager, adapters: adapters(script), pr: false }, run.id)
+    await executeRun({ db, wm: manager, adapters: adapters(script), pr: false, hub }, run.id)
     const elapsed = Date.now() - start
 
     expect(elapsed).toBeLessThan(1000)
@@ -160,6 +197,9 @@ describe('executeRun', () => {
 
     const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
     expect(updatedRun?.status).toBe('failed')
+
+    const acts = activityRows(db, run.id)
+    expect(acts.find((a) => a.type === 'run_failed')?.message).toContain('timed out at 50ms')
   })
 
   test('5. success with commits: branch pushed to origin, summary stored', async () => {

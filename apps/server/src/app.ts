@@ -5,6 +5,7 @@ import type { Adapter } from './adapters/types.js'
 import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
 import { registerMcpRoute } from './mcp/server.js'
+import { registerActivityRoutes } from './routes/activity.js'
 import { registerMemoryRoutes } from './routes/memory.js'
 import { registerRunRoutes } from './routes/runs.js'
 import { registerTicketRoutes } from './routes/tickets.js'
@@ -39,7 +40,7 @@ export function buildApp({
   const app = fastify()
   app.decorate('db', db)
   app.get('/health', async () => ({ ok: true }))
-  registerMcpRoute(app, db, wm)
+  registerMcpRoute(app, db, wm, broadcastHub)
 
   // The web build runs from a different origin than the server (Expo's dev server, or wherever the
   // static bundle is hosted), so every browser request is cross-origin and needs CORS. Reflecting
@@ -85,6 +86,7 @@ export function buildApp({
   registerTicketRoutes(app, routeDeps)
   registerRunRoutes(app, routeDeps)
   registerMemoryRoutes(app, routeDeps)
+  registerActivityRoutes(app, routeDeps)
 
   return app
 }

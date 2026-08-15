@@ -30,6 +30,7 @@ async function main(): Promise<void> {
     wm,
     adapters,
     broadcast: hub.broadcast,
+    hub,
     mcpUrl: `http://127.0.0.1:${config.port}/mcp`,
   })
   scheduler.recover()

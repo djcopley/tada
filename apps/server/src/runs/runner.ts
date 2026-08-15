@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import type { ColumnKind, RunStatus } from '@tada/shared'
 import { canMoveCard, canTransitionRun } from '@tada/shared'
 import { asc, eq } from 'drizzle-orm'
+import type { ActivityBroadcaster } from '../activity.js'
+import { noopActivityBroadcaster, recordActivity } from '../activity.js'
 import type { Adapter, AdapterEvent } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
@@ -22,12 +24,26 @@ export interface RunnerDeps {
   wm: WorkspaceManager
   adapters: Map<string, Adapter>
   broadcast?: BroadcastFn
+  /** Broadcasts activity feed updates. Defaults to a no-op (tests that don't care about the
+   * activity feed can omit it); production always supplies the real BroadcastHub. */
+  hub?: ActivityBroadcaster
   /** Open PRs for pushed branches. Defaults to true; set false in tests (no `gh`/network). */
   pr?: boolean
   /** MCP endpoint the adapter should call back to. Defaults to a placeholder for tests. */
   mcpUrl?: string
   /** fetch implementation used for Expo push notifications. Defaults to global fetch; override in tests. */
   fetchImpl?: typeof fetch
+}
+
+/** Plain-English duration for activity messages, e.g. `timed out at 30m`. */
+function humanizeMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  return `${Math.round(hours)}h`
 }
 
 function assertRunTransition(from: RunStatus, to: RunStatus): void {
@@ -60,6 +76,7 @@ export async function executeRun(
   externalSignal?: AbortSignal,
 ): Promise<void> {
   const { db, wm } = deps
+  const hub = deps.hub ?? noopActivityBroadcaster
 
   const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
   if (!run) throw new Error(`run ${runId} not found`)
@@ -86,6 +103,14 @@ export async function executeRun(
     .where(eq(agentRuns.id, runId))
     .run()
 
+  recordActivity(db, hub, {
+    workspaceId: ticket.workspaceId,
+    ticketId: ticket.id,
+    runId,
+    type: 'run_started',
+    message: `Started "${ticket.title}"`,
+  })
+
   const readyColumn = columnFor(db, ticket.workspaceId, 'ready')
   const inProgressColumn = columnFor(db, ticket.workspaceId, 'in_progress')
   assertCardMove('ready', 'in_progress')
@@ -99,7 +124,7 @@ export async function executeRun(
   // buildRunDir, prompt composition, memory reads, or completeRun) must route through
   // markFailed rather than propagate — otherwise the run wedges at 'running' with the card
   // stuck at in_progress and no journaled reason.
-  const markFailed = (): void => {
+  const markFailed = (reason: string): void => {
     journal.write({ type: 'status', payload: { kind: 'run_status', status: 'failed' } })
     assertRunTransition('running', 'failed')
     db.drizzle
@@ -114,6 +139,14 @@ export async function executeRun(
       .set({ columnId: readyColumn.id, queueState: 'held' })
       .where(eq(tickets.id, ticket.id))
       .run()
+
+    recordActivity(db, hub, {
+      workspaceId: ticket.workspaceId,
+      ticketId: ticket.id,
+      runId,
+      type: 'run_failed',
+      message: `"${ticket.title}" failed: ${reason}`,
+    })
 
     // report_outcome may have stored a summary before the run went on to fail (e.g. a crash
     // after the agent called it); re-read the row rather than trusting the stale `run` closure.
@@ -248,13 +281,9 @@ export async function executeRun(
 
     // 4. decide the outcome
     if (adapterError !== undefined) {
-      journal.write({
-        type: 'error',
-        payload: {
-          message: adapterError instanceof Error ? adapterError.message : String(adapterError),
-        },
-      })
-      markFailed()
+      const message = adapterError instanceof Error ? adapterError.message : String(adapterError)
+      journal.write({ type: 'error', payload: { message } })
+      markFailed(message)
       return
     }
 
@@ -267,18 +296,22 @@ export async function executeRun(
         type: 'error',
         payload: { message: `run timed out after ${workspace.timeoutMs}ms` },
       })
-      markFailed()
+      markFailed(`timed out at ${humanizeMs(workspace.timeoutMs)}`)
       return
     }
 
     if (exitCode !== undefined && exitCode !== 0) {
-      markFailed()
+      markFailed(`exited with code ${exitCode}`)
       return
     }
 
     const reported = pendingOutcome(db, runId)
-    if (!reported || reported.status === 'failed') {
-      markFailed()
+    if (!reported) {
+      markFailed('agent did not report an outcome')
+      return
+    }
+    if (reported.status === 'failed') {
+      markFailed(reported.summary)
       return
     }
 
@@ -312,6 +345,14 @@ export async function executeRun(
       .where(eq(tickets.id, ticket.id))
       .run()
 
+    recordActivity(db, hub, {
+      workspaceId: ticket.workspaceId,
+      ticketId: ticket.id,
+      runId,
+      type: 'needs_review',
+      message: `"${ticket.title}" is ready for review: ${reported.summary}`,
+    })
+
     notifyRunFinished(
       db,
       { id: runId, status: 'needs_review', summary: reported.summary },
@@ -319,10 +360,8 @@ export async function executeRun(
       deps.fetchImpl,
     ).catch((err) => console.error('notifyRunFinished failed:', err))
   } catch (err) {
-    journal.write({
-      type: 'error',
-      payload: { message: err instanceof Error ? err.message : String(err) },
-    })
-    markFailed()
+    const message = err instanceof Error ? err.message : String(err)
+    journal.write({ type: 'error', payload: { message } })
+    markFailed(message)
   }
 }
