@@ -4,7 +4,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
-import { keys, useAccept, useBoard, useComment, useMemory, usePatchTicket, useSendBack, useTicket, useWorkspace } from '../../src/api/queries'
+import { keys, useAccept, useBoard, useComment, useMemory, useMoveTicket, usePatchTicket, useSendBack, useTicket, useWorkspace } from '../../src/api/queries'
+import { positionBetween } from '../../src/board/positions'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
 import { CommentThread } from '../../src/components/CommentThread'
 import {
@@ -45,7 +46,7 @@ type TicketDetailData = {
 }
 
 export default function TicketDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, edit } = useLocalSearchParams<{ id: string; edit?: string }>()
   const ticketId = Number(id)
   const { data, isLoading, isError } = useTicket(ticketId)
 
@@ -70,10 +71,19 @@ export default function TicketDetail() {
     )
   }
 
-  return <TicketDetailBody ticketId={ticketId} data={data} />
+  return <TicketDetailBody ticketId={ticketId} data={data} startEditing={edit === '1'} />
 }
 
-function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDetailData }) {
+function TicketDetailBody({
+  ticketId,
+  data,
+  startEditing = false,
+}: {
+  ticketId: number
+  data: TicketDetailData
+  /** `/tickets/:id?edit=1` — Control's "Edit brief and re-run" opens straight into the editor. */
+  startEditing?: boolean
+}) {
   const router = useRouter()
   const qc = useQueryClient()
   const { colors } = useTheme()
@@ -86,11 +96,12 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
   const { data: workspace } = useWorkspace(ticket.workspaceId)
   const { data: memory } = useMemory(ticket.workspaceId)
   const patchTicket = usePatchTicket(ticket.workspaceId)
+  const moveTicket = useMoveTicket(ticket.workspaceId)
   const comment = useComment(ticketId)
   const accept = useAccept()
   const sendBack = useSendBack()
 
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(startEditing)
   const [titleDraft, setTitleDraft] = useState(ticket.title)
   const [descriptionDraft, setDescriptionDraft] = useState(ticket.description)
   const [celebrating, setCelebrating] = useState(false)
@@ -99,8 +110,24 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
 
   const hasActiveRun = runs.some((r) => ACTIVE_RUN_STATUSES.has(r.status))
   const latestRun = runs[runs.length - 1]
+  const runningRun = runs.find((r) => r.status === 'running')
   const column = board?.columns.find((c) => c.id === ticket.columnId)
+  const readyColumn = board?.columns.find((c) => c.kind === 'ready')
   const inReview = column?.kind === 'in_review' && latestRun !== undefined
+  // Queue it (again) from here: a backlog ticket, or a held one whose last attempt failed or was
+  // stopped — the same move Control's Re-run and the board's Send to Ready make.
+  const canQueue =
+    !hasActiveRun &&
+    readyColumn !== undefined &&
+    (column?.kind === 'backlog' || (column?.kind === 'ready' && ticket.queueState !== 'queued'))
+  const queueLabel = ticket.queueState === 'held' ? 'Re-run' : 'Send to Ready'
+  const queueNow = () => {
+    if (!readyColumn) return
+    const positions = readyColumn.tickets.map((t) => t.position)
+    const position =
+      column?.kind === 'ready' ? ticket.position : positionBetween(positions.length ? Math.max(...positions) : undefined, undefined)
+    moveTicket.mutate({ id: ticket.id, to: { columnId: readyColumn.id, position } }, { onError: (error) => handle409(error) })
+  }
 
   const startEdit = () => {
     if (hasActiveRun) return
@@ -186,6 +213,25 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
       <View style={styles.spacer} />
       {badge ? <Badge testID="ticket-status-badge" status={badge.status} label={badge.label} /> : null}
       {latestRun ? <Tag testID="ticket-attempt-tag" label={`attempt ${latestRun.attemptNumber}`} /> : null}
+      {runningRun ? (
+        <Button
+          testID="ticket-watch-live"
+          variant="secondary"
+          small
+          label="Watch live"
+          onPress={() => router.push(`/runs/${runningRun.id}`)}
+        />
+      ) : null}
+      {canQueue ? (
+        <Button
+          testID="ticket-queue"
+          variant="secondary"
+          small
+          label={queueLabel}
+          loading={moveTicket.isPending}
+          onPress={queueNow}
+        />
+      ) : null}
     </View>
   )
 
@@ -236,6 +282,7 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
               testID="brief-edit-save"
               small
               label="Save changes"
+              disabled={titleDraft.trim().length === 0}
               loading={patchTicket.isPending}
               onPress={saveEdit}
             />
@@ -267,7 +314,7 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
 
   const rightRail = (
     <View style={styles.rightRail}>
-      <AttemptsCard testID="attempts-card" rows={rows} />
+      <AttemptsCard testID="attempts-card" rows={rows} onOpenRun={(runId) => router.push(`/runs/${runId}`)} />
       <LinkedCard testID="linked-card" followUps={followUps} />
       <MemoryReadCard testID="memory-card" keptTitles={memoryInfo.keptTitles} highlighted={memoryInfo.highlighted} />
       {inReview ? (

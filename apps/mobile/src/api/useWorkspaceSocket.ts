@@ -78,12 +78,19 @@ export function useWorkspaceSocket(
           void queryClient.invalidateQueries({ queryKey: keys.activity() })
         } else if (msg.type === 'activity') {
           void queryClient.invalidateQueries({ queryKey: keys.activity() })
+          // An agent writing a memory note only journals activity (no board change), so the
+          // Memory screen would otherwise show the new pending note only after a reload.
+          void queryClient.invalidateQueries({ queryKey: keys.memory(wsId) })
+          void queryClient.invalidateQueries({ queryKey: keys.globalMemory })
         } else if (msg.type === 'run_event') {
           // A status event is the run finishing/starting: refresh the run itself (the run screen
           // otherwise kept polling and showing "live" until a refocus) and the board it's on.
           if (msg.event.type === 'status') {
             void queryClient.invalidateQueries({ queryKey: keys.run(msg.runId) })
             void queryClient.invalidateQueries({ queryKey: ['latestRunEvent', msg.runId] })
+            // The transcript stops polling once the run isn't live; the final lines land in it
+            // around this event, so fetch it once more rather than leave the raw output stale.
+            void queryClient.invalidateQueries({ queryKey: ['transcript', msg.runId] })
           }
           onRunEventRef.current?.(msg)
         }

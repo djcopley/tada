@@ -1,5 +1,5 @@
 import type { ApiActivity, ApiMemoryNote, ApiRun, ApiTicket, ApiWorkspaceListItem } from '@tada/shared'
-import { StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import {
   activityGlyph,
   elapsedLabel,
@@ -57,6 +57,8 @@ export type NeedsYouActions = {
   onRerun: () => void
   onEditAndRerun: () => void
   onMoveToBacklog: () => void
+  /** Tapping the card body (title, meta, agent well) opens the ticket itself. */
+  onOpen: () => void
 }
 
 /** One triage card: a ticket in review ("your turn") or held after a failed run ("failed").
@@ -93,7 +95,7 @@ export function NeedsYouCard({
   const prNumber = !failed ? prNumberFromUrl(latestRun?.prUrl) : null
 
   return (
-    <Card testID={testID} style={styles.triageCard}>
+    <Card testID={testID} style={styles.triageCard} onPress={actions.onOpen} nestedInteractive>
       <CardHeader title={ticket.title} meta={wide ? meta : undefined} />
       <View style={styles.triageMetaRow}>
         <Badge
@@ -214,18 +216,31 @@ export function LiveNowCard({
 
 /** Narrow-only: every live run collapsed into one AgentPanel digest, matching the mobile
  * artboard's `▸ session test · 12m · suite ×20 green` lines instead of per-card panels. */
+/** Narrow Control's live well: one mono line per running agent; each line opens its run. */
 export function LiveDigest({
   lines,
   testID,
 }: {
-  lines: { key: string; text: string }[]
+  lines: { key: string; text: string; onPress?: () => void }[]
   testID: string
 }) {
   return (
     <AgentPanel testID={testID} header="live now" meta={`${lines.length} ${lines.length === 1 ? 'agent' : 'agents'}`}>
-      {lines.map((line) => (
-        <AgentLine key={line.key}>{line.text}</AgentLine>
-      ))}
+      {lines.map((line) =>
+        line.onPress ? (
+          <Pressable
+            key={line.key}
+            testID={`${testID}-line-${line.key}`}
+            accessibilityRole="button"
+            onPress={line.onPress}
+            style={({ pressed }) => (pressed ? styles.pressed : null)}
+          >
+            <AgentLine>{line.text}</AgentLine>
+          </Pressable>
+        ) : (
+          <AgentLine key={line.key}>{line.text}</AgentLine>
+        ),
+      )}
     </AgentPanel>
   )
 }
@@ -381,6 +396,9 @@ export function WorkspaceStrip({
 }
 
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.7,
+  },
   cardHeader: {
     gap: 2,
   },

@@ -4,41 +4,12 @@ import { useState } from 'react'
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
+import { splitLinks } from '../linkify'
 import { relativeTime } from '../relativeTime'
 import { Icon } from './ui/Icon'
 
-const URL_REGEX = /https?:\/\/\S+/g
-const TRAILING_PUNCTUATION = '.,;:!?]}'
-
-/**
- * `\S+` greedily swallows trailing punctuation that's actually sentence
- * structure, not part of the URL ("...(https://x.com/foo)." would otherwise
- * link to "foo).") . Strip trailing punctuation off the match; `)` is only
- * stripped when the match itself contains no `(`, so a URL whose path
- * legitimately balances parens (e.g. a Wikipedia link) is left alone.
- */
-function trimTrailingPunctuation(url: string): { clean: string; trailing: string } {
-  const hasOpenParen = url.includes('(')
-  let end = url.length
-  while (end > 0) {
-    const ch = url.charAt(end - 1)
-    if (ch === ')') {
-      if (hasOpenParen) break
-      end -= 1
-      continue
-    }
-    if (TRAILING_PUNCTUATION.includes(ch)) {
-      end -= 1
-      continue
-    }
-    break
-  }
-  return { clean: url.slice(0, end), trailing: url.slice(end) }
-}
-
-/** Splits a comment body on bare URLs, rendering each URL as a tappable
- * span. Full markdown link rendering (`[text](url)`) is deferred — this
- * covers the common case of a pasted link. */
+/** Splits a comment body on links — markdown `[label](url)` (attach_link) and bare pasted URLs
+ * — rendering each as a tappable span (see linkify.ts). */
 function CommentBody({
   body,
   commentId,
@@ -60,8 +31,8 @@ function CommentBody({
   suffix?: ReactNode
 }) {
   const bodyStyle = [mono ? type.mono : type.body, { color }]
-  const matches = [...body.matchAll(URL_REGEX)]
-  if (matches.length === 0) {
+  const segments = splitLinks(body)
+  if (!segments.some((seg) => seg.kind === 'link')) {
     return (
       <Text style={bodyStyle}>
         {prefix}
@@ -71,27 +42,21 @@ function CommentBody({
     )
   }
 
-  const nodes: ReactNode[] = []
-  let cursor = 0
-  matches.forEach((match, i) => {
-    const raw = match[0]
-    const start = match.index ?? 0
-    if (start > cursor) nodes.push(<Text key={`t-${i}`}>{body.slice(cursor, start)}</Text>)
-    const { clean, trailing } = trimTrailingPunctuation(raw)
-    nodes.push(
+  let linkIndex = 0
+  const nodes: ReactNode[] = segments.map((seg, i) => {
+    if (seg.kind === 'text') return <Text key={`t-${i}`}>{seg.text}</Text>
+    const n = linkIndex++
+    return (
       <Text
         key={`u-${i}`}
-        testID={`comment-link-${commentId}-${i}`}
+        testID={`comment-link-${commentId}-${n}`}
         style={[styles.link, { color: linkColor }]}
-        onPress={() => void Linking.openURL(clean)}
+        onPress={() => void Linking.openURL(seg.url)}
       >
-        {clean}
-      </Text>,
+        {seg.label}
+      </Text>
     )
-    if (trailing) nodes.push(<Text key={`p-${i}`}>{trailing}</Text>)
-    cursor = start + raw.length
   })
-  if (cursor < body.length) nodes.push(<Text key="t-end">{body.slice(cursor)}</Text>)
 
   return (
     <Text style={bodyStyle}>

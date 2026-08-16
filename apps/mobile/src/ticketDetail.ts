@@ -134,6 +134,9 @@ export function attemptRows(
       if (pr) detailParts.push(`pr #${pr}`)
       const duration = runDuration(run.startedAt, run.finishedAt)
       if (duration) detailParts.push(`ran ${duration}`)
+      // A failed attempt's reason (timed out, agent-reported failure, no outcome) belongs here
+      // too — Control and the run screen aren't the only places that should say why.
+      if (run.status === 'failed' && run.summary?.trim()) detailParts.push(run.summary.trim())
       return {
         id: run.id,
         current: true,

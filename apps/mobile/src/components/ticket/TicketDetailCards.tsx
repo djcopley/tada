@@ -1,11 +1,12 @@
 import type { ApiRun } from '@tada/shared'
-import { StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { AttemptRow, LinkedFollowUp } from '../../ticketDetail'
 import { FOLLOW_UP_META, REVIEW_ACCEPT_HELPER_COPY, reviewStatLine } from '../../ticketDetail'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Icon } from '../ui/Icon'
 import { TadaStar } from '../ui/TadaStar'
 
 /** Small sans title + mono meta header above a Card's body — Card itself is a bare surface, so
@@ -63,7 +64,17 @@ export function ReviewCard({
   )
 }
 
-export function AttemptsCard({ rows, testID }: { rows: AttemptRow[]; testID: string }) {
+/** Every attempt row opens that run's activity screen (its feed, raw output, push/PR notes) — the
+ * only route to a finished run's screen. */
+export function AttemptsCard({
+  rows,
+  onOpenRun,
+  testID,
+}: {
+  rows: AttemptRow[]
+  onOpenRun?: (runId: number) => void
+  testID: string
+}) {
   const { colors } = useTheme()
   if (rows.length === 0) return null
   return (
@@ -71,11 +82,21 @@ export function AttemptsCard({ rows, testID }: { rows: AttemptRow[]; testID: str
       <CardHeader title="Attempts" />
       <View style={styles.attemptsList}>
         {rows.map((row) => (
-          <View key={row.id} testID={`${testID}-row-${row.id}`}>
-            <Text style={[type.mono, { color: row.current ? colors.okText : colors.textMuted }]}>{row.primary}</Text>
-            {row.detail ? <Text style={[type.mono, { color: colors.textFaintSolid }]}>{row.detail}</Text> : null}
-            {row.quote ? <Text style={[type.mono, { color: colors.textFaintSolid }]}>{row.quote}</Text> : null}
-          </View>
+          <Pressable
+            key={row.id}
+            testID={`${testID}-row-${row.id}`}
+            accessibilityRole={onOpenRun ? 'button' : undefined}
+            accessibilityLabel={onOpenRun ? `Open run ${row.primary}` : undefined}
+            onPress={onOpenRun ? () => onOpenRun(row.id) : undefined}
+            style={({ pressed }) => [styles.attemptRow, pressed && onOpenRun ? styles.pressed : null]}
+          >
+            <View style={styles.attemptText}>
+              <Text style={[type.mono, { color: row.current ? colors.okText : colors.textMuted }]}>{row.primary}</Text>
+              {row.detail ? <Text style={[type.mono, { color: colors.textFaintSolid }]}>{row.detail}</Text> : null}
+              {row.quote ? <Text style={[type.mono, { color: colors.textFaintSolid }]}>{row.quote}</Text> : null}
+            </View>
+            {onOpenRun ? <Icon name="chevron-right" size={14} color={colors.textFaintSolid} /> : null}
+          </Pressable>
         ))}
       </View>
     </Card>
@@ -165,6 +186,17 @@ const styles = StyleSheet.create({
   },
   attemptsList: {
     gap: space.sm + 2,
+  },
+  attemptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  attemptText: {
+    flex: 1,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   linkedList: {
     gap: space.md,

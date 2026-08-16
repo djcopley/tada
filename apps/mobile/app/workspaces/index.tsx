@@ -18,6 +18,7 @@ import {
   useTicketDetails,
   useWorkspaces,
 } from '../../src/api/queries'
+import { agentWellText } from '../../src/board/cardMeta'
 import { positionBetween } from '../../src/board/positions'
 import {
   LiveDigest,
@@ -185,14 +186,8 @@ export default function Control() {
     }
     return undefined
   }
-  const agentTextFor = (id: number): string | undefined => {
-    const detail = detailById.get(id)
-    if (!detail) return undefined
-    const agentComments = detail.comments.filter((c) => c.author === 'agent')
-    const lastComment = agentComments[agentComments.length - 1]
-    if (lastComment) return lastComment.body
-    return detail.runs[detail.runs.length - 1]?.summary ?? undefined
-  }
+  // Same rule as the board card wells (see agentWellText): a reported run's summary first.
+  const agentTextFor = (id: number): string | undefined => agentWellText(detailById.get(id))
 
   const runningRunIdFor = (id: number): number | undefined =>
     detailById.get(id)?.runs.find((r) => r.status === 'running')?.id
@@ -320,8 +315,9 @@ export default function Control() {
                 if (latestRun?.prUrl) void Linking.openURL(latestRun.prUrl)
               },
               onRerun: () => rerun(ticket),
-              onEditAndRerun: () => router.push(`/tickets/${ticket.id}`),
+              onEditAndRerun: () => router.push(`/tickets/${ticket.id}?edit=1`),
               onMoveToBacklog: () => moveToBacklog(ticket),
+              onOpen: () => router.push(`/tickets/${ticket.id}`),
             }}
           />
         )
@@ -537,6 +533,7 @@ export default function Control() {
     return {
       key: String(ticket.id),
       text: `${ticket.title.toLowerCase()} · ${elapsedLabel(running?.startedAt, now)} · ${digestText}`,
+      onPress: running ? () => router.push(`/runs/${running.id}`) : () => router.push(`/tickets/${ticket.id}`),
     }
   })
 

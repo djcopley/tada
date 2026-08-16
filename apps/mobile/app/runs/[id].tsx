@@ -124,7 +124,13 @@ function RunActivityBody({ runId }: { runId: number }) {
             onPress={() => goToControl(router)}
           />
           <View style={styles.headerTitleBlock}>
-            <Text testID="run-title" style={[type.title, { color: colors.text }]}>
+            {/* The title is the way to the ticket itself (thread, brief, attempts). */}
+            <Text
+              testID="run-title"
+              accessibilityRole={run ? 'link' : undefined}
+              onPress={run ? () => router.push(`/tickets/${run.ticketId}`) : undefined}
+              style={[type.title, { color: colors.text }]}
+            >
               {run?.ticketTitle ?? '…'}
             </Text>
             <Text testID="run-meta" style={[type.monoSmall, styles.metaText, { color: colors.textFaintSolid }]}>

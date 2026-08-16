@@ -115,7 +115,7 @@ export function NewWorkspaceDialog() {
     trimmedName.length > 0 && nameCheck
       ? nameCheck.available
         ? `✓ id ${nameCheck.id} · available`
-        : `✕ id ${nameCheck.id} · taken`
+        : `✕ id ${nameCheck.id} · ${nameCheck.reason ?? 'taken'}`
       : null
 
   return (

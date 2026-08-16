@@ -1,5 +1,6 @@
 import type { ApiComment, ApiRun, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
 import { heldWord, prNumberFromUrl } from '../control'
+import { plainTextLinks } from '../linkify'
 import { bareAge } from '../relativeTime'
 
 /**
@@ -66,10 +67,14 @@ export function followUpOfLabel(parentTitle: string | undefined): string | undef
  * latest run's summary. Mirrors Control's `agentTextFor`. */
 export function agentWellText(detail: { comments: ApiComment[]; runs: ApiRun[] } | undefined): string | undefined {
   if (!detail) return undefined
+  const latestRun = detail.runs[detail.runs.length - 1]
+  // Once a run has reported, its summary is the agent's word on the ticket — not whichever
+  // comment (a link, a progress note) happened to come last.
+  if (latestRun?.status !== 'running' && latestRun?.summary?.trim()) return plainTextLinks(latestRun.summary)
   const agentComments = detail.comments.filter((c) => c.author === 'agent')
   const last = agentComments[agentComments.length - 1]
-  if (last) return last.body
-  return detail.runs[detail.runs.length - 1]?.summary ?? undefined
+  if (last) return plainTextLinks(last.body)
+  return latestRun?.summary ?? undefined
 }
 
 /** A pending agent proposal — dashed-border card, not part of the normal drag flow. */
