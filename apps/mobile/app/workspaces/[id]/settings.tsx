@@ -19,6 +19,7 @@ import {
   Icon,
   Input,
   Menu,
+  type MenuAnchor,
   ListRow,
   Screen,
   Skeleton,
@@ -29,13 +30,15 @@ import { useConnection } from '../../../src/ConnectionContext'
 import { useTheme } from '../../../src/design/ThemeContext'
 import { humanize } from '../../../src/design/status'
 import { radius, space, type } from '../../../src/design/tokens'
+import { measureInWindow } from '../../../src/board/dnd'
 import { useLayout } from '../../../src/layout'
 import { showToast } from '../../../src/toast'
 import { useClaimActiveWorkspace } from '../../../src/useClaimActiveWorkspace'
 
 const TIMEOUT_OPTIONS_MIN = [10, 15, 30, 60] as const
 const CONCURRENCY_MIN = 1
-const CONCURRENCY_MAX = 8
+// Matches the server's bound (routes/workspaces.ts patch schema).
+const CONCURRENCY_MAX = 16
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   const apiErr = err as ApiError
@@ -51,9 +54,10 @@ function sourceTag(source: ApiSource): string {
   return source.url?.includes('github.com') ? 'repo · github' : 'repo · git'
 }
 
+/** Everything but the last four characters hidden — the token is shown as it is, prefix included. */
 function maskToken(token: string): string {
   const last4 = token.slice(-4)
-  return `tada_${'•'.repeat(10)}${last4}`
+  return `${'•'.repeat(10)}${last4}`
 }
 
 interface LocalDefaults {
@@ -102,6 +106,7 @@ export default function WorkspaceSettings() {
   }, [workspace?.id])
 
   const [repoToRemove, setRepoToRemove] = useState<string | null>(null)
+  const removeSourceIsFolder = workspace?.sources.find((s) => s.name === repoToRemove)?.type === 'folder'
   const [removeRepoError, setRemoveRepoError] = useState('')
 
   const [showAddRepo, setShowAddRepo] = useState(false)
@@ -118,6 +123,34 @@ export default function WorkspaceSettings() {
 
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [showReplaceToken, setShowReplaceToken] = useState(false)
+  // Dropdown menus open at their trigger (measured on press) rather than pinned to the screen top.
+  const modelTriggerRef = useRef<View>(null)
+  const timeoutTriggerRef = useRef<View>(null)
+  const [modelAnchor, setModelAnchor] = useState<MenuAnchor | null>(null)
+  const [timeoutAnchor, setTimeoutAnchor] = useState<MenuAnchor | null>(null)
+  const openAnchored = (
+    ref: { current: View | null },
+    setAnchor: (a: MenuAnchor | null) => void,
+    setOpen: (v: boolean) => void,
+  ) => {
+    const view = ref.current
+    if (!view) {
+      setAnchor(null)
+      setOpen(true)
+      return
+    }
+    // Measurement is async (a frame on native); if it never comes back (test renderers), open
+    // unanchored rather than not at all.
+    let opened = false
+    const open = (rect: MenuAnchor | null) => {
+      if (opened) return
+      opened = true
+      setAnchor(rect)
+      setOpen(true)
+    }
+    void measureInWindow(view).then(open)
+    setTimeout(() => open(null), 100)
+  }
   const [newToken, setNewToken] = useState('')
   const [replacingToken, setReplacingToken] = useState(false)
 
@@ -202,8 +235,14 @@ export default function WorkspaceSettings() {
     const previousAdapter = local.adapter
     const previousModel = local.model
     const previousEffort = local.effort
-    const nextModel = adapter.models[0] ?? ''
-    const nextEffort = adapter.efforts[0] ?? ''
+    // Keep the current model/effort when the new harness offers them; otherwise its first model
+    // and 'medium' (else its first effort) — the same fallback the server applies.
+    const nextModel = adapter.models.includes(local.model) ? local.model : (adapter.models[0] ?? '')
+    const nextEffort = adapter.efforts.includes(local.effort)
+      ? local.effort
+      : adapter.efforts.includes('medium')
+        ? 'medium'
+        : (adapter.efforts[0] ?? '')
     setLocal((prev) => ({ ...prev, adapter: adapter.id, model: nextModel, effort: nextEffort }))
     setAgentError('')
     void patchWorkspace
@@ -389,13 +428,15 @@ export default function WorkspaceSettings() {
 
         <View style={styles.agentRow}>
           <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>Model</Text>
-          <Button
-            testID="model-menu-trigger"
-            variant="secondary"
-            small
-            label={`${humanize(local.model)} ▾`}
-            onPress={() => setShowModelMenu(true)}
-          />
+          <View ref={modelTriggerRef} collapsable={false}>
+            <Button
+              testID="model-menu-trigger"
+              variant="secondary"
+              small
+              label={`${humanize(local.model)} ▾`}
+              onPress={() => openAnchored(modelTriggerRef, setModelAnchor, setShowModelMenu)}
+            />
+          </View>
           <Text style={[type.caption, styles.rowLabel, styles.effortLabel, { color: colors.text }]}>Effort</Text>
           {(currentAdapterInfo?.efforts ?? []).map((effort) => (
             <Button
@@ -442,13 +483,15 @@ export default function WorkspaceSettings() {
             <Text style={[type.caption, { color: colors.textFaintSolid }]}>Runs are stopped past this</Text>
           </View>
           <View style={styles.flex1} />
-          <Button
-            testID="timeout-menu-trigger"
-            variant="secondary"
-            small
-            label={`${currentTimeoutMinutes} min ▾`}
-            onPress={() => setShowTimeoutMenu(true)}
-          />
+          <View ref={timeoutTriggerRef} collapsable={false}>
+            <Button
+              testID="timeout-menu-trigger"
+              variant="secondary"
+              small
+              label={`${currentTimeoutMinutes} min ▾`}
+              onPress={() => openAnchored(timeoutTriggerRef, setTimeoutAnchor, setShowTimeoutMenu)}
+            />
+          </View>
         </View>
       </Card>
     </View>
@@ -572,7 +615,7 @@ export default function WorkspaceSettings() {
 
       <Dialog
         visible={repoToRemove !== null}
-        title="Remove repository?"
+        title={removeSourceIsFolder ? 'Detach folder?' : 'Remove repository?'}
         onClose={() => setRepoToRemove(null)}
         confirm={{
           label: 'Remove',
@@ -582,11 +625,13 @@ export default function WorkspaceSettings() {
         }}
       >
         <Text style={[type.body, { color: colors.textMuted }]}>
-          {`${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
+          {removeSourceIsFolder
+            ? `${repoToRemove ?? ''} will no longer be attached to this workspace. The folder on the server is not deleted.`
+            : `${repoToRemove ?? ''} will be removed from this workspace. The repository itself is not deleted.`}
         </Text>
       </Dialog>
 
-      <Menu visible={showModelMenu} onClose={() => setShowModelMenu(false)} testID="model-menu">
+      <Menu visible={showModelMenu} anchor={modelAnchor} onClose={() => setShowModelMenu(false)} testID="model-menu">
         {(currentAdapterInfo?.models ?? []).map((model) => (
           <ListRow
             key={model}
@@ -598,7 +643,7 @@ export default function WorkspaceSettings() {
         ))}
       </Menu>
 
-      <Menu visible={showTimeoutMenu} onClose={() => setShowTimeoutMenu(false)} testID="timeout-menu">
+      <Menu visible={showTimeoutMenu} anchor={timeoutAnchor} onClose={() => setShowTimeoutMenu(false)} testID="timeout-menu">
         {TIMEOUT_OPTIONS_MIN.map((minutes) => (
           <ListRow
             key={minutes}

@@ -257,7 +257,7 @@ describe('Workspace settings screen', () => {
       expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
 
-    test('switching to an available harness resets model + effort to its first entries in a single PATCH', async () => {
+    test('switching to a harness that lacks the current model/effort falls back to its first model + medium/first effort in one PATCH', async () => {
       mockAdapters.mockResolvedValue([
         adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus'], efforts: ['low', 'medium'] }),
         adapter({ id: 'gemini', label: 'Gemini', available: true, models: ['pro', 'flash'], efforts: ['fast', 'thorough'] }),
@@ -280,12 +280,32 @@ describe('Workspace settings screen', () => {
       expect(screen.getByTestId('effort-fast').props.accessibilityState.disabled).toBeFalsy()
     })
 
+    test('switching harness keeps the current effort when the new harness offers it', async () => {
+      mockAdapters.mockResolvedValue([
+        adapter({ id: 'claude', label: 'Claude', models: ['sonnet', 'opus'], efforts: ['low', 'medium', 'high'] }),
+        adapter({ id: 'gemini', label: 'Gemini', available: true, models: ['pro'], efforts: ['low', 'medium', 'high'] }),
+      ])
+      await renderSettings()
+      await waitFor(() => expect(screen.getByTestId('harness-gemini')).toBeTruthy())
+
+      await fireEvent.press(screen.getByTestId('harness-gemini'))
+
+      await waitFor(() => {
+        expect(mockPatchWorkspace).toHaveBeenCalledWith(1, {
+          defaultAdapter: 'gemini',
+          defaultModel: 'pro',
+          defaultEffort: 'medium',
+        })
+      })
+    })
+
     test('Model opens a Menu of the current harness models; selecting one PATCHes defaultModel', async () => {
       await renderSettings()
       await waitFor(() => expect(screen.getByTestId('model-menu-trigger')).toBeTruthy())
 
       await fireEvent.press(screen.getByTestId('model-menu-trigger'))
-      expect(screen.getByTestId('model-menu')).toBeTruthy()
+      // The menu opens once the trigger is measured (anchored under it).
+      await waitFor(() => expect(screen.getByTestId('model-menu')).toBeTruthy())
       expect(screen.getByTestId('model-option-opus')).toBeTruthy()
 
       await fireEvent.press(screen.getByTestId('model-option-opus'))
@@ -361,7 +381,7 @@ describe('Workspace settings screen', () => {
 
       // A subsequent model pick now correctly targets claude's model list, not gemini's.
       await fireEvent.press(screen.getByTestId('model-menu-trigger'))
-      expect(screen.getByTestId('model-option-opus')).toBeTruthy()
+      await waitFor(() => expect(screen.getByTestId('model-option-opus')).toBeTruthy())
     })
 
     test('overlapping PATCHes: a late-rejecting harness switch does not stomp a model pick that already succeeded', async () => {
@@ -398,6 +418,7 @@ describe('Workspace settings screen', () => {
       // 2. While the harness PATCH is still pending, pick a different model — its PATCH
       // resolves right away.
       await fireEvent.press(screen.getByTestId('model-menu-trigger'))
+      await waitFor(() => expect(screen.getByTestId('model-option-flash')).toBeTruthy())
       await fireEvent.press(screen.getByTestId('model-option-flash'))
       await waitFor(() => {
         expect(mockPatchWorkspace).toHaveBeenCalledWith(1, { defaultModel: 'flash' })
@@ -468,7 +489,7 @@ describe('Workspace settings screen', () => {
       })
     })
 
-    test('concurrency clamps to 1..8', async () => {
+    test('concurrency clamps to 1..16', async () => {
       mockGetWorkspace.mockResolvedValue(workspace({ concurrency: 1 }))
       await renderSettings()
       await waitFor(() => expect(screen.getByTestId('concurrency-stepper-decrement')).toBeTruthy())
@@ -478,8 +499,8 @@ describe('Workspace settings screen', () => {
       expect(mockPatchWorkspace).not.toHaveBeenCalled()
     })
 
-    test('concurrency does not exceed 8', async () => {
-      mockGetWorkspace.mockResolvedValue(workspace({ concurrency: 8 }))
+    test('concurrency does not exceed 16 (the server bound)', async () => {
+      mockGetWorkspace.mockResolvedValue(workspace({ concurrency: 16 }))
       await renderSettings()
       await waitFor(() => expect(screen.getByTestId('concurrency-stepper-increment')).toBeTruthy())
 
@@ -493,7 +514,7 @@ describe('Workspace settings screen', () => {
       await waitFor(() => expect(screen.getByTestId('timeout-menu-trigger')).toBeTruthy())
 
       await fireEvent.press(screen.getByTestId('timeout-menu-trigger'))
-      expect(screen.getByTestId('timeout-option-10')).toBeTruthy()
+      await waitFor(() => expect(screen.getByTestId('timeout-option-10')).toBeTruthy())
       expect(screen.getByTestId('timeout-option-60')).toBeTruthy()
 
       await fireEvent.press(screen.getByTestId('timeout-option-60'))
@@ -511,7 +532,7 @@ describe('Workspace settings screen', () => {
       await waitFor(() => {
         expect(screen.getByText('https://tada.home-server.dev')).toBeTruthy()
       })
-      expect(screen.getByTestId('masked-token')).toHaveTextContent('tada_••••••••••3f9a')
+      expect(screen.getByTestId('masked-token')).toHaveTextContent('••••••••••3f9a')
       expect(screen.getByTestId('theme-switch')).toBeTruthy()
     })
 
@@ -550,7 +571,7 @@ describe('Workspace settings screen', () => {
         expect(screen.queryByTestId('replace-token-dialog')?.props.visible ?? false).toBe(false)
       })
       await waitFor(() => {
-        expect(screen.getByTestId('masked-token')).toHaveTextContent('tada_••••••••••1234')
+        expect(screen.getByTestId('masked-token')).toHaveTextContent('••••••••••1234')
       })
     })
 
