@@ -13,6 +13,9 @@ import { ToastHost } from '../src/toast'
 jest.mock('expo-router', () => ({
   Stack: () => null,
   Redirect: () => null,
+  DarkTheme: { dark: true, colors: {} },
+  DefaultTheme: { dark: false, colors: {} },
+  ThemeProvider: ({ children }: { children: unknown }) => children,
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
 }))
 

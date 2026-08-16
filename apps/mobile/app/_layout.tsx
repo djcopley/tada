@@ -10,7 +10,7 @@ import {
 } from '@expo-google-fonts/instrument-sans'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useFonts } from 'expo-font'
-import { Stack } from 'expo-router'
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 import { StyleSheet } from 'react-native'
@@ -165,6 +165,30 @@ function ConnectedNewWorkspaceDialog() {
   return <NewWorkspaceDialog />
 }
 
+/**
+ * Hands the navigators our palette. Without this they fall back to React Navigation's default
+ * light theme, and the tabs' 'shift' animation (which slides scenes apart) exposes that
+ * background as a light band/flash on the dark ground during every section switch.
+ */
+function NavigationTheme({ children }: { children: ReactNode }) {
+  const { scheme, colors } = useTheme()
+  const theme = useMemo(() => {
+    const base = scheme === 'day' ? DefaultTheme : DarkTheme
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: colors.live,
+        background: colors.ground,
+        card: colors.ground,
+        text: colors.text,
+        border: colors.borderSubtle,
+      },
+    }
+  }, [scheme, colors])
+  return <NavigationThemeProvider value={theme}>{children}</NavigationThemeProvider>
+}
+
 export default function RootLayout() {
   // Screens design their own type with these faces; hold rendering one frame
   // until they're ready so nothing flashes in the system font.
@@ -191,7 +215,9 @@ export default function RootLayout() {
                 Stack. Headers are drawn by the shared AppHeader component inside
                 each screen, so every native header stays hidden.
               */}
-              <Stack screenOptions={{ headerShown: false }} />
+              <NavigationTheme>
+                <Stack screenOptions={{ headerShown: false }} />
+              </NavigationTheme>
               <ConnectedWorkspaceSwitcher />
               <ConnectedNewWorkspaceDialog />
               <ToastHost />
