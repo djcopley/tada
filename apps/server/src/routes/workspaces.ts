@@ -1,5 +1,5 @@
 import { basename } from 'node:path'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createDefaultColumns } from '../db/index.js'
@@ -23,8 +23,12 @@ const patchWorkspaceSchema = z
     defaultAdapter: z.string().min(1),
     defaultModel: z.string().min(1),
     defaultEffort: z.string().min(1),
-    concurrency: z.number().int().min(1),
-    timeoutMs: z.number().int().min(1),
+    concurrency: z.number().int().min(1).max(16),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(24 * 60 * 60 * 1000),
   })
   .partial()
 
@@ -50,20 +54,35 @@ function slugify(name: string): string {
 export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, wm, adapters } = deps
 
+  // One workspace with a missing/corrupt manifest.json must not take the whole list (and the
+  // client with it) down; it just reports no sources.
+  const safeSourceCount = (wsId: number): number => {
+    try {
+      return wm.listSources(wsId).length
+    } catch (err) {
+      app.log.warn({ err, workspaceId: wsId }, 'could not read workspace manifest')
+      return 0
+    }
+  }
+
   app.get('/workspaces', async () => {
     const rows = db.drizzle.select().from(workspaces).all()
     return rows.map((ws) => {
-      const counts = db.drizzle
+      const runningCount = db.drizzle
         .select({ status: agentRuns.status })
         .from(agentRuns)
         .innerJoin(tickets, eq(agentRuns.ticketId, tickets.id))
-        .where(
-          and(
-            eq(tickets.workspaceId, ws.id),
-            inArray(agentRuns.status, ['running', 'needs_review']),
-          ),
-        )
-        .all()
+        .where(and(eq(tickets.workspaceId, ws.id), eq(agentRuns.status, 'running')))
+        .all().length
+      // Counted from the board, not from run rows: accepting a ticket (or a later attempt
+      // superseding an earlier one) never transitions the old run out of needs_review, so a
+      // run-status count only ever grew.
+      const needsReviewCount = db.drizzle
+        .select({ id: tickets.id })
+        .from(tickets)
+        .innerJoin(columns, eq(tickets.columnId, columns.id))
+        .where(and(eq(tickets.workspaceId, ws.id), eq(columns.kind, 'in_review')))
+        .all().length
       const queuedCount = db.drizzle
         .select({ id: tickets.id })
         .from(tickets)
@@ -78,10 +97,10 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
         .all().length
       return {
         ...ws,
-        runningCount: counts.filter((c) => c.status === 'running').length,
-        needsReviewCount: counts.filter((c) => c.status === 'needs_review').length,
+        runningCount,
+        needsReviewCount,
         queuedCount,
-        sourceCount: wm.listSources(ws.id).length,
+        sourceCount: safeSourceCount(ws.id),
       }
     })
   })
@@ -172,10 +191,27 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
       }
     }
 
+    // A harness switch that doesn't re-supply model/effort must not leave the workspace on a
+    // model/effort the new harness doesn't offer: fall back to the adapter's first model and to
+    // 'medium' (else its first effort).
+    const patch: typeof parsed.data = { ...parsed.data }
+    if (
+      adapter &&
+      parsed.data.defaultAdapter !== undefined &&
+      parsed.data.defaultAdapter !== existing.defaultAdapter
+    ) {
+      if (patch.defaultModel === undefined && !adapter.models.includes(existing.defaultModel)) {
+        patch.defaultModel = adapter.models[0]
+      }
+      if (patch.defaultEffort === undefined && !adapter.efforts.includes(existing.defaultEffort)) {
+        patch.defaultEffort = adapter.efforts.includes('medium') ? 'medium' : adapter.efforts[0]
+      }
+    }
+
     // An empty patch is a no-op, not an error: drizzle's `set({})` throws ("No values to set"),
     // which would surface as a 500 for a request that asked for nothing.
-    if (Object.keys(parsed.data).length > 0) {
-      db.drizzle.update(workspaces).set(parsed.data).where(eq(workspaces.id, id)).run()
+    if (Object.keys(patch).length > 0) {
+      db.drizzle.update(workspaces).set(patch).where(eq(workspaces.id, id)).run()
     }
     return db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
   })

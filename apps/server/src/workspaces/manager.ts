@@ -157,7 +157,14 @@ export class WorkspaceManager {
 
     const byUrl = new Map<string, string>()
     for (const row of rows) {
-      for (const source of this.readManifest(row.path).sources) {
+      let sources: Source[]
+      try {
+        sources = this.readManifest(row.path).sources
+      } catch {
+        // A workspace whose manifest is missing/corrupt simply contributes no known repos.
+        continue
+      }
+      for (const source of sources) {
         if (source.type === 'repo' && !byUrl.has(source.url)) {
           byUrl.set(source.url, source.name)
         }

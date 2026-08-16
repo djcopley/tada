@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type {
   ApiBoard,
   ApiRunDetail,
+  ApiTicket,
   ApiTicketDetail,
   ApiWorkspaceDetail,
   ApiWorkspaceListItem,
@@ -687,6 +688,58 @@ describe('REST API + WebSocket events', () => {
     expect(check.body).toEqual({ id: 'dup', available: false })
   })
 
+  test('GET /workspaces needsReviewCount follows the in_review column (drops back after accept) and survives a broken manifest', async () => {
+    const { app, config, db, wm } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const board = await json(app, config, { method: 'GET', url: `/workspaces/${wsId}/board` })
+    const inReviewCol = columnIdFor(board.body as BoardPayload, 'in_review')
+
+    const t = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 'review me' },
+    })
+    const ticketId = (t.body as { id: number }).id
+    // Park a needs_review run on it and put the card in In review, the way a finished run does.
+    db.drizzle
+      .insert(agentRuns)
+      .values({
+        ticketId,
+        adapter: 'claude',
+        model: 'sonnet',
+        effort: 'medium',
+        attemptNumber: 1,
+        status: 'needs_review',
+        runToken: 'tok',
+      })
+      .run()
+    db.drizzle.update(tickets).set({ columnId: inReviewCol }).where(eq(tickets.id, ticketId)).run()
+
+    const before = await json(app, config, { method: 'GET', url: '/workspaces' })
+    expect(
+      (before.body as ApiWorkspaceListItem[]).find((w) => w.id === wsId)?.needsReviewCount,
+    ).toBe(1)
+
+    const accepted = await json(app, config, { method: 'POST', url: `/tickets/${ticketId}/accept` })
+    expect(accepted.status).toBe(200)
+
+    const after = await json(app, config, { method: 'GET', url: '/workspaces' })
+    expect(
+      (after.body as ApiWorkspaceListItem[]).find((w) => w.id === wsId)?.needsReviewCount,
+    ).toBe(0)
+
+    // A workspace whose manifest vanished must not 500 the whole list.
+    rmSync(join(wm.reposDir(wsId), '..', 'manifest.json'))
+    const broken = await json(app, config, { method: 'GET', url: '/workspaces' })
+    expect(broken.status).toBe(200)
+    expect((broken.body as ApiWorkspaceListItem[]).find((w) => w.id === wsId)?.sourceCount).toBe(0)
+  })
+
   test('GET /workspaces reports sourceCount and queuedCount (ready column + queueState=queued only), scoped per workspace', async () => {
     const { app, config, db } = await setupApp()
 
@@ -869,6 +922,102 @@ describe('REST API + WebSocket events', () => {
       payload: { defaultAdapter: 'gemini', defaultModel: 'gemini-3-pro', defaultEffort: 'high' },
     })
     expect(rejected.status).toBe(400)
+  })
+
+  test('PATCH workspace switching only the harness resets a stored model/effort the new harness lacks', async () => {
+    const { app, config } = await setupApp(stubAdapters())
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+
+    // Fresh workspace: claude/sonnet/medium. Switch harness only; gemini has neither.
+    const switched = await json(app, config, {
+      method: 'PATCH',
+      url: `/workspaces/${wsId}`,
+      payload: { defaultAdapter: 'gemini' },
+    })
+    expect(switched.status).toBe(200)
+    expect(switched.body as ApiWorkspaceDetail).toMatchObject({
+      defaultAdapter: 'gemini',
+      defaultModel: 'gemini-3-pro',
+      defaultEffort: 'default',
+    })
+  })
+
+  test('PATCH ticket validates model/effort overrides against the workspace default adapter when no adapter override is set', async () => {
+    const { app, config } = await setupApp(stubAdapters())
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const bogusModel = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { modelOverride: 'totally-bogus' },
+    })
+    expect(bogusModel.status).toBe(400)
+
+    const bogusEffort = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { effortOverride: 'zzz' },
+    })
+    expect(bogusEffort.status).toBe(400)
+
+    const ok = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { modelOverride: 'opus', effortOverride: 'high' },
+    })
+    expect(ok.status).toBe(200)
+
+    // Switching only the adapter override clears overrides the new adapter can't honour.
+    const switched = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: { adapterOverride: 'gemini' },
+    })
+    expect(switched.status).toBe(200)
+    expect(switched.body as ApiTicket).toMatchObject({
+      adapterOverride: 'gemini',
+      modelOverride: null,
+      effortOverride: null,
+    })
+  })
+
+  test('PATCH ticket with an empty body is a 200 no-op', async () => {
+    const { app, config } = await setupApp()
+    const ws = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'ws' },
+    })
+    const wsId = (ws.body as { id: number }).id
+    const ticket = await json(app, config, {
+      method: 'POST',
+      url: '/tickets',
+      payload: { workspaceId: wsId, title: 't' },
+    })
+    const ticketId = (ticket.body as { id: number }).id
+
+    const res = await json(app, config, {
+      method: 'PATCH',
+      url: `/tickets/${ticketId}`,
+      payload: {},
+    })
+    expect(res.status).toBe(200)
   })
 
   test('PATCH ticket with an unknown adapterOverride returns 400', async () => {

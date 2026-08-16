@@ -9,16 +9,19 @@ import { cleanupRunDirs } from '../runs/runDir.js'
 import type { RouteDeps } from './deps.js'
 import { cancelRun } from './runs.js'
 
+const TITLE_MAX = 500
+const DESCRIPTION_MAX = 100_000
+
 const createTicketSchema = z.object({
   workspaceId: z.number().int(),
-  title: z.string().min(1),
-  description: z.string().default(''),
+  title: z.string().min(1).max(TITLE_MAX),
+  description: z.string().max(DESCRIPTION_MAX).default(''),
 })
 
 const patchTicketSchema = z
   .object({
-    title: z.string().min(1),
-    description: z.string(),
+    title: z.string().min(1).max(TITLE_MAX),
+    description: z.string().max(DESCRIPTION_MAX),
     position: z.number(),
     adapterOverride: z.string().nullable(),
     modelOverride: z.string().nullable(),
@@ -249,29 +252,59 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       })
     }
 
-    if (parsed.data.modelOverride != null) {
-      const adapterName =
-        parsed.data.adapterOverride !== undefined
-          ? parsed.data.adapterOverride
-          : ticket.adapterOverride
-      const adapter = adapterName != null ? adapters.get(adapterName) : undefined
-      if (adapterName != null && !adapter?.models.includes(parsed.data.modelOverride)) {
-        return reply.code(400).send({
-          error: `unknown model: ${parsed.data.modelOverride} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
-        })
-      }
+    // Overrides are validated against the adapter the run would actually use after this patch:
+    // the override being set, else the stored override, else the workspace default. (Skipping
+    // validation whenever no adapter override was set let bogus models through to the runner.)
+    const workspace = db.drizzle
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, ticket.workspaceId))
+      .get()
+    const effectiveAdapterName =
+      (parsed.data.adapterOverride !== undefined
+        ? parsed.data.adapterOverride
+        : ticket.adapterOverride) ?? workspace?.defaultAdapter
+    const effectiveAdapter =
+      effectiveAdapterName != null ? adapters.get(effectiveAdapterName) : undefined
+
+    if (
+      parsed.data.modelOverride != null &&
+      !effectiveAdapter?.models.includes(parsed.data.modelOverride)
+    ) {
+      return reply.code(400).send({
+        error: `unknown model: ${parsed.data.modelOverride} for adapter ${effectiveAdapterName}. valid models: ${effectiveAdapter?.models.join(', ') ?? 'none (unknown adapter)'}`,
+      })
     }
 
-    if (parsed.data.effortOverride != null) {
-      const adapterName =
-        parsed.data.adapterOverride !== undefined
-          ? parsed.data.adapterOverride
-          : ticket.adapterOverride
-      const adapter = adapterName != null ? adapters.get(adapterName) : undefined
-      if (adapterName != null && !adapter?.efforts.includes(parsed.data.effortOverride)) {
-        return reply.code(400).send({
-          error: `unknown effort: ${parsed.data.effortOverride} for adapter ${adapterName}. valid efforts: ${adapter?.efforts.join(', ') ?? 'none (unknown adapter)'}`,
-        })
+    if (
+      parsed.data.effortOverride != null &&
+      !effectiveAdapter?.efforts.includes(parsed.data.effortOverride)
+    ) {
+      return reply.code(400).send({
+        error: `unknown effort: ${parsed.data.effortOverride} for adapter ${effectiveAdapterName}. valid efforts: ${effectiveAdapter?.efforts.join(', ') ?? 'none (unknown adapter)'}`,
+      })
+    }
+
+    // Changing the adapter override without re-supplying model/effort: drop stored overrides the
+    // new adapter can't honour rather than carrying an invalid combination into the next run.
+    const patch: typeof parsed.data = { ...parsed.data }
+    if (
+      parsed.data.adapterOverride !== undefined &&
+      parsed.data.adapterOverride !== ticket.adapterOverride
+    ) {
+      if (
+        patch.modelOverride === undefined &&
+        ticket.modelOverride != null &&
+        !effectiveAdapter?.models.includes(ticket.modelOverride)
+      ) {
+        patch.modelOverride = null
+      }
+      if (
+        patch.effortOverride === undefined &&
+        ticket.effortOverride != null &&
+        !effectiveAdapter?.efforts.includes(ticket.effortOverride)
+      ) {
+        patch.effortOverride = null
       }
     }
 
@@ -288,8 +321,11 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       if (activeRun) return reply.code(409).send({ error: 'ticket has an active run' })
     }
 
-    db.drizzle.update(tickets).set(parsed.data).where(eq(tickets.id, id)).run()
-    hub.boardChanged(ticket.workspaceId)
+    // An empty patch is a no-op, not an error: drizzle's `set({})` throws ("No values to set").
+    if (Object.keys(patch).length > 0) {
+      db.drizzle.update(tickets).set(patch).where(eq(tickets.id, id)).run()
+      hub.boardChanged(ticket.workspaceId)
+    }
     return ticketOr404(deps, id)
   })
 
