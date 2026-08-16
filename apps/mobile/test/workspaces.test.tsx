@@ -40,8 +40,9 @@ class FakeWebSocket {
 }
 
 const mockPush = jest.fn()
+const mockNavigate = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
 }))
 
 jest.mock('../src/settings', () => ({
@@ -625,7 +626,7 @@ describe('Control screen', () => {
     })
     await fireEvent.press(screen.getByTestId('control-settings-button'))
 
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/1/settings')
   })
 
   test('live-now elapsed label reflects the run\'s startedAt against the current time', async () => {
@@ -653,7 +654,7 @@ describe('Control screen', () => {
     await waitFor(() => {
       expect(mockCreateWorkspace).toHaveBeenCalledWith('New One')
     })
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/42/board')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/42/board')
   })
 
   test('a 409 from re-run shows the run-in-progress toast and refreshes the stale board', async () => {

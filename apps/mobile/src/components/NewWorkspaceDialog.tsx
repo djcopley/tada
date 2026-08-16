@@ -66,7 +66,7 @@ export function NewWorkspaceDialog() {
         await client.addSource(workspace.id, { type: 'repo', url })
       }
       close()
-      router.push(`/workspaces/${workspace.id}/board`)
+      router.navigate(`/workspaces/${workspace.id}/board`)
     } catch {
       // Global mutation error handler already surfaces a toast; leave the dialog open to retry.
     }

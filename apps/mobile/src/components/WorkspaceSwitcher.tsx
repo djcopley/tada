@@ -75,7 +75,8 @@ export function WorkspaceSwitcher() {
     close()
     // Opened from Memory, a workspace pick lands on that workspace's memory (the scope you were
     // just switching); everywhere else it's the board.
-    router.push(showGlobal ? `/workspaces/${id}/memory` : `/workspaces/${id}/board`)
+    // Board/Memory are tabs, so this re-parameterises the tab in place rather than pushing.
+    router.navigate(showGlobal ? `/workspaces/${id}/memory` : `/workspaces/${id}/board`)
   }
 
   const createWorkspace = () => {

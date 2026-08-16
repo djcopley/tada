@@ -18,11 +18,13 @@ function setWidth(width: number) {
 }
 
 const mockPush = jest.fn()
+const mockNavigate = jest.fn()
 const mockUseLocalSearchParams = jest.fn()
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, [cb]) },
   useNavigation: () => ({ addListener: jest.fn(() => jest.fn()), dispatch: jest.fn() }),
 }))
 
@@ -541,7 +543,7 @@ describe('Memory screens', () => {
       })
       await fireEvent.press(screen.getByTestId('memory-settings-button'))
 
-      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
+      expect(mockNavigate).toHaveBeenCalledWith('/workspaces/1/settings')
     })
   })
 
@@ -612,7 +614,7 @@ describe('Memory screens', () => {
       await fireEvent.press(screen.getByTestId('switcher-workspace-1'))
 
       // Opened from Memory, a workspace pick lands on that workspace's memory, not its board.
-      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/memory')
+      expect(mockNavigate).toHaveBeenCalledWith('/workspaces/1/memory')
     })
   })
 

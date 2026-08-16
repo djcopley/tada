@@ -34,6 +34,7 @@ import { space, type } from '../../design/tokens'
 import { showToast } from '../../toast'
 import { openWorkspaceSwitcher } from '../WorkspaceSwitcher'
 import { CardHeader } from '../ticket/TicketDetailCards'
+import { useClaimActiveWorkspace } from '../../useClaimActiveWorkspace'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -82,6 +83,7 @@ export function MemoryListScreen(props: Props) {
   const globalMemory = useGlobalMemory()
   const { data: workspace } = useWorkspace(wsId)
   const { activeWorkspaceId } = useActiveWorkspace()
+  useClaimActiveWorkspace(scope === 'workspace' ? wsId : undefined)
 
   const putMemory = usePutMemory(wsId ?? -1)
   const putGlobalMemory = useGlobalPutMemory()
@@ -394,7 +396,7 @@ export function MemoryListScreen(props: Props) {
             icon="settings"
             label="Settings"
             size="sm"
-            onPress={() => router.push(`/workspaces/${navWorkspaceId}/settings`)}
+            onPress={() => router.navigate(`/workspaces/${navWorkspaceId}/settings`)}
           />
         ) : null}
       </View>

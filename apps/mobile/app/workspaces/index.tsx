@@ -500,7 +500,7 @@ export default function Control() {
                   workspaceName={memoryWorkspace.name}
                   keptNotes={keptNotes}
                   pendingNote={pendingNotes[pendingNotes.length - 1]}
-                  onEditMemory={() => router.push(`/workspaces/${memoryWorkspace.id}/memory`)}
+                  onEditMemory={() => router.navigate(`/workspaces/${memoryWorkspace.id}/memory`)}
                 />
               ) : null}
 
@@ -516,7 +516,7 @@ export default function Control() {
                   key={w.id}
                   testID={`workspace-strip-${w.id}`}
                   workspace={w}
-                  onBoard={() => router.push(`/workspaces/${w.id}/board`)}
+                  onBoard={() => router.navigate(`/workspaces/${w.id}/board`)}
                 />
               ))}
 
@@ -564,7 +564,7 @@ export default function Control() {
             icon="settings"
             label="Settings"
             size="sm"
-            onPress={() => router.push(`/workspaces/${memoryWorkspaceId}/settings`)}
+            onPress={() => router.navigate(`/workspaces/${memoryWorkspaceId}/settings`)}
           />
         ) : null}
       </View>
@@ -591,7 +591,7 @@ export default function Control() {
             key={w.id}
             testID={`workspace-strip-${w.id}`}
             workspace={w}
-            onBoard={() => router.push(`/workspaces/${w.id}/board`)}
+            onBoard={() => router.navigate(`/workspaces/${w.id}/board`)}
           />
         ))}
         <View style={styles.narrowActions}>

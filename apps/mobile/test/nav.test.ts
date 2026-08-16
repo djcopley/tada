@@ -36,32 +36,18 @@ describe('goBackOr', () => {
 })
 
 describe('goToSection', () => {
-  const router = () => ({ push: jest.fn(), replace: jest.fn(), dismissTo: jest.fn() })
+  const router = () => ({ navigate: jest.fn() })
 
   test('tapping the active section is a no-op', () => {
     const r = router()
     goToSection(r, { key: 'board', active: 'board', href: '/workspaces/1/board' })
-    expect(r.push).not.toHaveBeenCalled()
-    expect(r.replace).not.toHaveBeenCalled()
-    expect(r.dismissTo).not.toHaveBeenCalled()
+    expect(r.navigate).not.toHaveBeenCalled()
   })
 
-  test('Control pops back to the Control already in the stack', () => {
-    const r = router()
-    goToSection(r, { key: 'control', active: 'memory', href: '/workspaces' })
-    expect(r.dismissTo).toHaveBeenCalledWith('/workspaces')
-  })
-
-  test('a section opened from Control is pushed', () => {
+  test('any other section is a tab jump (navigate), never a push', () => {
     const r = router()
     goToSection(r, { key: 'board', active: 'control', href: '/workspaces/1/board' })
-    expect(r.push).toHaveBeenCalledWith('/workspaces/1/board')
-  })
-
-  test('switching between sections replaces instead of stacking', () => {
-    const r = router()
-    goToSection(r, { key: 'memory', active: 'board', href: '/workspaces/1/memory' })
-    expect(r.replace).toHaveBeenCalledWith('/workspaces/1/memory')
-    expect(r.push).not.toHaveBeenCalled()
+    goToSection(r, { key: 'control', active: 'memory', href: '/workspaces' })
+    expect(r.navigate.mock.calls).toEqual([['/workspaces/1/board'], ['/workspaces']])
   })
 })

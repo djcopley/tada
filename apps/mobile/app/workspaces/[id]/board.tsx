@@ -40,6 +40,7 @@ import { useTheme } from '../../../src/design/ThemeContext'
 import { motion, radius, space, type } from '../../../src/design/tokens'
 import { useLayout } from '../../../src/layout'
 import { showToast } from '../../../src/toast'
+import { useClaimActiveWorkspace } from '../../../src/useClaimActiveWorkspace'
 import type { View as RNView } from 'react-native'
 
 /** Fixed width of the web Rail (see src/components/ui/Rail.tsx) — subtracted from the window
@@ -81,6 +82,7 @@ export default function Board() {
   const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
 
   useWorkspaceSocket(Number.isNaN(wsId) ? undefined : wsId)
+  useClaimActiveWorkspace(wsId)
 
   // ---------------------------------------------------------------- drag state
   const [drag, setDrag] = useState<DragTicket | null>(null)
@@ -585,7 +587,7 @@ export default function Board() {
             icon="settings"
             label="Settings"
             size="sm"
-            onPress={() => router.push(`/workspaces/${wsId}/settings`)}
+            onPress={() => router.navigate(`/workspaces/${wsId}/settings`)}
           />
         </View>
 

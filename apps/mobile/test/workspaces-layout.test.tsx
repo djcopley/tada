@@ -6,6 +6,7 @@ const mockRedirect = jest.fn((_props: { href: string }) => null)
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: string }) => mockRedirect(props),
   Stack: Object.assign(() => null, { Screen: () => null }),
+  Tabs: Object.assign(() => null, { Screen: () => null }),
 }))
 
 jest.mock('../src/settings', () => ({

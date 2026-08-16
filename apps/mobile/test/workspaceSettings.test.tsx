@@ -11,12 +11,15 @@ const mockUseLocalSearchParams = jest.fn()
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn() }),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, [cb]) },
 }))
 
 jest.mock('../src/settings', () => ({
   loadConnection: jest.fn(async () => ({ baseUrl: 'https://tada.home-server.dev', token: 'tada_supersecret3f9a' })),
   saveConnection: jest.fn(async () => undefined),
   clearConnection: jest.fn(async () => undefined),
+  loadActiveWorkspaceId: jest.fn(async () => null),
+  saveActiveWorkspaceId: jest.fn(async () => undefined),
   loadThemeScheme: jest.fn(async () => 'night'),
   saveThemeScheme: jest.fn(async () => undefined),
 }))

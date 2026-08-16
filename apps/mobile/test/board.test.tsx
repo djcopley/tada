@@ -80,9 +80,11 @@ function setWidth(width: number) {
 }
 
 const mockPush = jest.fn()
+const mockNavigate = jest.fn()
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: '1' }),
-  useRouter: () => ({ push: mockPush }),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, [cb]) },
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
   Stack: Object.assign(() => null, { Screen: () => null }),
 }))
 
@@ -648,7 +650,7 @@ describe('Board screen', () => {
     })
     await fireEvent.press(screen.getByTestId('board-settings-button'))
 
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/1/settings')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/1/settings')
   })
 
   test('dragging a backlog card and dropping it still fires a move', async () => {

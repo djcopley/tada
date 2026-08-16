@@ -1,6 +1,6 @@
 import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { AddSourceBody } from './client'
 import { useClient } from './ClientContext'
 import { loadActiveWorkspaceId, saveActiveWorkspaceId } from '../settings'
@@ -416,25 +416,47 @@ export function useRemoveSource(wsId: number) {
  * loads. `activeWorkspaceId` is `undefined` while the stored id is still
  * loading and there's no workspace list yet to fall back to.
  */
+// One shared value for every mounted screen (Control, Board, Memory, Settings all stay mounted
+// as tabs), rather than per-hook-instance state: a Board picking its workspace has to be seen
+// by Control's strip immediately, not on Control's next mount.
+let activeIdValue: number | null = null
+let activeIdLoaded = false
+const activeIdListeners = new Set<() => void>()
+function readActiveId(): number | null {
+  return activeIdValue
+}
+function writeActiveId(id: number | null): void {
+  activeIdValue = id
+  for (const l of activeIdListeners) l()
+}
+function subscribeActiveId(l: () => void): () => void {
+  activeIdListeners.add(l)
+  if (!activeIdLoaded) {
+    activeIdLoaded = true
+    void loadActiveWorkspaceId().then((id) => {
+      if (activeIdValue === null) writeActiveId(id)
+    })
+  }
+  return () => {
+    activeIdListeners.delete(l)
+  }
+}
+/** Test hook: forget the shared active-workspace value between cases. */
+export function resetActiveWorkspaceForTests(): void {
+  activeIdValue = null
+  activeIdLoaded = false
+}
+
 export function useActiveWorkspace(): {
   activeWorkspaceId: number | undefined
   setActiveWorkspaceId: (id: number) => void
 } {
   const { data: workspaces } = useWorkspaces()
-  const [storedId, setStoredId] = useState<number | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void loadActiveWorkspaceId().then((id) => {
-      if (!cancelled) setStoredId(id)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const storedId = useSyncExternalStore(subscribeActiveId, readActiveId, readActiveId)
 
   const setActiveWorkspaceId = useCallback((id: number) => {
-    setStoredId(id)
+    if (id === activeIdValue) return
+    writeActiveId(id)
     void saveActiveWorkspaceId(id)
   }, [])
 

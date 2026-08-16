@@ -5,8 +5,9 @@ import { ClientProvider } from '../src/api/ClientContext'
 import { openWorkspaceSwitcher, WorkspaceSwitcher } from '../src/components/WorkspaceSwitcher'
 
 const mockPush = jest.fn()
+const mockNavigate = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
 }))
 
 jest.mock('../src/settings', () => ({
@@ -161,7 +162,7 @@ describe('WorkspaceSwitcher', () => {
 
     await fireEvent.press(screen.getByTestId('switcher-workspace-5'))
 
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/5/board')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/5/board')
     await waitFor(() => {
       expect(screen.queryByTestId('workspace-switcher')).toBeNull()
     })

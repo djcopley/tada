@@ -4,11 +4,9 @@ import { useLayout, WIDE_BREAKPOINT } from '../src/layout'
 import { Rail } from '../src/components/ui/Rail'
 import { BottomStrip } from '../src/components/ui/BottomStrip'
 
-const mockPush = jest.fn()
-const mockReplace = jest.fn()
-const mockDismissTo = jest.fn()
+const mockNavigate = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, dismissTo: mockDismissTo }),
+  useRouter: () => ({ navigate: mockNavigate }),
 }))
 
 function setWindowWidth(width: number) {
@@ -42,32 +40,26 @@ describe('Rail', () => {
     jest.clearAllMocks()
   })
 
-  test('from Control, a section is pushed; the active item is a no-op', async () => {
+  test('sections navigate (tab jump) scoped to the workspace; the active item is a no-op', async () => {
     await render(<Rail active="control" workspaceId={7} workspaceName="parlor" sourceCount={2} />)
 
     await fireEvent.press(screen.getByTestId('rail-nav-board'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/7/board')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/7/board')
 
     await fireEvent.press(screen.getByTestId('rail-nav-memory'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/7/memory')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/7/memory')
 
     await fireEvent.press(screen.getByTestId('rail-nav-settings'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/7/settings')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/7/settings')
 
     await fireEvent.press(screen.getByTestId('rail-nav-control'))
-    expect(mockPush).not.toHaveBeenCalledWith('/workspaces')
-    expect(mockDismissTo).not.toHaveBeenCalled()
+    expect(mockNavigate).toHaveBeenCalledTimes(3)
   })
 
-  test('between sections it replaces; Control pops back', async () => {
+  test('Control from a section navigates home', async () => {
     await render(<Rail active="board" workspaceId={7} />)
-
-    await fireEvent.press(screen.getByTestId('rail-nav-memory'))
-    expect(mockReplace).toHaveBeenCalledWith('/workspaces/7/memory')
-    expect(mockPush).not.toHaveBeenCalled()
-
     await fireEvent.press(screen.getByTestId('rail-nav-control'))
-    expect(mockDismissTo).toHaveBeenCalledWith('/workspaces')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces')
   })
 
   test('control nav item shows the needs-you count', async () => {
@@ -84,8 +76,7 @@ describe('Rail', () => {
     await render(<Rail active="control" />)
 
     await fireEvent.press(screen.getByTestId('rail-nav-board'))
-    expect(mockPush).not.toHaveBeenCalled()
-    expect(mockReplace).not.toHaveBeenCalled()
+    expect(mockNavigate).not.toHaveBeenCalled()
     expect(screen.getByTestId('rail-nav-board')).toBeDisabled()
   })
 })
@@ -95,32 +86,28 @@ describe('BottomStrip', () => {
     jest.clearAllMocks()
   })
 
-  test('from Control, a segment is pushed scoped to the given workspace; Control pops back', async () => {
+  test('segments navigate scoped to the given workspace; the active one is a no-op', async () => {
     await render(<BottomStrip active="control" workspaceId={7} />)
 
     await fireEvent.press(screen.getByTestId('bottom-strip-board'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/7/board')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/7/board')
 
     await fireEvent.press(screen.getByTestId('bottom-strip-memory'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces/7/memory')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/7/memory')
 
     await fireEvent.press(screen.getByTestId('bottom-strip-control'))
-    expect(mockPush).toHaveBeenCalledTimes(2)
+    expect(mockNavigate).toHaveBeenCalledTimes(2)
   })
 
-  test('between sections it replaces; Control pops back', async () => {
+  test('Control from a section navigates home', async () => {
     await render(<BottomStrip active="memory" workspaceId={7} />)
-
-    await fireEvent.press(screen.getByTestId('bottom-strip-board'))
-    expect(mockReplace).toHaveBeenCalledWith('/workspaces/7/board')
-
     await fireEvent.press(screen.getByTestId('bottom-strip-control'))
-    expect(mockDismissTo).toHaveBeenCalledWith('/workspaces')
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces')
   })
 
   test('Board/Memory are inert when no workspace is scoped', async () => {
     await render(<BottomStrip active="control" />)
     await fireEvent.press(screen.getByTestId('bottom-strip-board'))
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })

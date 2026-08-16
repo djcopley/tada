@@ -25,19 +25,14 @@ export function goToControl(router: RouterLike): void {
 export type SectionKey = 'control' | 'board' | 'memory' | 'settings'
 
 type SectionRouter = {
-  push: (href: string) => void
-  replace: (href: string) => void
-  dismissTo: (href: string) => void
+  navigate: (href: string) => void
 }
 
 /**
- * Tab-like switching between Control and a workspace's Board/Memory/Settings from the Rail and
- * BottomStrip. Keeps the stack at most `[Control, one section]` instead of pushing a fresh copy
- * per tap:
- *   - the active section is a no-op (tapping "Board" on Board does nothing);
- *   - Control pops back to the Control already in the stack (dismissTo replaces when it isn't);
- *   - a section opened from Control is pushed, so back returns to Control;
- *   - switching between sections replaces the current one, so back still returns to Control.
+ * Switching between Control and a workspace's Board/Memory/Settings from the Rail and
+ * BottomStrip. They are tabs (see app/workspaces/_layout.tsx), so this is a plain `navigate`:
+ * the tab navigator jumps sideways to the target instead of pushing anything, and the active
+ * section is a no-op (tapping "Board" on Board does nothing).
  */
 export function goToSection(
   router: SectionRouter,
@@ -45,13 +40,5 @@ export function goToSection(
 ): void {
   const { key, active, href } = opts
   if (key === active) return
-  if (key === 'control') {
-    router.dismissTo(href)
-    return
-  }
-  if (active === 'control') {
-    router.push(href)
-  } else {
-    router.replace(href)
-  }
+  router.navigate(href)
 }

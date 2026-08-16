@@ -32,6 +32,7 @@ import { humanize } from '../../../src/design/status'
 import { radius, space, type } from '../../../src/design/tokens'
 import { useLayout } from '../../../src/layout'
 import { showToast } from '../../../src/toast'
+import { useClaimActiveWorkspace } from '../../../src/useClaimActiveWorkspace'
 
 const TIMEOUT_OPTIONS_MIN = [10, 15, 30, 60] as const
 const CONCURRENCY_MIN = 1
@@ -67,6 +68,7 @@ interface LocalDefaults {
 export default function WorkspaceSettings() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const wsId = Number(id)
+  useClaimActiveWorkspace(wsId)
   const { colors } = useTheme()
   const { wide } = useLayout()
   const { connection, connect, disconnect } = useConnection()

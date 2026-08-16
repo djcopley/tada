@@ -5,8 +5,9 @@ import { ClientProvider } from '../src/api/ClientContext'
 import { NewWorkspaceDialog, openNewWorkspaceDialog } from '../src/components/NewWorkspaceDialog'
 
 const mockPush = jest.fn()
+const mockNavigate = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
 }))
 
 const mockCheckName = jest.fn()
@@ -146,7 +147,7 @@ describe('NewWorkspaceDialog', () => {
     })
     expect(mockAddSource).not.toHaveBeenCalledWith(42, { type: 'repo', url: 'https://github.com/acme/infra.git' })
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/workspaces/42/board')
+      expect(mockNavigate).toHaveBeenCalledWith('/workspaces/42/board')
     })
   })
 
@@ -161,7 +162,7 @@ describe('NewWorkspaceDialog', () => {
       expect(mockCreateWorkspace).toHaveBeenCalledWith('Acme web')
     })
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/workspaces/42/board')
+      expect(mockNavigate).toHaveBeenCalledWith('/workspaces/42/board')
     })
     expect(mockAddSource).not.toHaveBeenCalled()
   })
