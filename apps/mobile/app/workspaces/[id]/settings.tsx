@@ -460,7 +460,9 @@ export default function WorkspaceSettings() {
         <View style={[styles.limitRow, { borderBottomColor: colors.borderSubtle }]}>
           <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>Server</Text>
           <View style={[styles.dot, { backgroundColor: colors.okText }]} />
-          <Text style={[type.mono, { color: colors.textMuted }]}>{connection?.baseUrl ?? '—'}</Text>
+          <Text numberOfLines={1} style={[type.mono, styles.shrinkValue, { color: colors.textMuted }]}>
+            {connection?.baseUrl ?? '—'}
+          </Text>
           <View style={styles.flex1} />
           <Button
             testID="disconnect-button"
@@ -472,7 +474,7 @@ export default function WorkspaceSettings() {
         </View>
         <View style={!wide ? [styles.limitRow, { borderBottomColor: colors.borderSubtle }] : styles.limitRow}>
           <Text style={[type.caption, styles.rowLabel, { color: colors.text }]}>API token</Text>
-          <Text testID="masked-token" style={[type.mono, { color: colors.textMuted }]}>
+          <Text testID="masked-token" numberOfLines={1} style={[type.mono, styles.shrinkValue, { color: colors.textMuted }]}>
             {connection ? maskToken(connection.token) : '—'}
           </Text>
           <View style={styles.flex1} />
@@ -792,5 +794,9 @@ const styles = StyleSheet.create({
   },
   flex1: {
     flex: 1,
+  },
+  // Long server URLs / tokens give way (ellipsis) so the row's button never pushes off-screen.
+  shrinkValue: {
+    flexShrink: 1,
   },
 })
