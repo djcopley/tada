@@ -103,6 +103,8 @@ export default function Connect() {
                 secureTextEntry
                 value={token}
                 onChangeText={setToken}
+                returnKeyType="go"
+                onSubmitEditing={() => void onConnect()}
               />
               <Button
                 testID="connect-button"

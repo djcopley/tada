@@ -178,6 +178,25 @@ describe('NewWorkspaceDialog', () => {
     expect(screen.queryByTestId('new-workspace-dialog')).toBeNull()
   })
 
+  test('a rejected create (409 name collision, 400 bad name) shows the server reason inline', async () => {
+    const { ApiError } = require('../src/api/client')
+    mockCreateWorkspace.mockRejectedValueOnce(new ApiError(409, { error: 'workspace name already exists' }))
+    await renderDialog()
+    await openDialog()
+
+    await fireEvent.changeText(screen.getByTestId('workspace-name-input'), 'Acme web')
+    await fireEvent.press(screen.getByTestId('workspace-create-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-create-error')).toHaveTextContent('workspace name already exists')
+    })
+    // Still open, so the name can be corrected; typing clears the message.
+    expect(screen.getByTestId('new-workspace-dialog')).toBeTruthy()
+    await fireEvent.changeText(screen.getByTestId('workspace-name-input'), 'Acme web 2')
+    expect(screen.queryByTestId('workspace-create-error')).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
   test('create with no repos checked: skips addSource entirely', async () => {
     await renderDialog()
     await openDialog()

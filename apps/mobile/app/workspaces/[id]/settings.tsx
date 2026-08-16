@@ -143,7 +143,8 @@ export default function WorkspaceSettings() {
   }
 
   // ---------------------------------------------------------------- sources
-  const validateRepoUrl = (url: string): boolean => url.startsWith('https://') || url.startsWith('git@')
+  // Anything git itself clones: https/ssh/git/file URLs and scp-style git@host:path.
+  const validateRepoUrl = (url: string): boolean => /^(https?|ssh|git|file):\/\/\S+$/.test(url) || /^[\w.-]+@[\w.-]+:\S+$/.test(url)
 
   const handleAddRepo = () => {
     setAddRepoError('')
@@ -152,7 +153,7 @@ export default function WorkspaceSettings() {
       return
     }
     if (!validateRepoUrl(addRepoUrl)) {
-      setAddRepoError('URL must start with https:// or git@')
+      setAddRepoError('Enter a git URL (https://, ssh://, git@host:path or file://)')
       return
     }
     void addSource
@@ -524,12 +525,14 @@ export default function WorkspaceSettings() {
         <Input
           testID="add-repo-url-input"
           label="Repository URL"
-          placeholder="https://… or git@…"
+          placeholder="https://…, git@…, ssh://… or file://…"
           mono
           autoCapitalize="none"
           autoCorrect={false}
           value={addRepoUrl}
           onChangeText={setAddRepoUrl}
+          returnKeyType="done"
+          onSubmitEditing={handleAddRepo}
         />
         {addRepoError ? errorText('add-repo-error', addRepoError) : null}
       </Dialog>
@@ -561,6 +564,8 @@ export default function WorkspaceSettings() {
           autoCorrect={false}
           value={addFolderPath}
           onChangeText={setAddFolderPath}
+          returnKeyType="done"
+          onSubmitEditing={handleAddFolder}
         />
         {addFolderError ? errorText('add-folder-error', addFolderError) : null}
       </Dialog>

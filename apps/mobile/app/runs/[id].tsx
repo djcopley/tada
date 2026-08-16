@@ -8,7 +8,7 @@ import { useClient } from '../../src/api/ClientContext'
 import { keys, useNudge, useRun, useWorkspace } from '../../src/api/queries'
 import { useRunEvents } from '../../src/api/useRunEvents'
 import { useWorkspaceSocket } from '../../src/api/useWorkspaceSocket'
-import { AgentLine, AgentPanel, Badge, Button, Dialog, EmptyState, Input, Screen } from '../../src/components/ui'
+import { AgentLine, AgentPanel, AppHeader, Badge, Button, Dialog, EmptyState, Input, Screen } from '../../src/components/ui'
 import { EventFeed } from '../../src/components/EventFeed'
 import { elapsedLabel, useNowTick } from '../../src/control'
 import { useTheme } from '../../src/design/ThemeContext'
@@ -23,15 +23,25 @@ export default function RunActivity() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const runId = Number(id)
 
-  if (Number.isNaN(runId)) {
-    return (
-      <Screen>
-        <EmptyState icon="alert-circle" message="This run doesn't exist." />
-      </Screen>
-    )
-  }
+  if (Number.isNaN(runId)) return <MissingRun />
 
   return <RunActivityBody runId={runId} />
+}
+
+/** Unknown/stale run id (a push notification for a run that has since been cleaned up, a typo in
+ * the URL): still a way back, so it isn't a dead end. */
+function MissingRun() {
+  const router = useRouter()
+  return (
+    <Screen testID="run-missing">
+      <AppHeader title="Run" back backHref="/workspaces" />
+      <EmptyState
+        icon="alert-circle"
+        message="This run doesn't exist."
+        action={{ label: 'Back to Control', onPress: () => goToControl(router) }}
+      />
+    </Screen>
+  )
 }
 
 function RunActivityBody({ runId }: { runId: number }) {
@@ -95,13 +105,7 @@ function RunActivityBody({ runId }: { runId: number }) {
     })
   }
 
-  if (runMissing) {
-    return (
-      <Screen>
-        <EmptyState icon="alert-circle" message="This run doesn't exist." />
-      </Screen>
-    )
-  }
+  if (runMissing) return <MissingRun />
 
   const badge = runHeaderBadge(run, live, now)
   const metaLine = run ? runMetaLine(workspace?.name ?? '—', workspace?.sources[0]?.name, run.attemptNumber) : '—'
@@ -165,6 +169,8 @@ function RunActivityBody({ runId }: { runId: number }) {
                 placeholder="Nudge with a note — the agent sees it between steps"
                 value={nudgeNote}
                 onChangeText={setNudgeNote}
+                returnKeyType="send"
+                onSubmitEditing={sendNudge}
               />
               <Button testID="nudge-send" variant="secondary" small label="Send" loading={nudge.isPending} onPress={sendNudge} />
             </View>

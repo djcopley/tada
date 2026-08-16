@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router'
 import { Tabs } from 'expo-router/js-tabs'
 import { useConnection } from '../../src/ConnectionContext'
 import { SectionTabBar } from '../../src/components/frame/SectionTabBar'
+import { StyleSheet } from 'react-native'
 import { useLayout } from '../../src/layout'
 
 /**
@@ -29,12 +30,17 @@ export default function WorkspacesLayout() {
       // Back retraces the tabs you actually visited (Board → gear → Settings → back lands on
       // Board, as the browser does on web), rather than always snapping to Control.
       backBehavior="history"
-      screenOptions={{
+      screenOptions={({ navigation }) => ({
         headerShown: false,
         lazy: true,
         animation: wide ? 'none' : 'shift',
         tabBarPosition: wide ? 'left' : 'bottom',
-      }}
+        // On web, react-native-screens is off, so inactive tab scenes stay laid out beneath the
+        // active one — still focusable with Tab and read by screen readers. Wide has no scene
+        // animation, so a blurred scene can simply be display:none. (Narrow keeps them laid out:
+        // the shift animation needs both scenes visible while it runs.)
+        sceneStyle: wide && !navigation.isFocused() ? styles.hiddenScene : undefined,
+      })}
     >
       <Tabs.Screen name="index" />
       <Tabs.Screen name="[id]/board" />
@@ -43,3 +49,7 @@ export default function WorkspacesLayout() {
     </Tabs>
   )
 }
+
+const styles = StyleSheet.create({
+  hiddenScene: { display: 'none' },
+})

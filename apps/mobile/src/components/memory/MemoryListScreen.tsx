@@ -164,7 +164,18 @@ export function MemoryListScreen(props: Props) {
       setNameError('Invalid name (no / or .. allowed)')
       return
     }
-    const fileName = newNoteName.endsWith('.md') ? newNoteName : `${newNoteName}.md`
+    const trimmed = newNoteName.trim()
+    const fileName = trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`
+    // A note is created empty, so a name that already exists (compared case-insensitively — the
+    // server may sit on a case-insensitive filesystem) would silently blank that note. AGENTS.md
+    // is the pinned charter and always exists.
+    const taken =
+      fileName.toLowerCase() === 'agents.md' ||
+      notes.some((n) => n.file.toLowerCase() === fileName.toLowerCase())
+    if (taken) {
+      setNameError(`${fileName} already exists — open it from the list instead`)
+      return
+    }
     setShowNamePrompt(false)
     setNewNoteName('')
     setNameError('')
@@ -198,6 +209,7 @@ export function MemoryListScreen(props: Props) {
       testID="memory-workspace-switcher"
       variant="secondary"
       small
+      style={styles.shrinkTrigger}
       label={switcherLabel}
       onPress={() => openWorkspaceSwitcher('memory')}
     />
@@ -231,7 +243,7 @@ export function MemoryListScreen(props: Props) {
 
           <View style={styles.divider}>
             <Text style={[type.monoCaps, styles.caps, { color: colors.textFaintSolid }]}>
-              {`${(workspace?.name ?? '').toUpperCase()} · ${notes.length} NOTES`}
+              {`${(workspace?.name ?? '').toUpperCase()} · ${notes.length} ${notes.length === 1 ? 'NOTE' : 'NOTES'}`}
             </Text>
             <View style={[styles.dividerLine, { backgroundColor: colors.borderSubtle }]} />
           </View>
@@ -302,6 +314,8 @@ export function MemoryListScreen(props: Props) {
           mono
           autoFocus
           value={newNoteName}
+          returnKeyType="done"
+          onSubmitEditing={handleSubmitName}
           onChangeText={(text) => {
             setNewNoteName(text)
             setNameError('')
@@ -355,7 +369,7 @@ export function MemoryListScreen(props: Props) {
     />
   )
 
-  const notesCount = <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{`${notes.length} notes`}</Text>
+  const notesCount = <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>{`${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`}</Text>
 
   if (wide) {
     return (
@@ -440,6 +454,10 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
+  },
+  // Long workspace names shrink (ellipsis) rather than pushing the header's buttons off-screen.
+  shrinkTrigger: {
+    flexShrink: 1,
   },
   narrowMeta: {
     paddingHorizontal: space.lg,

@@ -548,6 +548,7 @@ export default function Board() {
       testID="board-workspace-switcher"
       variant="secondary"
       small
+      style={styles.shrinkTrigger}
       label={`${workspace.name} ▾`}
       onPress={() => openWorkspaceSwitcher('nav')}
     />
@@ -651,6 +652,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
     paddingBottom: space.sm,
+  },
+  // Long workspace names shrink (ellipsis) rather than pushing the header's buttons off-screen.
+  shrinkTrigger: {
+    flexShrink: 1,
   },
   floatingCard: {
     position: 'absolute',

@@ -65,7 +65,9 @@ export function Button({
       ) : (
         <View style={styles.content}>
           {icon ? <Icon name={icon} size={small ? 14 : 16} color={palette.fg} /> : null}
-          <Text style={[small ? type.caption : type.bodyStrong, { color: palette.fg }]}>{label}</Text>
+          <Text numberOfLines={1} style={[small ? type.caption : type.bodyStrong, styles.label, { color: palette.fg }]}>
+            {label}
+          </Text>
         </View>
       )}
     </Pressable>
@@ -93,5 +95,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+  },
+  // A caller that gives the button `flexShrink` gets an ellipsised label instead of overflow
+  // (workspace names in narrow headers).
+  label: {
+    flexShrink: 1,
   },
 })

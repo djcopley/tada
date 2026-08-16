@@ -493,6 +493,28 @@ describe('Memory screens', () => {
       expect(mockPush).toHaveBeenCalledWith('/workspaces/1/memory/notes.md')
     })
 
+    test('a name that already exists (any case, or AGENTS.md) is refused instead of blanking the note', async () => {
+      mockMemory.mockResolvedValue(memory({ notes: [note({ file: 'gotchas.md', body: 'keep me' })] }))
+
+      await renderMemoryList()
+      await waitFor(() => {
+        expect(screen.getByTestId('memory-add-button')).toBeTruthy()
+      })
+      await fireEvent.press(screen.getByTestId('memory-add-button'))
+      const input = screen.getByTestId('memory-name-input')
+
+      await fireEvent.changeText(input, 'Gotchas')
+      await fireEvent.press(screen.getByTestId('memory-name-submit'))
+      expect(screen.getByText(/already exists/)).toBeTruthy()
+
+      await fireEvent.changeText(input, 'AGENTS.md')
+      await fireEvent.press(screen.getByTestId('memory-name-submit'))
+      expect(screen.getByText(/already exists/)).toBeTruthy()
+
+      expect(mockPutMemory).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
     test('scope switching: the switcher Global row navigates to /memory', async () => {
       mockMemory.mockResolvedValue(memory({ notes: [] }))
 

@@ -25,6 +25,15 @@ export function openNewWorkspaceDialog(): void {
  * its board. Repos are optional — "you can attach more later in Settings." Mounted once near
  * the app root (see app/_layout.tsx); triggered by {@link openNewWorkspaceDialog}.
  */
+/** The server's `{ error }` message from an ApiError, when it sent one. */
+function apiErrorText(err: unknown): string | undefined {
+  if (err instanceof ApiError && typeof err.body === 'object' && err.body !== null && 'error' in err.body) {
+    const value = (err.body as { error: unknown }).error
+    if (typeof value === 'string' && value) return value
+  }
+  return undefined
+}
+
 export function NewWorkspaceDialog() {
   const router = useRouter()
   const client = useClient()
@@ -33,6 +42,7 @@ export function NewWorkspaceDialog() {
   const [visible, setVisible] = useState(false)
   const [name, setName] = useState('')
   const [checkedRepos, setCheckedRepos] = useState<Set<string>>(new Set())
+  const [createError, setCreateError] = useState('')
 
   const { data: knownRepos } = useKnownRepos()
   const { data: nameCheck } = useCheckName(name)
@@ -49,6 +59,7 @@ export function NewWorkspaceDialog() {
   const close = () => {
     setVisible(false)
     setName('')
+    setCreateError('')
     setCheckedRepos(new Set())
   }
 
@@ -66,9 +77,13 @@ export function NewWorkspaceDialog() {
     if (!trimmed) return
     let workspace: { id: number }
     try {
+      setCreateError('')
       workspace = await createWorkspace.mutateAsync(trimmed)
-    } catch {
-      // Global mutation error handler already surfaces a toast; leave the dialog open to retry.
+    } catch (err) {
+      // The global handler toasts most failures but deliberately skips 409s (a screen's own
+      // business), and a 400 for a name the live check waved through deserves the reason inline
+      // either way — leave the dialog open with it.
+      setCreateError(apiErrorText(err) ?? 'Could not create the workspace')
       return
     }
     // The workspace exists from here on, so a failed clone must not leave the dialog open (a
@@ -79,7 +94,7 @@ export function NewWorkspaceDialog() {
       try {
         await client.addSource(workspace.id, { type: 'repo', url })
       } catch (err) {
-        const detail = err instanceof ApiError && typeof err.body === 'object' && err.body !== null && 'error' in err.body ? String((err.body as { error: unknown }).error) : ''
+        const detail = apiErrorText(err)
         failed = detail ? `${url} (${detail})` : url
         break
       }
@@ -126,7 +141,12 @@ export function NewWorkspaceDialog() {
         placeholder="Name"
         autoFocus
         value={name}
-        onChangeText={setName}
+        returnKeyType="done"
+        onSubmitEditing={() => void confirmCreate()}
+        onChangeText={(v) => {
+          setName(v)
+          if (createError) setCreateError('')
+        }}
       />
       {checkLine ? (
         <Text
@@ -134,6 +154,11 @@ export function NewWorkspaceDialog() {
           style={[type.monoSmall, { color: nameCheck?.available ? colors.okText : colors.failText }]}
         >
           {checkLine}
+        </Text>
+      ) : null}
+      {createError ? (
+        <Text testID="workspace-create-error" style={[type.caption, { color: colors.failText }]}>
+          {createError}
         </Text>
       ) : null}
 
