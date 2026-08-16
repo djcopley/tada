@@ -611,7 +611,8 @@ describe('Memory screens', () => {
       })
       await fireEvent.press(screen.getByTestId('switcher-workspace-1'))
 
-      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/board')
+      // Opened from Memory, a workspace pick lands on that workspace's memory, not its board.
+      expect(mockPush).toHaveBeenCalledWith('/workspaces/1/memory')
     })
   })
 

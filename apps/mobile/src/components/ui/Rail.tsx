@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
+import { goToSection } from '../../nav'
 
 export type RailNavKey = 'control' | 'board' | 'memory' | 'settings'
 
@@ -55,13 +56,18 @@ export function Rail({
 
       {items.map((item) => {
         const isActive = item.key === active
+        // Board/Memory/Settings need a workspace to scope to; without one they're inert rather
+        // than silently routing back to Control (which used to push a duplicate Control per tap).
+        const enabled = item.key === 'control' || workspaceId !== undefined
         return (
           <Pressable
             key={item.key}
             testID={`rail-nav-${item.key}`}
             accessibilityRole="button"
             accessibilityLabel={item.label}
-            onPress={() => router.push(item.href)}
+            accessibilityState={{ selected: isActive, disabled: !enabled }}
+            disabled={!enabled}
+            onPress={() => goToSection(router, { key: item.key, active, href: item.href })}
             style={({ pressed }) => [
               styles.navRow,
               isActive && { backgroundColor: colors.controlBg },
@@ -74,7 +80,7 @@ export function Rail({
                 type.body,
                 styles.navLabel,
                 isActive && type.bodyStrong,
-                { color: isActive ? colors.text : colors.textMuted },
+                { color: isActive ? colors.text : enabled ? colors.textMuted : colors.textFaintSolid },
               ]}
             >
               {item.label}

@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import { StyleSheet, View } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space } from '../../design/tokens'
+import { goToSection } from '../../nav'
 import { Button } from './Button'
 
 export type BottomStripKey = 'control' | 'board' | 'memory'
@@ -22,6 +23,9 @@ export function BottomStrip({ active, workspaceId, testID }: Props) {
 
   const hrefFor = (key: BottomStripKey): string =>
     key === 'control' || workspaceId === undefined ? '/workspaces' : `/workspaces/${workspaceId}/${key}`
+  // Board/Memory need a workspace to scope to; without one the segment is inert rather than
+  // silently routing back to Control (which used to push a duplicate Control per tap).
+  const enabled = (key: BottomStripKey): boolean => key === 'control' || workspaceId !== undefined
 
   return (
     <View
@@ -34,7 +38,8 @@ export function BottomStrip({ active, workspaceId, testID }: Props) {
           testID={`bottom-strip-${key}`}
           label={LABELS[key]}
           variant={key === active ? 'secondary' : 'ghost'}
-          onPress={() => router.push(hrefFor(key))}
+          disabled={!enabled(key)}
+          onPress={() => goToSection(router, { key, active, href: hrefFor(key) })}
           style={styles.button}
         />
       ))}

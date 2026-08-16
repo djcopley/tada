@@ -15,6 +15,8 @@ type Props = { scope: 'workspace'; wsId: number; file?: string } | { scope: 'glo
 export function MemoryEditorScreen(props: Props) {
   const { scope, file } = props
   const wsId = props.scope === 'workspace' ? props.wsId : undefined
+  // Header back target when opened cold (deep link / refresh): the list this note belongs to.
+  const listHref = scope === 'workspace' ? `/workspaces/${wsId}/memory` : '/memory'
   const navigation = useNavigation()
   const { colors } = useTheme()
 
@@ -65,7 +67,7 @@ export function MemoryEditorScreen(props: Props) {
   if (scope === 'workspace' && Number.isNaN(wsId)) {
     return (
       <Screen>
-        <AppHeader title="Note" back />
+        <AppHeader title="Note" back backHref={listHref} />
         <EmptyState icon="alert-circle" message="This workspace doesn't exist." />
       </Screen>
     )
@@ -74,7 +76,7 @@ export function MemoryEditorScreen(props: Props) {
   if (!file) {
     return (
       <Screen>
-        <AppHeader title="Note" back />
+        <AppHeader title="Note" back backHref={listHref} />
         <EmptyState icon="alert-circle" message="This note doesn't exist." />
       </Screen>
     )
@@ -83,7 +85,7 @@ export function MemoryEditorScreen(props: Props) {
   if (isLoading || !memoryData) {
     return (
       <Screen>
-        <AppHeader title={file} back />
+        <AppHeader title={file} back backHref={listHref} />
         <View style={styles.skeletons}>
           <Skeleton height={14} width="90%" />
           <Skeleton height={14} width="75%" />
@@ -116,7 +118,7 @@ export function MemoryEditorScreen(props: Props) {
 
   return (
     <Screen edges={['top', 'bottom']}>
-      <AppHeader title={file} back>
+      <AppHeader title={file} back backHref={listHref}>
         <View style={styles.saveRow}>
           {isDirty ? (
             <Text style={[type.monoSmall, { color: colors.liveText }]}>UNSAVED CHANGES</Text>

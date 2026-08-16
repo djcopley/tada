@@ -7,11 +7,12 @@ import { ConnectionProvider } from '../src/ConnectionContext'
 import { attemptRows, memorySummary, sendItBackCopy, ticketMetaLine, ticketStatusBadge } from '../src/ticketDetail'
 
 const mockPush = jest.fn()
+const mockReplace = jest.fn()
 const mockBack = jest.fn()
 const mockCanGoBack = jest.fn(() => true)
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: '1' }),
-  useRouter: () => ({ push: mockPush, back: mockBack, canGoBack: mockCanGoBack }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack }),
 }))
 
 jest.mock('../src/settings', () => ({
@@ -247,7 +248,7 @@ describe('Ticket detail screen', () => {
 
     mockCanGoBack.mockReturnValue(false)
     await fireEvent.press(screen.getByTestId('ticket-back'))
-    expect(mockPush).toHaveBeenCalledWith('/workspaces')
+    expect(mockReplace).toHaveBeenCalledWith('/workspaces')
   })
 
   test('review card renders only when the ticket sits in the in_review column', async () => {

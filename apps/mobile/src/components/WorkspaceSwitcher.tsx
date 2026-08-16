@@ -73,7 +73,9 @@ export function WorkspaceSwitcher() {
   const selectWorkspace = (id: number) => {
     setActiveWorkspaceId(id)
     close()
-    router.push(`/workspaces/${id}/board`)
+    // Opened from Memory, a workspace pick lands on that workspace's memory (the scope you were
+    // just switching); everywhere else it's the board.
+    router.push(showGlobal ? `/workspaces/${id}/memory` : `/workspaces/${id}/board`)
   }
 
   const createWorkspace = () => {
@@ -112,9 +114,11 @@ export function WorkspaceSwitcher() {
 
       <Row testID="switcher-new-workspace" label="New workspace" icon="plus" onPress={createWorkspace} />
 
-      <View style={styles.hint}>
-        <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>⌘K to switch</Text>
-      </View>
+      {Platform.OS === 'web' ? (
+        <View style={styles.hint}>
+          <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>⌘K to switch</Text>
+        </View>
+      ) : null}
     </Menu>
   )
 }

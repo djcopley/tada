@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { space, type } from '../../design/tokens'
+import { goBackOr } from '../../nav'
 import { Icon, type IconName } from './Icon'
 
 type Action = {
@@ -16,8 +17,11 @@ type Props = {
   title: string
   /** Render the tada✱ wordmark before the title (root screens). */
   wordmark?: boolean
-  /** Show a back chevron (router.back). Off for root screens. */
+  /** Show a back chevron. Off for root screens. */
   back?: boolean
+  /** Where the chevron goes when there's no history to unwind (cold deep link / refresh).
+   * Defaults to Control. */
+  backHref?: string
   actions?: Action[]
   /** Extra content under the title row (e.g. the board status strip). */
   children?: ReactNode
@@ -28,7 +32,14 @@ type Props = {
  * back chevron, icon actions. Root screens lead with the tada✱ wordmark —
  * the orange star is the only brand mark in the app.
  */
-export function AppHeader({ title, wordmark = false, back = false, actions = [], children }: Props) {
+export function AppHeader({
+  title,
+  wordmark = false,
+  back = false,
+  backHref = '/workspaces',
+  actions = [],
+  children,
+}: Props) {
   const router = useRouter()
   const { colors } = useTheme()
 
@@ -40,7 +51,7 @@ export function AppHeader({ title, wordmark = false, back = false, actions = [],
             testID="header-back"
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={() => router.back()}
+            onPress={() => goBackOr(router, backHref)}
             hitSlop={8}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
