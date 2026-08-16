@@ -100,7 +100,11 @@ const TERMINAL_LABEL: Partial<Record<ApiRun['status'], string>> = {
  * necessarily resolved one of two ways: sent back (still `needs_review` — the only path to a
  * next attempt without failing) or failed outright — paired 1:1 in order with this ticket's
  * `feedback`-kind comments, which sendBack posts exactly one of per earlier attempt. */
-export function attemptRows(runs: ApiRun[], comments: ApiComment[]): AttemptRow[] {
+export function attemptRows(
+  runs: ApiRun[],
+  comments: ApiComment[],
+  opts: { accepted?: boolean } = {},
+): AttemptRow[] {
   const sorted = [...runs].sort((a, b) => a.attemptNumber - b.attemptNumber)
   const feedback = comments
     .filter((c) => c.kind === 'feedback')
@@ -110,9 +114,13 @@ export function attemptRows(runs: ApiRun[], comments: ApiComment[]): AttemptRow[
   const rows = sorted.map((run, i): AttemptRow => {
     const isCurrent = i === sorted.length - 1
     if (isCurrent) {
+      // Accepting a ticket moves the card to Done but leaves the run row at needs_review, so the
+      // caller says when the latest attempt is actually the accepted one.
       const label =
         run.status === 'needs_review'
-          ? 'in review now'
+          ? opts.accepted
+            ? 'accepted'
+            : 'in review now'
           : run.status === 'running'
             ? 'running now'
             : run.status === 'queued'
@@ -169,6 +177,18 @@ export function memorySummary(notes: ApiMemoryNote[]): { keptTitles: string[]; h
     ? agentKept.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b))
     : undefined
   const keptTitles = kept.filter((n) => n.id !== newest?.id).map((n) => n.title.toLowerCase())
-  const highlighted = newest ? (newest.body.trim() || newest.title) : undefined
+  const highlighted = newest ? (noteGist(newest.body) || newest.title) : undefined
   return { keptTitles, highlighted }
+}
+
+/** First real line of a note body: the leading `# heading` (already the title) is dropped and
+ * the rest collapsed to one line, so a multi-paragraph markdown note reads as a one-line gist. */
+export function noteGist(body: string): string {
+  return body
+    .replace(/^\s*#[^\n]*\n?/, '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
 }

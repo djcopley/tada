@@ -111,7 +111,7 @@ describe('TicketActions sheet', () => {
     // canMoveCard('human', ...) only forbids moving INTO in_progress — every
     // other column (including Done) is a valid human move target.
     expect(screen.queryByTestId('action-move-3')).toBeNull() // in_progress not reachable by human
-    expect(screen.getByTestId('action-move-2')).toBeTruthy() // ready
+    expect(screen.queryByTestId('action-move-2')).toBeNull() // ready is the Send to Ready row, not listed twice
     expect(screen.getByTestId('action-move-4')).toBeTruthy() // in_review
     expect(screen.getByTestId('action-move-5')).toBeTruthy() // done
   })
@@ -151,9 +151,12 @@ describe('TicketActions sheet', () => {
     expect(screen.getByText('Agent is working on this ticket — wait or cancel the run')).toBeTruthy()
   })
 
-  test('agent/model row is disabled with a hint while the ticket is in progress', async () => {
+  test('agent/model row is disabled with a hint while the ticket is in progress, and no move rows are offered', async () => {
     await renderSheet({ ticketOverrides: { columnId: 3, position: 1 } })
 
     expect(screen.getByTestId('action-agent-hint')).toBeTruthy()
+    expect(screen.queryByTestId('action-send-to-ready')).toBeNull()
+    expect(screen.queryByTestId('action-move-1')).toBeNull()
+    expect(screen.queryByTestId('action-move-5')).toBeNull()
   })
 })

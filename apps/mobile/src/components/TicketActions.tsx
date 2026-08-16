@@ -130,9 +130,18 @@ export function TicketActions({
     )
   }
 
-  const moveTargets = columns.filter(
-    (c) => c.id !== ticket.columnId && currentColumn && canMoveCard('human', currentColumn.kind, c.kind),
-  )
+  // The Ready column is covered by the dedicated "Send to Ready" row above, and nothing can be
+  // moved while an agent holds the ticket (the server would 409 anyway) — the locked agent row
+  // below already explains why.
+  const moveTargets = runActive
+    ? []
+    : columns.filter(
+        (c) =>
+          c.id !== ticket.columnId &&
+          c.kind !== 'ready' &&
+          currentColumn &&
+          canMoveCard('human', currentColumn.kind, c.kind),
+      )
 
   return (
     <Sheet visible={visible} onClose={close} testID="ticket-actions-sheet">
@@ -145,7 +154,7 @@ export function TicketActions({
 
       {view === 'main' && (
         <View style={styles.section}>
-          {ticket.queueState !== 'queued' && readyColumn && (
+          {ticket.queueState !== 'queued' && !runActive && readyColumn && (
             <ListRow
               testID="action-send-to-ready"
               icon="send"

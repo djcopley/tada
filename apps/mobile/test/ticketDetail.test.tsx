@@ -216,6 +216,19 @@ describe('ticketDetail pure logic', () => {
     expect(summary.highlighted).toBe('reports queries paginate past 50k rows')
   })
 
+  test('memorySummary strips the leading heading and collapses a multi-line note to a one-line gist', () => {
+    const summary = memorySummary([
+      { id: 3, scope: 'workspace', workspaceId: 1, file: 'note.md', title: 'Learned thing', author: 'agent', runId: 1, state: 'kept', body: '# Learned thing\n\nThe build needs NODE_OPTIONS.\nAlso: run pnpm i.\n', updatedAt: '2026-01-02T00:00:00.000Z' },
+    ])
+    expect(summary.highlighted).toBe('The build needs NODE_OPTIONS. Also: run pnpm i.')
+  })
+
+  test('attemptRows labels the latest needs_review attempt "accepted" once the ticket is done', () => {
+    const run = { id: 1, ticketId: 1, adapter: 'claude', model: 'sonnet', effort: 'medium', attemptNumber: 1, status: 'needs_review' as const, branch: null, prUrl: null, summary: null, testsPassed: null, diffAdditions: null, diffDeletions: null, startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:05:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' }
+    expect(attemptRows([run as never], [], { accepted: true })[0]?.primary).toBe('#1 accepted')
+    expect(attemptRows([run as never], [])[0]?.primary).toBe('#1 in review now')
+  })
+
   test('sendItBackCopy names the next attempt number, not a hardcoded one', () => {
     expect(sendItBackCopy(3)).toBe(
       "Your feedback becomes attempt 3's first instruction, verbatim. Be as specific as the brief.",

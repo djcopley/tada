@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Modal, Pressable, StyleSheet, View, type ViewStyle } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space } from '../../design/tokens'
 
@@ -22,6 +23,12 @@ type Props = {
  * surface opaque from the first frame, matching the artboard's snap-open menus. */
 export function Menu({ visible, onClose, children, style, testID }: Props) {
   const { colors, shadow } = useTheme()
+  const insets = useSafeAreaInsets()
+  const { height } = useWindowDimensions()
+  // Below the status bar/notch, and never taller than the screen: a long list (many workspaces)
+  // scrolls inside the card instead of running off the bottom with no way to reach the tail.
+  const top = insets.top + space.md
+  const maxHeight = height - top - insets.bottom - space.lg
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -35,12 +42,14 @@ export function Menu({ visible, onClose, children, style, testID }: Props) {
         testID={testID}
         style={[
           styles.menu,
-          { backgroundColor: colors.overlay, borderColor: colors.borderStrong },
+          { top, maxHeight, backgroundColor: colors.overlay, borderColor: colors.borderStrong },
           shadow.lifted,
           style,
         ]}
       >
-        {children}
+        <ScrollView bounces={false} keyboardShouldPersistTaps="handled">
+          {children}
+        </ScrollView>
       </View>
     </Modal>
   )
@@ -49,7 +58,6 @@ export function Menu({ visible, onClose, children, style, testID }: Props) {
 const styles = StyleSheet.create({
   menu: {
     position: 'absolute',
-    top: 64,
     left: space.lg,
     width: 320,
     maxWidth: '92%',

@@ -170,7 +170,7 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
 
   const badge = ticketStatusBadge(column?.kind, ticket.queueState)
   const metaLine = ticketMetaLine(workspace?.name ?? '—', workspace?.sources[0]?.name, ticket.createdAt, ticket.origin)
-  const rows = attemptRows(runs, comments)
+  const rows = attemptRows(runs, comments, { accepted: column?.kind === 'done' })
   const memoryInfo = memorySummary(memory?.notes ?? [])
 
   const header = (
@@ -270,7 +270,9 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
       <AttemptsCard testID="attempts-card" rows={rows} />
       <LinkedCard testID="linked-card" followUps={followUps} />
       <MemoryReadCard testID="memory-card" keptTitles={memoryInfo.keptTitles} highlighted={memoryInfo.highlighted} />
-      <SendItBackCard testID="send-it-back-card" copy={sendItBackCopy((latestRun?.attemptNumber ?? 0) + 1)} />
+      {inReview ? (
+        <SendItBackCard testID="send-it-back-card" copy={sendItBackCopy((latestRun?.attemptNumber ?? 0) + 1)} />
+      ) : null}
     </View>
   )
 
