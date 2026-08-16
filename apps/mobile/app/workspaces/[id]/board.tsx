@@ -29,6 +29,7 @@ import {
 } from '../../../src/board/dnd'
 import { positionBetween } from '../../../src/board/positions'
 import { ColumnView } from '../../../src/components/ColumnView'
+import { NewTicketDialog } from '../../../src/components/NewTicketDialog'
 import { TicketActions } from '../../../src/components/TicketActions'
 import type { BoardCardActions, TicketDetail } from '../../../src/components/TicketCard'
 import { TicketCardBody } from '../../../src/components/TicketCard'
@@ -378,15 +379,9 @@ export default function Board() {
   }
 
   const [newTicketVisible, setNewTicketVisible] = useState(false)
-  const [newTicketTitle, setNewTicketTitle] = useState('')
-  const closeNewTicket = () => {
-    setNewTicketVisible(false)
-    setNewTicketTitle('')
-  }
-  const confirmNewTicket = () => {
-    const title = newTicketTitle.trim()
-    if (!title) return
-    createTicket.mutate({ workspaceId: wsId, title }, { onSuccess: closeNewTicket })
+  const closeNewTicket = () => setNewTicketVisible(false)
+  const confirmNewTicket = (fields: { title: string; description: string }) => {
+    createTicket.mutate({ workspaceId: wsId, ...fields }, { onSuccess: closeNewTicket })
   }
 
   const actionsFor = (ticket: ApiTicket, columnKind: ColumnKind): BoardCardActions | undefined => {
@@ -439,8 +434,8 @@ export default function Board() {
 
   const onTicketPress = (ticket: ApiTicket) => router.push(`/tickets/${ticket.id}`)
   const onTicketLongPress = (ticket: ApiTicket) => setSelectedTicket(ticket)
-  const onCreateTicket = (title: string) => {
-    void createTicket.mutateAsync({ workspaceId: wsId, title })
+  const onCreateTicket = (fields: { title: string; description: string }) => {
+    void createTicket.mutateAsync({ workspaceId: wsId, ...fields })
   }
 
   const renderColumn = (column: BoardColumn) => (
@@ -491,28 +486,12 @@ export default function Board() {
         />
       </Dialog>
 
-      <Dialog
+      <NewTicketDialog
         visible={newTicketVisible}
-        title="New ticket"
         onClose={closeNewTicket}
-        testID="new-ticket-dialog"
-        confirm={{
-          label: 'Create ticket',
-          onPress: confirmNewTicket,
-          disabled: createTicket.isPending || newTicketTitle.trim().length === 0,
-          loading: createTicket.isPending,
-          testID: 'new-ticket-confirm',
-        }}
-      >
-        <Input
-          testID="new-ticket-title-input"
-          label="Title"
-          placeholder="What should the agent do?"
-          autoFocus
-          value={newTicketTitle}
-          onChangeText={setNewTicketTitle}
-        />
-      </Dialog>
+        onCreate={confirmNewTicket}
+        pending={createTicket.isPending}
+      />
     </>
   )
 

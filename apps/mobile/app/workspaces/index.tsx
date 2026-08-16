@@ -41,6 +41,7 @@ import {
   Screen,
   Skeleton,
 } from '../../src/components/ui'
+import { NewTicketDialog } from '../../src/components/NewTicketDialog'
 import { openNewWorkspaceDialog } from '../../src/components/NewWorkspaceDialog'
 import { WorkspaceSocket } from '../../src/components/WorkspaceSocket'
 import { useTheme } from '../../src/design/ThemeContext'
@@ -247,7 +248,6 @@ export default function Control() {
   const [nudgeTarget, setNudgeTarget] = useState<{ ticket: ApiTicket; runId: number } | null>(null)
   const [nudgeNote, setNudgeNote] = useState('')
   const [newTicketVisible, setNewTicketVisible] = useState(false)
-  const [newTicketTitle, setNewTicketTitle] = useState('')
 
   const closeSendBack = () => {
     setSendBackTicket(null)
@@ -270,15 +270,11 @@ export default function Control() {
     nudgeMutation.mutate({ runId: nudgeTarget.runId, note: nudgeNote.trim() }, { onSuccess: closeNudge })
   }
 
-  const closeNewTicket = () => {
-    setNewTicketVisible(false)
-    setNewTicketTitle('')
-  }
-  const confirmNewTicket = () => {
-    const title = newTicketTitle.trim()
-    if (!title || memoryWorkspaceId === undefined) return
+  const closeNewTicket = () => setNewTicketVisible(false)
+  const confirmNewTicket = (fields: { title: string; description: string }) => {
+    if (memoryWorkspaceId === undefined) return
     createTicket.mutate(
-      { workspaceId: memoryWorkspaceId, title },
+      { workspaceId: memoryWorkspaceId, ...fields },
       { onSuccess: (ticket) => { closeNewTicket(); router.push(`/tickets/${ticket.id}`) } },
     )
   }
@@ -416,31 +412,13 @@ export default function Control() {
         />
       </Dialog>
 
-      <Dialog
+      <NewTicketDialog
         visible={newTicketVisible}
-        title="New ticket"
         onClose={closeNewTicket}
-        testID="new-ticket-dialog"
-        confirm={{
-          label: 'Create ticket',
-          onPress: confirmNewTicket,
-          disabled: createTicket.isPending || newTicketTitle.trim().length === 0,
-          loading: createTicket.isPending,
-          testID: 'new-ticket-confirm',
-        }}
-      >
-        <Text style={[type.caption, { color: colors.textMuted }]}>
-          {memoryWorkspace ? `Goes to ${memoryWorkspace.name}.` : 'Pick a workspace from the switcher first.'}
-        </Text>
-        <Input
-          testID="new-ticket-title-input"
-          label="Title"
-          placeholder="What should the agent do?"
-          autoFocus
-          value={newTicketTitle}
-          onChangeText={setNewTicketTitle}
-        />
-      </Dialog>
+        onCreate={confirmNewTicket}
+        pending={createTicket.isPending}
+        hint={memoryWorkspace ? `Goes to ${memoryWorkspace.name}.` : 'Pick a workspace from the switcher first.'}
+      />
     </>
   )
 
@@ -449,7 +427,14 @@ export default function Control() {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="control-wide">
         {sockets}
-        <Rail active="control" needsYouCount={needsYou.length} testID="control-rail" />
+        <Rail
+          active="control"
+          workspaceId={memoryWorkspaceId}
+          workspaceName={memoryWorkspace?.name}
+          sourceCount={memoryWorkspace?.sourceCount}
+          needsYouCount={needsYou.length}
+          testID="control-rail"
+        />
         <ScrollView
           contentContainerStyle={styles.wideContent}
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
@@ -600,7 +585,7 @@ export default function Control() {
       </ScrollView>
 
       <View style={styles.bottomStripWrap}>
-        <BottomStrip active="control" testID="control-bottom-strip" />
+        <BottomStrip active="control" workspaceId={memoryWorkspaceId} testID="control-bottom-strip" />
       </View>
 
       {dialogs}

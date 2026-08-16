@@ -16,8 +16,7 @@ import { radius, space, type } from '../design/tokens'
 import type { BoardCardActions, TicketDetail } from './TicketCard'
 import { TicketCard } from './TicketCard'
 import { Button } from './ui/Button'
-import { Dialog } from './ui/Dialog'
-import { Input } from './ui/Input'
+import { NewTicketDialog } from './NewTicketDialog'
 
 /** 8px status dot in a column header — pulses while `pulse` is true (Running only; In review's
  * dot is a static "ok" marker per the artboard). */
@@ -68,7 +67,7 @@ export function ColumnView({
   actionsFor: (ticket: ApiTicket, columnKind: ColumnKind) => BoardCardActions | undefined
   onTicketPress: (ticket: ApiTicket) => void
   onTicketLongPress?: (ticket: ApiTicket) => void
-  onCreateTicket?: (title: string) => void
+  onCreateTicket?: (fields: { title: string; description: string }) => void
   creating?: boolean
   dropIndex?: number | null
 }) {
@@ -77,7 +76,6 @@ export function ColumnView({
   const laneRef = useRef<View>(null)
 
   const [modalVisible, setModalVisible] = useState(false)
-  const [title, setTitle] = useState('')
 
   useEffect(() => {
     if (!dnd || !laneRef.current) return
@@ -86,15 +84,10 @@ export function ColumnView({
 
   const tickets = [...column.tickets].sort((a, b) => a.position - b.position)
 
-  const openModal = () => {
-    setTitle('')
-    setModalVisible(true)
-  }
+  const openModal = () => setModalVisible(true)
   const closeModal = () => setModalVisible(false)
-  const submit = () => {
-    const trimmed = title.trim()
-    if (!trimmed) return
-    onCreateTicket?.(trimmed)
+  const submit = (fields: { title: string; description: string }) => {
+    onCreateTicket?.(fields)
     setModalVisible(false)
   }
 
@@ -180,25 +173,7 @@ export function ColumnView({
       </View>
 
       {column.kind === 'backlog' && (
-        <Dialog
-          visible={modalVisible}
-          title="New ticket"
-          onClose={closeModal}
-          confirm={{
-            label: 'Create',
-            onPress: submit,
-            disabled: creating || title.trim().length === 0,
-            testID: 'ticket-create-button',
-          }}
-        >
-          <Input
-            testID="ticket-title-input"
-            placeholder="What should the agent do?"
-            autoFocus
-            value={title}
-            onChangeText={setTitle}
-          />
-        </Dialog>
+        <NewTicketDialog visible={modalVisible} onClose={closeModal} onCreate={submit} pending={creating} />
       )}
     </View>
   )
