@@ -9,7 +9,8 @@ import type {
   ApiWorkspaceListItem,
   WsMessage,
 } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions, Linking } from 'react-native'
 import Control from '../app/workspaces/index'
@@ -340,7 +341,7 @@ function setupMocks({
 }
 
 async function renderControl() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>

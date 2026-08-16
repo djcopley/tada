@@ -1,5 +1,6 @@
 import type { ApiBoard, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { DeviceEventEmitter, Dimensions } from 'react-native'
 import { State } from 'react-native-gesture-handler'
@@ -205,7 +206,7 @@ function board(overrides: Partial<ApiBoard> = {}): ApiBoard {
 }
 
 async function renderBoard() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>
@@ -655,7 +656,7 @@ describe('Board screen', () => {
   })
 
   test('dragging a backlog card and dropping it still fires a move', async () => {
-    mockBoard.mockResolvedValueOnce(
+    mockBoard.mockResolvedValue(
       board({
         columns: [
           {

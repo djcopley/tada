@@ -1,5 +1,6 @@
 import type { ApiBoard, ApiComment, ApiMemory, ApiRun, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Linking } from 'react-native'
 import TicketDetail from '../app/tickets/[id]'
@@ -148,7 +149,7 @@ function memory(overrides: Partial<ApiMemory> = {}): ApiMemory {
 }
 
 async function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>

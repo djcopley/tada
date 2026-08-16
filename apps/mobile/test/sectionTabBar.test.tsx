@@ -1,5 +1,6 @@
 import type { ApiBoard, ApiWorkspaceListItem } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions } from 'react-native'
 import { ClientProvider } from '../src/api/ClientContext'
@@ -94,7 +95,7 @@ function tabState(name: string, params?: Record<string, string>): TabBarProps['s
 }
 
 async function renderTabBar(state: TabBarProps['state']) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   return await render(
     <QueryClientProvider client={queryClient}>
       <ClientProvider client={makeClient()}>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { Pressable, Text } from 'react-native'
@@ -32,8 +32,15 @@ jest.mock('../src/settings', () => ({
 
 import { clearConnection } from '../src/settings'
 
+// Every probe hook below sets `gcTime: 0`: AppQueryProvider builds the app's real QueryClient,
+// whose default 5-minute garbage-collect timers (armed when a probe unmounts) would otherwise keep
+// this Jest worker alive long after the suite ends ("worker process has failed to exit
+// gracefully").
+const NO_GC = { gcTime: 0 } as const
+
 function FailingProbe() {
   useQuery({
+    ...NO_GC,
     queryKey: ['probe'],
     queryFn: () => {
       throw new ApiError(401, { error: 'unauthorized' })
@@ -47,6 +54,7 @@ function FailingProbe() {
  * MutationCache.onError path configured in AppQueryProvider. */
 function FailingMutationButton({ error }: { error: unknown }) {
   const mutation = useMutation({
+    ...NO_GC,
     mutationFn: async () => {
       throw error
     },
@@ -78,7 +86,7 @@ describe('global 401 handling', () => {
     await render(
       <ConnectionProvider>
         <AppQueryProvider>
-          <FailingProbe />
+            <FailingProbe />
         </AppQueryProvider>
       </ConnectionProvider>,
     )
@@ -140,12 +148,12 @@ describe('global mutation error fallback toast', () => {
 
     await fireEvent.press(screen.getByTestId('fire-mutation'))
 
-    // Give the rejected mutation a tick to settle, then assert no fallback
-    // toast appeared — a 409 is a screen's responsibility to surface.
-    await waitFor(() => {
-      expect(screen.getByTestId('fire-mutation')).toBeTruthy()
+    // Give the rejected mutation a tick to settle (inside act, so its state update doesn't land
+    // outside one), then assert no fallback toast appeared — a 409 is a screen's responsibility
+    // to surface.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
     })
-    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByTestId('toast-message')).toBeNull()
   })
 })
@@ -218,7 +226,7 @@ describe('query cache reset across connections', () => {
     })
 
     function Probe() {
-      const { data } = useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
+      const { data } = useQuery({ ...NO_GC, queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
       return <Text testID="probe-value">{data ?? 'loading'}</Text>
     }
 
@@ -260,7 +268,7 @@ describe('query cache reset across connections', () => {
     const probeFetch = jest.fn(async () => 'seeded')
 
     function Probe() {
-      const { data } = useQuery({ queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
+      const { data } = useQuery({ ...NO_GC, queryKey: ['probe-data'], queryFn: probeFetch, staleTime: Infinity })
       return <Text testID="probe-value">{data ?? 'loading'}</Text>
     }
 

@@ -1,5 +1,6 @@
 import type { WsMessage } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { type QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { renderHook } from '@testing-library/react-native'
 import type { ReactNode } from 'react'
 import { ClientProvider } from '../src/api/ClientContext'
@@ -61,7 +62,7 @@ describe('useWorkspaceSocket', () => {
   })
 
   test('board_changed invalidates board and workspaces (and ticket-prefixed) queries', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
     const spy = jest.spyOn(queryClient, 'invalidateQueries')
 
     await renderHook(
@@ -81,7 +82,7 @@ describe('useWorkspaceSocket', () => {
   })
 
   test('activity invalidates keys.activity()', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
     const spy = jest.spyOn(queryClient, 'invalidateQueries')
 
     await renderHook(
@@ -97,7 +98,7 @@ describe('useWorkspaceSocket', () => {
   })
 
   test('run_event is forwarded to onRunEvent', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
     const onRunEvent = jest.fn()
 
     await renderHook(
@@ -114,7 +115,7 @@ describe('useWorkspaceSocket', () => {
   })
 
   test('malformed message is ignored without throwing', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
     const spy = jest.spyOn(queryClient, 'invalidateQueries')
 
     await renderHook(
@@ -130,7 +131,7 @@ describe('useWorkspaceSocket', () => {
   test('close schedules a reconnect with growing backoff delays', async () => {
     jest.useFakeTimers()
     try {
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const queryClient = makeTestQueryClient()
 
       await renderHook(
         () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
@@ -159,7 +160,7 @@ describe('useWorkspaceSocket', () => {
   test('a successful reconnect resets the backoff so the next drop starts back at 1s', async () => {
     jest.useFakeTimers()
     try {
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const queryClient = makeTestQueryClient()
 
       await renderHook(
         () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
@@ -193,7 +194,7 @@ describe('useWorkspaceSocket', () => {
   test('unmount closes the socket and cancels any pending reconnect', async () => {
     jest.useFakeTimers()
     try {
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const queryClient = makeTestQueryClient()
 
       const { unmount } = await renderHook(
         () => useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket),
@@ -218,7 +219,7 @@ describe('useWorkspaceSocket', () => {
   })
 
   test('undefined wsId does not construct a socket', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
 
     await renderHook(
       () => useWorkspaceSocket(undefined, undefined, FakeWebSocket as unknown as typeof WebSocket),

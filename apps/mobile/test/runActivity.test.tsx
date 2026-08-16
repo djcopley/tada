@@ -1,5 +1,6 @@
 import type { ApiRunDetail, ApiWorkspaceDetail } from '@tada/shared'
-import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import RunActivity from '../app/runs/[id]'
 import { ConnectionProvider } from '../src/ConnectionContext'
@@ -106,7 +107,7 @@ function workspace(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorkspaceDet
 }
 
 async function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>

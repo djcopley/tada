@@ -1,6 +1,7 @@
 import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { ClientProvider } from '../src/api/ClientContext'
 import { ApiError } from '../src/api/client'
 import { TicketActions } from '../src/components/TicketActions'
@@ -74,7 +75,7 @@ async function renderSheet(props: {
   cols?: ApiBoard['columns']
   onClose?: () => void
 }) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   const t = ticket(props.ticketOverrides ?? {})
   const cols = props.cols ?? columns()
   await render(
@@ -91,6 +92,14 @@ async function renderSheet(props: {
       </ClientProvider>
     </QueryClientProvider>,
   )
+  // Let the sheet's adapters query settle before the test asserts and unmounts — otherwise its
+  // resolution lands after the test, outside act, and React warns.
+  await waitFor(() => {
+    expect(mockAdapters).toHaveBeenCalled()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
   return { queryClient, ticket: t, cols }
 }
 
@@ -131,7 +140,7 @@ describe('TicketActions sheet', () => {
   test('Send to Ready moves the ticket to the end of the Ready column', async () => {
     await renderSheet({ ticketOverrides: { columnId: 1, position: 1 } })
 
-    fireEvent.press(screen.getByTestId('action-send-to-ready'))
+    await fireEvent.press(screen.getByTestId('action-send-to-ready'))
 
     await waitFor(() => {
       expect(mockMoveTicket).toHaveBeenCalledWith(100, { columnId: 2, position: 6 })
@@ -143,7 +152,7 @@ describe('TicketActions sheet', () => {
 
     await renderSheet({ ticketOverrides: { columnId: 1, position: 1 } })
 
-    fireEvent.press(screen.getByTestId('action-send-to-ready'))
+    await fireEvent.press(screen.getByTestId('action-send-to-ready'))
 
     await waitFor(() => {
       expect(screen.getByTestId('toast-message')).toBeTruthy()

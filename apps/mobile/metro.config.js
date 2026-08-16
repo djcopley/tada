@@ -19,10 +19,6 @@ config.resolver.nodeModulesPaths = Array.from(
   ]),
 )
 
-// pnpm hoists dependencies into a single node_modules with symlinks; Metro
-// needs symlink support enabled to resolve @tada/shared from the workspace.
-config.resolver.unstable_enableSymlinks = true
-
 // @tada/shared is authored as NodeNext ESM TS: relative imports carry an
 // explicit `.js`/`.mjs` extension (e.g. `export * from './api.js'`) that
 // only resolves against a compiled output. TypeScript, tsx, and Jest all

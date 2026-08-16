@@ -4,7 +4,8 @@ import type {
   ApiWorkspaceDetail,
   ApiWorkspaceListItem,
 } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { Dimensions } from 'react-native'
 import { ConnectionProvider } from '../src/ConnectionContext'
@@ -134,7 +135,7 @@ function workspaceDetail(overrides: Partial<ApiWorkspaceDetail> = {}): ApiWorksp
 
 async function renderMemoryList({ withSwitcher = false }: { withSwitcher?: boolean } = {}) {
   mockUseLocalSearchParams.mockReturnValue({ id: '1' })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const MemoryList = require('../app/workspaces/[id]/memory/index').default
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -152,7 +153,7 @@ async function renderMemoryList({ withSwitcher = false }: { withSwitcher?: boole
 
 async function renderGlobalMemoryList({ withSwitcher = false }: { withSwitcher?: boolean } = {}) {
   mockUseLocalSearchParams.mockReturnValue({})
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const GlobalMemoryList = require('../app/memory/index').default
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -170,7 +171,7 @@ async function renderGlobalMemoryList({ withSwitcher = false }: { withSwitcher?:
 
 async function renderMemoryEditor(file: string) {
   mockUseLocalSearchParams.mockReturnValue({ id: '1', file })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const MemoryEditor = require('../app/workspaces/[id]/memory/[file]').default
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -187,7 +188,7 @@ async function renderMemoryEditor(file: string) {
 
 async function renderGlobalMemoryEditor(file: string) {
   mockUseLocalSearchParams.mockReturnValue({ file })
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const GlobalMemoryEditor = require('../app/memory/[file]').default
   // eslint-disable-next-line @typescript-eslint/no-var-requires

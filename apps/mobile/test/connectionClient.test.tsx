@@ -1,4 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { useState } from 'react'
 import { Pressable, Text } from 'react-native'
@@ -54,7 +55,7 @@ function SocketHost() {
 function Root() {
   const [renders, setRenders] = useState(0)
   const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    () => makeTestQueryClient(),
   )
   return (
     <QueryClientProvider client={queryClient}>

@@ -1,5 +1,6 @@
 import type { ApiWorkspaceListItem } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { ClientProvider } from '../src/api/ClientContext'
 import { openWorkspaceSwitcher, WorkspaceSwitcher } from '../src/components/WorkspaceSwitcher'
@@ -49,7 +50,7 @@ function workspace(overrides: Partial<ApiWorkspaceListItem>): ApiWorkspaceListIt
 }
 
 async function renderSwitcher() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ClientProvider client={makeClient()}>

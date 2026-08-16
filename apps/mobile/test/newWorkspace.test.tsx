@@ -1,5 +1,6 @@
 import type { ApiKnownRepo, ApiWorkspace } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { ClientProvider } from '../src/api/ClientContext'
 import { NewWorkspaceDialog, openNewWorkspaceDialog } from '../src/components/NewWorkspaceDialog'
@@ -46,7 +47,7 @@ function workspace(overrides: Partial<ApiWorkspace> = {}): ApiWorkspace {
 }
 
 async function renderDialog() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   await render(
     <QueryClientProvider client={queryClient}>
       <ClientProvider client={makeClient()}>

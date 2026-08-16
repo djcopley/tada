@@ -1,5 +1,6 @@
 import type { WsMessage } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { render } from '@testing-library/react-native'
 import { ClientProvider } from '../src/api/ClientContext'
 import { keys } from '../src/api/queries'
@@ -35,7 +36,7 @@ describe('WorkspaceSocket', () => {
   })
 
   test('opens a socket for the given workspace and invalidates board/workspaces/activity on board_changed', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
     const spy = jest.spyOn(queryClient, 'invalidateQueries')
 
     await render(
@@ -62,7 +63,7 @@ describe('WorkspaceSocket', () => {
   })
 
   test('renders nothing', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = makeTestQueryClient()
 
     const { toJSON } = await render(
       <QueryClientProvider client={queryClient}>

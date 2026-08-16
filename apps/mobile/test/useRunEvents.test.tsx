@@ -1,5 +1,6 @@
 import type { ApiRunEvent } from '@tada/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { makeTestQueryClient } from './helpers/queryClient'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactNode } from 'react'
 import { ClientProvider } from '../src/api/ClientContext'
@@ -20,7 +21,7 @@ const mockRunEvents = jest.fn()
 const fakeClient = { runEvents: mockRunEvents } as unknown as import('../src/api/client').TadaClient
 
 function wrapper({ children }: { children: ReactNode }) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = makeTestQueryClient()
   return (
     <QueryClientProvider client={queryClient}>
       <ClientProvider client={fakeClient}>{children}</ClientProvider>

@@ -7,7 +7,15 @@
 const baseResolver = require(require('jest-expo/jest-preset').resolver)
 
 module.exports = (request, options) => {
-  if (options.basedir.includes('react-native-worklets') || request.includes('react-native-worklets')) {
+  // Match the worklets package itself, not any pnpm store path that merely mentions it: under
+  // pnpm, expo-modules-core lives at `.pnpm/expo-modules-core@…_react-native-worklets@…/`, and a
+  // substring match stripped `.native.*` from all of expo-modules-core too, bypassing jest-expo's
+  // native mocks (symptom: "No native ExponentConstants module found").
+  if (
+    request === 'react-native-worklets' ||
+    request.startsWith('react-native-worklets/') ||
+    /[\\/]node_modules[\\/]react-native-worklets[\\/]/.test(options.basedir)
+  ) {
     options = {
       ...options,
       extensions: options.extensions?.filter((ext) => !ext.includes('native')),
