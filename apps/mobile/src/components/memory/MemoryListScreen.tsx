@@ -15,14 +15,12 @@ import {
 import {
   AgentPanel,
   AppHeader,
-  BottomStrip,
   Button,
   Card,
   Dialog,
   EmptyState,
   IconButton,
   Input,
-  Rail,
   Screen,
   Skeleton,
 } from '../ui'
@@ -35,6 +33,7 @@ import { showToast } from '../../toast'
 import { openWorkspaceSwitcher } from '../WorkspaceSwitcher'
 import { CardHeader } from '../ticket/TicketDetailCards'
 import { useClaimActiveWorkspace } from '../../useClaimActiveWorkspace'
+import { SectionRail, SectionStrip } from '../frame/SectionFrame'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -146,6 +145,9 @@ export function MemoryListScreen(props: Props) {
   // Rail/BottomStrip need a workspace to scope Board/Settings links to — in global scope there's
   // no workspace param at all, so fall back to whichever one is active on-device.
   const navWorkspaceId = scope === 'workspace' ? wsId : activeWorkspaceId
+  // Workspace memory is a tab: the tabs frame (app/workspaces/_layout.tsx) draws the Rail/strip
+  // around it. Global memory is pushed in the root stack over that frame, so it draws its own.
+  const ownFrame = scope === 'global'
 
   const closePrompt = () => {
     setShowNamePrompt(false)
@@ -358,13 +360,7 @@ export function MemoryListScreen(props: Props) {
   if (wide) {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="memory-wide">
-        <Rail
-          active="memory"
-          workspaceId={navWorkspaceId}
-          workspaceName={workspace?.name}
-          sourceCount={workspace?.sources.length}
-          testID="memory-rail"
-        />
+        {ownFrame ? <SectionRail active="memory" workspaceId={navWorkspaceId} testID="memory-rail" /> : null}
         <ScrollView contentContainerStyle={styles.wideContent}>
           <View style={styles.column}>
             <View style={styles.headerRow}>
@@ -384,7 +380,7 @@ export function MemoryListScreen(props: Props) {
   }
 
   return (
-    <Screen edges={['top', 'bottom']} testID="memory-narrow">
+    <Screen testID="memory-narrow">
       <View style={styles.narrowHeader}>
         <Text style={[type.title, { color: colors.text }]}>Memory</Text>
         {switcherTrigger}
@@ -407,9 +403,7 @@ export function MemoryListScreen(props: Props) {
         {listBody}
       </ScrollView>
 
-      <View style={styles.bottomStripWrap}>
-        <BottomStrip active="memory" workspaceId={navWorkspaceId} testID="memory-bottom-strip" />
-      </View>
+      {ownFrame ? <SectionStrip active="memory" workspaceId={navWorkspaceId} testID="memory-bottom-strip" /> : null}
 
       {dialogs}
     </Screen>
@@ -462,9 +456,6 @@ const styles = StyleSheet.create({
     paddingTop: space.md,
     paddingBottom: space.md,
     gap: space.md,
-  },
-  bottomStripWrap: {
-    padding: space.md,
   },
   card: {
     gap: space.sm,

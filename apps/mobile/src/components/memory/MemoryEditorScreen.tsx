@@ -118,7 +118,8 @@ export function MemoryEditorScreen(props: Props) {
   }
 
   return (
-    <Screen edges={['top', 'bottom']}>
+    // Workspace notes sit inside the Memory tab, whose frame already pads the bottom safe area.
+    <Screen edges={scope === 'workspace' ? ['top'] : ['top', 'bottom']}>
       <AppHeader title={file} back backHref={listHref}>
         <View style={styles.saveRow}>
           {isDirty ? (

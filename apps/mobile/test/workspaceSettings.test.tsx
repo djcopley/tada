@@ -572,14 +572,14 @@ describe('Workspace settings screen', () => {
   })
 
   describe('Wide layout', () => {
-    test('renders the Rail with a Settings active item instead of the narrow theme switch', async () => {
+    test('renders the wide artboard without the narrow theme switch (the Rail comes from the tabs frame)', async () => {
       setWindowWidth(1400)
       await renderSettings()
 
       await waitFor(() => {
         expect(screen.getByTestId('settings-wide')).toBeTruthy()
       })
-      expect(screen.getByTestId('settings-rail')).toBeTruthy()
+      expect(screen.queryByTestId('settings-rail')).toBeNull()
       expect(screen.queryByTestId('theme-switch')).toBeNull()
       expect(screen.queryByTestId('settings-narrow')).toBeNull()
     })

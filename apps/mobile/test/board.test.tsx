@@ -621,12 +621,13 @@ describe('Board screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('board-wide')).toBeTruthy()
     })
-    expect(screen.getByTestId('board-rail')).toBeTruthy()
+    // The Rail is drawn by the tabs frame, not the screen (see SectionTabBar).
+    expect(screen.queryByTestId('board-rail')).toBeNull()
     expect(screen.getByText('parlor ▾')).toBeTruthy()
     expect(screen.getByTestId('board-new-ticket')).toBeTruthy()
   })
 
-  test('narrow: renders the paged board with a BottomStrip instead of the Rail', async () => {
+  test('narrow: renders the paged board (the frame draws the BottomStrip, not the screen)', async () => {
     setWidth(NARROW_WIDTH)
     mockBoard.mockResolvedValueOnce(board())
 
@@ -636,7 +637,7 @@ describe('Board screen', () => {
       expect(screen.getByTestId('board-paged')).toBeTruthy()
     })
     expect(screen.queryByTestId('board-rail')).toBeNull()
-    expect(screen.getByTestId('board-bottom-strip')).toBeTruthy()
+    expect(screen.queryByTestId('board-bottom-strip')).toBeNull()
   })
 
   test('narrow: header gear navigates to the workspace\'s settings', async () => {

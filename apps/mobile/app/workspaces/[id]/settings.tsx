@@ -20,7 +20,6 @@ import {
   Input,
   Menu,
   ListRow,
-  Rail,
   Screen,
   Skeleton,
   Stepper,
@@ -654,13 +653,6 @@ export default function WorkspaceSettings() {
   if (wide) {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="settings-wide">
-        <Rail
-          active="settings"
-          workspaceId={wsId}
-          workspaceName={workspace.name}
-          sourceCount={workspace.sources.length}
-          testID="settings-rail"
-        />
         <ScrollView contentContainerStyle={styles.wideContent}>
           <View style={styles.headerRow}>
             <Text style={[type.display, { color: colors.text }]}>Settings</Text>

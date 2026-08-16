@@ -33,7 +33,7 @@ import { NewTicketDialog } from '../../../src/components/NewTicketDialog'
 import { TicketActions } from '../../../src/components/TicketActions'
 import type { BoardCardActions, TicketDetail } from '../../../src/components/TicketCard'
 import { TicketCardBody } from '../../../src/components/TicketCard'
-import { AppHeader, BottomStrip, Button, Dialog, EmptyState, IconButton, Input, Rail, Screen, Skeleton } from '../../../src/components/ui'
+import { AppHeader, Button, Dialog, EmptyState, IconButton, Input, Screen, Skeleton } from '../../../src/components/ui'
 import { openWorkspaceSwitcher } from '../../../src/components/WorkspaceSwitcher'
 import { useNowTick } from '../../../src/control'
 import { useTheme } from '../../../src/design/ThemeContext'
@@ -550,13 +550,6 @@ export default function Board() {
     return (
       <BoardDnDProvider value={dnd}>
         <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="board-wide">
-          <Rail
-            active="board"
-            workspaceId={wsId}
-            workspaceName={workspace.name}
-            sourceCount={workspace.sources.length}
-            testID="board-rail"
-          />
           <View style={styles.wideContent}>
             <View style={styles.headerRow}>
               <Text style={[type.display, { color: colors.text }]}>Board</Text>
@@ -576,7 +569,7 @@ export default function Board() {
 
   return (
     <BoardDnDProvider value={dnd}>
-      <Screen edges={['top', 'bottom']} testID="board-narrow">
+      <Screen testID="board-narrow">
         <View style={styles.narrowHeader}>
           <Text style={[type.title, { color: colors.text }]}>Board</Text>
           {workspaceSwitcherTrigger}
@@ -606,10 +599,6 @@ export default function Board() {
           keyExtractor={(c) => String(c.id)}
           renderItem={({ item }) => renderColumn(item)}
         />
-
-        <View style={styles.bottomStripWrap}>
-          <BottomStrip active="board" workspaceId={wsId} testID="board-bottom-strip" />
-        </View>
 
         {actionsSheet}
         {overlay}
@@ -655,9 +644,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
     paddingBottom: space.sm,
-  },
-  bottomStripWrap: {
-    padding: space.md,
   },
   floatingCard: {
     position: 'absolute',

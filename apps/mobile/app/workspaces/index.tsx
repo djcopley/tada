@@ -30,13 +30,11 @@ import {
 } from '../../src/components/control/ControlCards'
 import {
   AppHeader,
-  BottomStrip,
   Button,
   Dialog,
   EmptyState,
   IconButton,
   Input,
-  Rail,
   RunStatusChip,
   Screen,
   Skeleton,
@@ -427,14 +425,6 @@ export default function Control() {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="control-wide">
         {sockets}
-        <Rail
-          active="control"
-          workspaceId={memoryWorkspaceId}
-          workspaceName={memoryWorkspace?.name}
-          sourceCount={memoryWorkspace?.sourceCount}
-          needsYouCount={needsYou.length}
-          testID="control-rail"
-        />
         <ScrollView
           contentContainerStyle={styles.wideContent}
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
@@ -549,7 +539,7 @@ export default function Control() {
   })
 
   return (
-    <Screen edges={['top', 'bottom']} testID="control-narrow">
+    <Screen testID="control-narrow">
       {sockets}
       <View style={styles.narrowHeader}>
         <Text style={[type.title, { color: colors.text }]}>
@@ -611,10 +601,6 @@ export default function Control() {
           />
         </View>
       </ScrollView>
-
-      <View style={styles.bottomStripWrap}>
-        <BottomStrip active="control" workspaceId={memoryWorkspaceId} testID="control-bottom-strip" />
-      </View>
 
       {dialogs}
     </Screen>
@@ -684,9 +670,6 @@ const styles = StyleSheet.create({
     padding: space.lg,
     paddingTop: space.md,
     gap: space.md,
-  },
-  bottomStripWrap: {
-    padding: space.md,
   },
   narrowActions: {
     flexDirection: 'row',

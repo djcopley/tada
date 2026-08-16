@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ActivityType, ApiRun } from '@tada/shared'
+import type { ActivityType, ApiBoard, ApiRun } from '@tada/shared'
 
 /**
  * Pure formatting/logic for the Control screen — split out from the screen
@@ -171,4 +171,23 @@ export function useNowTick(intervalMs = 30_000): number {
     return () => clearInterval(id)
   }, [intervalMs])
   return now
+}
+
+/**
+ * How many tickets are waiting on the human: everything in review, plus queued tickets the
+ * scheduler is holding after a failure. Mirrors the triage loop in app/workspaces/index.tsx —
+ * the Rail's Control badge (drawn outside that screen, in the tabs frame) uses this so both
+ * always agree.
+ */
+export function countNeedsYou(boards: (ApiBoard | undefined)[]): number {
+  let n = 0
+  for (const board of boards) {
+    if (!board) continue
+    for (const column of board.columns) {
+      for (const ticket of column.tickets) {
+        if (column.kind === 'in_review' || ticket.queueState === 'held') n += 1
+      }
+    }
+  }
+  return n
 }

@@ -575,7 +575,7 @@ describe('Control screen', () => {
     expect(screen.getByTestId('today-card')).toHaveTextContent(/✕/)
   })
 
-  test('wide layout renders the Rail and two-column grid', async () => {
+  test('wide layout renders the two-column grid (the Rail comes from the tabs frame)', async () => {
     setupMocks()
     setWindowWidth(1400)
     await renderControl()
@@ -583,11 +583,11 @@ describe('Control screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('control-wide')).toBeTruthy()
     })
-    expect(screen.getByTestId('control-rail')).toBeTruthy()
+    expect(screen.queryByTestId('control-rail')).toBeNull()
     expect(screen.queryByTestId('control-narrow')).toBeNull()
   })
 
-  test('narrow layout renders the mobile artboard with BottomStrip and terse card meta', async () => {
+  test('narrow layout renders the mobile artboard with terse card meta', async () => {
     setupMocks()
     setWindowWidth(500)
     await renderControl()
@@ -595,7 +595,7 @@ describe('Control screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('control-narrow')).toBeTruthy()
     })
-    expect(screen.getByTestId('control-bottom-strip')).toBeTruthy()
+    expect(screen.queryByTestId('control-bottom-strip')).toBeNull()
     expect(screen.getByTestId('live-digest')).toBeTruthy()
     expect(screen.queryByTestId('control-rail')).toBeNull()
 

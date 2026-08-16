@@ -157,7 +157,7 @@ async function renderGlobalMemoryList({ withSwitcher = false }: { withSwitcher?:
   const GlobalMemoryList = require('../app/memory/index').default
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { ToastHost } = require('../src/toast')
-  await render(
+  return await render(
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider>
         <GlobalMemoryList />
@@ -510,26 +510,28 @@ describe('Memory screens', () => {
       expect(mockPush).toHaveBeenCalledWith('/memory')
     })
 
-    test('wide layout renders the Rail alongside the content column', async () => {
+    test('workspace scope draws no frame of its own — the tabs frame supplies Rail/BottomStrip', async () => {
       setWidth(WIDE_WIDTH)
       mockMemory.mockResolvedValue(memory({ notes: [] }))
 
       await renderMemoryList()
 
       await waitFor(() => {
-        expect(screen.getByTestId('memory-rail')).toBeTruthy()
+        expect(screen.getByTestId('memory-wide')).toBeTruthy()
       })
+      expect(screen.queryByTestId('memory-rail')).toBeNull()
       expect(screen.queryByTestId('memory-bottom-strip')).toBeNull()
     })
 
-    test('narrow layout renders the BottomStrip', async () => {
+    test('narrow workspace scope likewise has no BottomStrip of its own', async () => {
       mockMemory.mockResolvedValue(memory({ notes: [] }))
 
       await renderMemoryList()
 
       await waitFor(() => {
-        expect(screen.getByTestId('memory-bottom-strip')).toBeTruthy()
+        expect(screen.getByTestId('memory-narrow')).toBeTruthy()
       })
+      expect(screen.queryByTestId('memory-bottom-strip')).toBeNull()
       expect(screen.queryByTestId('memory-rail')).toBeNull()
     })
 
@@ -548,6 +550,27 @@ describe('Memory screens', () => {
   })
 
   describe('Global scope list', () => {
+    // Global memory is pushed over the tabs group, so unlike workspace memory it draws its own
+    // frame: the Rail when wide, the BottomStrip when narrow.
+    test('wide draws its own Rail', async () => {
+      mockGlobalMemory.mockResolvedValue(memory({ notes: [] }))
+      setWidth(WIDE_WIDTH)
+      await renderGlobalMemoryList()
+      await waitFor(() => {
+        expect(screen.getByTestId('memory-rail')).toBeTruthy()
+      })
+      expect(screen.queryByTestId('memory-bottom-strip')).toBeNull()
+    })
+
+    test('narrow draws its own BottomStrip', async () => {
+      mockGlobalMemory.mockResolvedValue(memory({ notes: [] }))
+      await renderGlobalMemoryList()
+      await waitFor(() => {
+        expect(screen.getByTestId('memory-bottom-strip')).toBeTruthy()
+      })
+      expect(screen.queryByTestId('memory-rail')).toBeNull()
+    })
+
     test('renders global notes directly, with no Global card', async () => {
       mockGlobalMemory.mockResolvedValue(
         memory({
