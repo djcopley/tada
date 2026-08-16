@@ -109,8 +109,9 @@ export function Rail({
             accessibilityLabel="Day mode"
             value={scheme === 'day'}
             onValueChange={(on) => setScheme(on ? 'day' : 'night')}
-            trackColor={{ true: colors.live, false: colors.raised2 }}
-            thumbColor={colors.raised}
+            trackColor={{ true: colors.live, false: colors.controlBorder }}
+            // Muted ink so the off state reads as a control, not a dead dark-on-dark pill.
+            thumbColor={colors.textMuted}
           />
         </View>
       </View>

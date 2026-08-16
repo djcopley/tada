@@ -199,7 +199,7 @@ export function LiveNowCard({
         <Text numberOfLines={1} style={[type.bodyStrong, styles.flexShrink]}>
           {ticket.title}
         </Text>
-        <Tag label={workspace.name.toLowerCase()} />
+        <Tag label={workspace.name} />
         <View style={styles.spacer} />
         <RunStatusChip status="live" label="live" meta={elapsedLabel(startedAt, now)} testID={`${testID}-status`} />
       </View>

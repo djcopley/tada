@@ -473,7 +473,7 @@ describe('Board screen', () => {
     })
     expect(screen.getByText('your turn')).toBeTruthy()
     await waitFor(() => {
-      expect(screen.getByText('attempt 2 · pr #481 · tests pass')).toBeTruthy()
+      expect(screen.getByText('attempt 2 · pr #481 · 12 tests pass')).toBeTruthy()
     })
 
     await fireEvent.press(screen.getByTestId('accept-50'))

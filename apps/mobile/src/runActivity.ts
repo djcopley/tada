@@ -27,6 +27,8 @@ export function runHeaderBadge(
   now: number,
 ): { status: BadgeStatus; label: string } | null {
   if (!run) return null
+  // Queued counts as active (Stop still applies) but it isn't live yet — no elapsed clock.
+  if (run.status === 'queued') return { status: 'neutral', label: 'queued' }
   if (live) return { status: 'live', label: `live · ${elapsedLabel(run.startedAt, now)}` }
   const status: BadgeStatus = run.status === 'failed' ? 'failed' : 'accepted'
   return { status, label: runStatusVisual(run.status).label.toLowerCase() }

@@ -295,7 +295,7 @@ function TicketDetailBody({
             testID="brief-edit-trigger"
             variant="ghost"
             small
-            label={hasActiveRun ? 'Locked while running' : 'Edit brief'}
+            label={hasActiveRun ? (runningRun ? 'Locked while running' : 'Locked while queued') : 'Edit brief'}
             disabled={hasActiveRun}
             onPress={startEdit}
             style={styles.selfStart}

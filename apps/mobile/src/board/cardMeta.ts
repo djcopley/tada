@@ -39,13 +39,13 @@ export function retryMeta(latestRun: ApiRun | undefined): string | null {
   return `${heldWord(latestRun)} · retry as attempt ${latestRun.attemptNumber + 1}`
 }
 
-/** In-review card meta: `attempt N · pr #X · tests pass`, omitting any piece the run lacks. */
+/** In-review card meta: `attempt N · pr #X · 12 tests pass`, omitting any piece the run lacks. */
 export function reviewMeta(run: ApiRun | undefined): string {
   if (!run) return ''
   const parts = [`attempt ${run.attemptNumber}`]
   const pr = prNumberFromUrl(run.prUrl)
   if (pr) parts.push(`pr #${pr}`)
-  if (run.testsPassed) parts.push('tests pass')
+  if (run.testsPassed) parts.push(`${run.testsPassed} tests pass`)
   return parts.join(' · ')
 }
 

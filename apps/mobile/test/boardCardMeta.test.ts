@@ -118,7 +118,7 @@ describe('reviewMeta', () => {
   test('attempt, pr, and tests pass', () => {
     expect(
       reviewMeta(run({ attemptNumber: 2, prUrl: 'https://github.com/x/y/pull/481', testsPassed: 12 })),
-    ).toBe('attempt 2 · pr #481 · tests pass')
+    ).toBe('attempt 2 · pr #481 · 12 tests pass')
   })
   test('omits "tests pass" when testsPassed is zero', () => {
     expect(reviewMeta(run({ attemptNumber: 2, testsPassed: 0 }))).toBe('attempt 2')

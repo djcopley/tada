@@ -109,7 +109,8 @@ function RunActivityBody({ runId }: { runId: number }) {
 
   const badge = runHeaderBadge(run, live, now)
   const metaLine = run ? runMetaLine(workspace?.name ?? '—', workspace?.sources[0]?.name, run.attemptNumber) : '—'
-  const panelMeta = live ? `live · ${elapsedLabel(run?.startedAt, now)}` : (badge?.label ?? '—')
+  const running = run?.status === 'running'
+  const panelMeta = running ? `live · ${elapsedLabel(run?.startedAt, now)}` : (badge?.label ?? '—')
 
   return (
     <Screen edges={['top', 'bottom']} testID="run-activity">
@@ -166,7 +167,8 @@ function RunActivityBody({ runId }: { runId: number }) {
           )}
         </AgentPanel>
 
-        {live && (
+        {/* A nudge needs a running agent to hear it (the server 404s otherwise). */}
+        {running && (
           <>
             <View style={styles.nudgeRow}>
               <Input

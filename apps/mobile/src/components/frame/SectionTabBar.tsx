@@ -6,6 +6,7 @@ import { SectionRail, SectionStrip, useFrameWorkspaceId } from './SectionFrame'
 /** Tab route name (app/workspaces/…) → the section it is. */
 const SECTION_BY_ROUTE: Record<string, SectionKey> = {
   index: 'control',
+  '[id]/index': 'board', // redirects to the board
   '[id]/board': 'board',
   '[id]/memory': 'memory',
   '[id]/settings': 'settings',

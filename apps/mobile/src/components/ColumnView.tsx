@@ -117,9 +117,10 @@ export function ColumnView({
         ]}
       >
         <View style={styles.header}>
-          {column.kind === 'in_progress' ? (
+          {/* Orange means live: the dot only shows (and pulses) while something is actually here. */}
+          {column.kind === 'in_progress' && tickets.length > 0 ? (
             <HeaderDot testID={`header-dot-${column.id}`} color={headerColor} pulse />
-          ) : column.kind === 'in_review' ? (
+          ) : column.kind === 'in_review' && tickets.length > 0 ? (
             <HeaderDot testID={`header-dot-${column.id}`} color={headerColor} pulse={false} />
           ) : null}
           <Text style={[type.monoCaps, styles.upper, { color: headerColor }]}>{column.title}</Text>

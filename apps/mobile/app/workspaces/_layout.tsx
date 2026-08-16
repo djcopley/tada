@@ -43,6 +43,8 @@ export default function WorkspacesLayout() {
       })}
     >
       <Tabs.Screen name="index" />
+      {/* Not a section — `/workspaces/:id` just redirects to the board. */}
+      <Tabs.Screen name="[id]/index" />
       <Tabs.Screen name="[id]/board" />
       <Tabs.Screen name="[id]/memory" />
       <Tabs.Screen name="[id]/settings" />

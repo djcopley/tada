@@ -60,10 +60,31 @@ function toolNarration(payload: unknown): string | null {
 
 /** The narration text for one run event, or `null` to skip it (an event type this feed doesn't
  * narrate, or a tool call with nothing concise to say). */
+/** Status events narrated as prose rather than raw enum values. Run-status transitions and the
+ * agent's own outcome report both arrive as `status` events (payload.kind tells them apart). */
+function statusNarration(payload: unknown): string | null {
+  const status = stringField(payload, 'status')
+  if (!status) return null
+  const kind = stringField(payload, 'kind')
+  if (kind === 'outcome') {
+    const summary = stringField(payload, 'summary')?.trim()
+    const head = status === 'success' ? 'reported success' : `reported ${status}`
+    return summary ? `${head} — ${summary}` : head
+  }
+  const words: Record<string, string> = {
+    queued: 'queued',
+    running: 'running',
+    needs_review: 'finished — your turn',
+    failed: 'failed',
+    cancelled: 'stopped',
+  }
+  return words[status] ?? status.replace(/_/g, ' ')
+}
+
 export function narrationText(event: ApiRunEvent): string | null {
   switch (event.type) {
     case 'status':
-      return stringField(event.payload, 'status') ?? null
+      return statusNarration(event.payload)
     case 'text':
       return stringField(event.payload, 'text') ?? null
     case 'error':

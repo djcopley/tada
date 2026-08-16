@@ -270,7 +270,7 @@ export function MemoryListScreen(props: Props) {
                 header={`learned: ${n.title}`}
                 meta={`by agent · ${noteAge(n.updatedAt)}`}
               >
-                <Text style={[type.mono, { color: colors.agentText }]}>{n.body}</Text>
+                <Text style={[type.mono, { color: colors.agentText }]}>{stripLeadingHeading(n.body) || n.body}</Text>
               </AgentPanel>
               <View style={styles.actionsRow}>
                 <Button
