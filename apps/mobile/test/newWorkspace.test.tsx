@@ -10,6 +10,9 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
 }))
 
+const mockShowToast = jest.fn()
+jest.mock('../src/toast', () => ({ showToast: (m: string) => mockShowToast(m) }))
+
 const mockCheckName = jest.fn()
 const mockKnownRepos = jest.fn()
 const mockCreateWorkspace = jest.fn()
@@ -149,6 +152,29 @@ describe('NewWorkspaceDialog', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/workspaces/42/board')
     })
+  })
+
+  test('a failed clone after the workspace exists closes the dialog, toasts, and lands on Settings', async () => {
+    const { ApiError } = require('../src/api/client')
+    mockAddSource.mockRejectedValueOnce(new ApiError(502, { error: 'clone failed: repository not found' }))
+    await renderDialog()
+    await openDialog()
+
+    await fireEvent.changeText(screen.getByTestId('workspace-name-input'), 'Acme web')
+    await waitFor(() => {
+      expect(screen.getByTestId('attach-repo-https://github.com/acme/web.git')).toBeTruthy()
+    })
+    await fireEvent.press(screen.getByTestId('attach-repo-https://github.com/acme/web.git'))
+    await fireEvent.press(screen.getByTestId('workspace-create-button'))
+
+    await waitFor(() => {
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Workspace created, but adding https://github.com/acme/web.git (clone failed: repository not found) failed',
+      )
+    })
+    // Retrying here would only hit "name taken" — sources are managed on Settings instead.
+    expect(mockNavigate).toHaveBeenCalledWith('/workspaces/42/settings')
+    expect(screen.queryByTestId('new-workspace-dialog')).toBeNull()
   })
 
   test('create with no repos checked: skips addSource entirely', async () => {

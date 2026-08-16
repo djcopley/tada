@@ -1,10 +1,13 @@
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { useQueryClient } from '@tanstack/react-query'
+import { ApiError } from '../api/client'
 import { useClient } from '../api/ClientContext'
-import { useCheckName, useCreateWorkspace, useKnownRepos } from '../api/queries'
+import { keys, useCheckName, useCreateWorkspace, useKnownRepos } from '../api/queries'
 import { useTheme } from '../design/ThemeContext'
 import { space, type } from '../design/tokens'
+import { showToast } from '../toast'
 import { Checkbox, Dialog, Input } from './ui'
 
 type Listener = () => void
@@ -25,6 +28,7 @@ export function openNewWorkspaceDialog(): void {
 export function NewWorkspaceDialog() {
   const router = useRouter()
   const client = useClient()
+  const qc = useQueryClient()
   const { colors } = useTheme()
   const [visible, setVisible] = useState(false)
   const [name, setName] = useState('')
@@ -60,15 +64,34 @@ export function NewWorkspaceDialog() {
   const confirmCreate = async () => {
     const trimmed = name.trim()
     if (!trimmed) return
+    let workspace: { id: number }
     try {
-      const workspace = await createWorkspace.mutateAsync(trimmed)
-      for (const url of checkedRepos) {
-        await client.addSource(workspace.id, { type: 'repo', url })
-      }
-      close()
-      router.navigate(`/workspaces/${workspace.id}/board`)
+      workspace = await createWorkspace.mutateAsync(trimmed)
     } catch {
       // Global mutation error handler already surfaces a toast; leave the dialog open to retry.
+      return
+    }
+    // The workspace exists from here on, so a failed clone must not leave the dialog open (a
+    // retry would just hit "name taken"): report which repo failed and land on Settings, where
+    // sources are managed and the clone can be retried.
+    let failed: string | undefined
+    for (const url of checkedRepos) {
+      try {
+        await client.addSource(workspace.id, { type: 'repo', url })
+      } catch (err) {
+        const detail = err instanceof ApiError && typeof err.body === 'object' && err.body !== null && 'error' in err.body ? String((err.body as { error: unknown }).error) : ''
+        failed = detail ? `${url} (${detail})` : url
+        break
+      }
+    }
+    void qc.invalidateQueries({ queryKey: keys.workspaces })
+    void qc.invalidateQueries({ queryKey: keys.workspace(workspace.id) })
+    close()
+    if (failed) {
+      showToast(`Workspace created, but adding ${failed} failed`)
+      router.navigate(`/workspaces/${workspace.id}/settings`)
+    } else {
+      router.navigate(`/workspaces/${workspace.id}/board`)
     }
   }
 

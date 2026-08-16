@@ -124,6 +124,8 @@ export default function Control() {
     mutationFn: (vars: { runId: number; note: string }) => client.nudge(vars.runId, vars.note),
     onSuccess: (data, vars) => {
       void qc.invalidateQueries({ queryKey: keys.run(vars.runId) })
+      // The nudge lands in the ticket thread as a comment too (same as useNudge).
+      void qc.invalidateQueries({ queryKey: ['ticket'] })
       if (!data.delivered) showToast('note saved for the next attempt')
     },
   })
