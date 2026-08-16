@@ -60,6 +60,8 @@ async function dragAndDrop(
       oldState: State.ACTIVE,
       absoluteX: to.x,
       absoluteY: to.y,
+      translationX: to.x - from.x,
+      translationY: to.y - from.y,
     })
     await new Promise((r) => setTimeout(r, 0))
   })
@@ -679,5 +681,37 @@ describe('Board screen', () => {
     await waitFor(() => {
       expect(mockPatchTicket).toHaveBeenCalledWith(80, { position: 3 })
     })
+  })
+
+  test('a held card released without moving opens its actions instead of dropping', async () => {
+    mockBoard.mockResolvedValueOnce(
+      board({
+        columns: [
+          {
+            id: 1,
+            workspaceId: 1,
+            kind: 'backlog',
+            title: 'Backlog',
+            position: 1,
+            tickets: [ticket({ id: 80, title: 'Alpha', position: 1 })],
+          },
+        ],
+      }),
+    )
+
+    await renderBoard()
+    await waitFor(() => {
+      expect(screen.getByText('Alpha')).toBeTruthy()
+    })
+
+    // Native: the pan's long-press activation swallows the Pressable long-press, so a hold that
+    // never travels is what opens the actions sheet.
+    await dragAndDrop('ticket-drag-80', { x: 40, y: 40 }, { x: 42, y: 41 })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ticket-actions-sheet')).toBeTruthy()
+    })
+    expect(mockPatchTicket).not.toHaveBeenCalled()
+    expect(mockMoveTicket).not.toHaveBeenCalled()
   })
 })

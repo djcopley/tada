@@ -278,8 +278,16 @@ export function TicketCardBody(props: BodyProps) {
   return <MinimalBody title={ticket.title} meta={meta} liveMeta={Boolean(heldRetry)} />
 }
 
-/** Drag activates after a short hold; a plain tap still opens the ticket. */
+/** Native: drag activates after a short hold; a plain tap still opens the ticket. */
 const DRAG_HOLD_MS = 220
+/** Web: a mouse "click and drag" moves immediately, so the pan activates on distance instead of
+ * a hold (RNGH's web pan fails if the pointer moves before a long-press timer fires). */
+const DRAG_MIN_DISTANCE = 6
+/** A held-then-released card (no real movement) reads as a long-press, not a drag. */
+const DRAG_TAP_SLOP = 8
+/** How long after a drag the underlying Pressable's trailing press/click is ignored — on web
+ * the browser still fires `click` on the source card after the pointer is released. */
+const POST_DRAG_PRESS_GUARD_MS = 400
 
 export function TicketCard({
   ticket,
@@ -300,6 +308,9 @@ export function TicketCard({
   const { colors } = useTheme()
   const cardRef = useRef<View>(null)
   const proposal = isProposalTicket(ticket)
+  // Timestamp of the last drag activation, so the card's own press handler can tell a real tap
+  // from the click that trails a drop (see POST_DRAG_PRESS_GUARD_MS).
+  const lastDragAt = useRef(0)
 
   useEffect(() => {
     if (!dnd || !cardRef.current) return
@@ -308,6 +319,8 @@ export function TicketCard({
 
   const lift = async (absX: number, absY: number) => {
     if (!dnd || !cardRef.current) return
+    // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
+    lastDragAt.current = Date.now()
     const rect = await measureInWindow(cardRef.current)
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     dnd.beginDrag(
@@ -324,8 +337,27 @@ export function TicketCard({
   }
 
   const move = (absX: number, absY: number) => dnd?.moveDrag(absX, absY)
-  const drop = (absX: number, absY: number) => dnd?.endDrag(absX, absY)
-  const cancel = () => dnd?.cancelDrag()
+  const drop = (absX: number, absY: number, travelled: number) => {
+    // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
+    lastDragAt.current = Date.now()
+    // On native the pan's long-press activation swallows the Pressable's own long-press, so a
+    // hold that never really moved is the long-press: put the card back and open its actions.
+    if (Platform.OS !== 'web' && travelled < DRAG_TAP_SLOP && onLongPress) {
+      dnd?.cancelDrag()
+      onLongPress()
+      return
+    }
+    dnd?.endDrag(absX, absY)
+  }
+  const cancel = () => {
+    // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
+    lastDragAt.current = Date.now()
+    dnd?.cancelDrag()
+  }
+  const guardedPress = () => {
+    if (Date.now() - lastDragAt.current < POST_DRAG_PRESS_GUARD_MS) return
+    onPress()
+  }
 
   const dragging = dnd?.draggingId === ticket.id
 
@@ -340,8 +372,10 @@ export function TicketCard({
     <View ref={cardRef} collapsable={false} style={dragging && styles.liftedSource}>
       <Card
         testID={`ticket-card-${ticket.id}`}
-        onPress={onPress}
-        onLongPress={onLongPress}
+        onPress={dnd && !proposal ? guardedPress : onPress}
+        // Native long-press is delivered through the pan (see `drop`); web keeps the Pressable's
+        // own long-press since a held mouse never moves far enough to start the distance pan.
+        onLongPress={dnd && !proposal && Platform.OS !== 'web' ? undefined : onLongPress}
         nestedInteractive={hasNestedButtons}
         style={proposal ? [styles.card, { borderStyle: 'dashed', borderColor: colors.borderStrong }] : styles.card}
       >
@@ -363,9 +397,8 @@ export function TicketCard({
   // its fate instead), so it never gets the pan gesture attached.
   if (!dnd || proposal) return card
 
-  const pan = Gesture.Pan()
-    .withTestId(`ticket-drag-${ticket.id}`)
-    .activateAfterLongPress(DRAG_HOLD_MS)
+  const basePan = Gesture.Pan().withTestId(`ticket-drag-${ticket.id}`)
+  const pan = (Platform.OS === 'web' ? basePan.minDistance(DRAG_MIN_DISTANCE) : basePan.activateAfterLongPress(DRAG_HOLD_MS))
     // eslint-disable-next-line react-hooks/refs -- `lift` reads cardRef inside a gesture handler, not during render
     .onStart((e) => {
       runOnJS(lift)(e.absoluteX, e.absoluteY)
@@ -373,9 +406,11 @@ export function TicketCard({
     .onUpdate((e) => {
       runOnJS(move)(e.absoluteX, e.absoluteY)
     })
+    // eslint-disable-next-line react-hooks/refs -- `drop`/`cancel` touch lastDragAt inside gesture handlers, not during render
     .onEnd((e) => {
-      runOnJS(drop)(e.absoluteX, e.absoluteY)
+      runOnJS(drop)(e.absoluteX, e.absoluteY, Math.hypot(e.translationX, e.translationY))
     })
+    // eslint-disable-next-line react-hooks/refs -- see above
     .onFinalize((_e, success) => {
       if (!success) runOnJS(cancel)()
     })
