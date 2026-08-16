@@ -22,7 +22,12 @@ function runIdParam(id: string): number | undefined {
  * ticket's queue state. For a 'running' run, `scheduler.cancel` aborts the signal and the
  * in-flight `executeRun` handles the terminal state + card move itself.
  */
-export function cancelRun(db: TadaDb, scheduler: Scheduler, runId: number): void {
+export function cancelRun(
+  db: TadaDb,
+  scheduler: Scheduler,
+  runId: number,
+  hub?: { boardChanged(workspaceId: number): void },
+): void {
   scheduler.cancel(runId)
   const fresh = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
   if (fresh && fresh.status === 'queued') {
@@ -32,11 +37,15 @@ export function cancelRun(db: TadaDb, scheduler: Scheduler, runId: number): void
       .where(eq(agentRuns.id, runId))
       .run()
     db.drizzle.update(tickets).set({ queueState: null }).where(eq(tickets.id, fresh.ticketId)).run()
+    // Nothing else broadcasts here (the run never reached the runner), so tell boards the card
+    // is no longer queued.
+    const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, fresh.ticketId)).get()
+    if (ticket) hub?.boardChanged(ticket.workspaceId)
   }
 }
 
 export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, scheduler } = deps
+  const { db, scheduler, hub } = deps
 
   app.get('/runs/:id', async (req, reply) => {
     const id = runIdParam((req.params as { id: string }).id)
@@ -104,7 +113,7 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
     if (!run) return reply.code(404).send({ error: 'run not found' })
 
-    cancelRun(db, scheduler, id)
+    cancelRun(db, scheduler, id, hub)
     return db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
   })
 
@@ -125,6 +134,8 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .insert(comments)
       .values({ ticketId: run.ticketId, author: 'human', kind: 'nudge', body: parsed.data.note })
       .run()
+    const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, run.ticketId)).get()
+    if (ticket) hub.boardChanged(ticket.workspaceId)
 
     const delivered = scheduler.sessionFor(id)?.inject(parsed.data.note) ?? false
     return { delivered }

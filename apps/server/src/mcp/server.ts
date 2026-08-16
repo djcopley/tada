@@ -72,8 +72,10 @@ function freeNoteFile(ctx: RunContext, notesDir: string, slug: string): string {
   throw new Error(`no free memory note filename for slug ${slug}`)
 }
 
-function addAgentComment(db: TadaDb, ticketId: number, body: string): void {
-  db.drizzle.insert(comments).values({ ticketId, author: 'agent', body }).run()
+function addAgentComment(ctx: RunContext, body: string): void {
+  ctx.db.drizzle.insert(comments).values({ ticketId: ctx.ticketId, author: 'agent', body }).run()
+  // An open ticket screen learns about the new comment through the board_changed refetch.
+  ctx.hub.boardChanged?.(ctx.workspaceId)
 }
 
 function createMcpServer(ctx: RunContext): McpServer {
@@ -86,7 +88,7 @@ function createMcpServer(ctx: RunContext): McpServer {
       inputSchema: { comment: z.string() },
     },
     async ({ comment }) => {
-      addAgentComment(ctx.db, ctx.ticketId, comment)
+      addAgentComment(ctx, comment)
       return { content: [{ type: 'text', text: 'comment added' }] }
     },
   )
@@ -98,7 +100,7 @@ function createMcpServer(ctx: RunContext): McpServer {
       inputSchema: { url: z.string(), label: z.string() },
     },
     async ({ url, label }) => {
-      addAgentComment(ctx.db, ctx.ticketId, `[${label}](${url})`)
+      addAgentComment(ctx, `[${label}](${url})`)
       return { content: [{ type: 'text', text: 'link attached' }] }
     },
   )
@@ -115,7 +117,7 @@ function createMcpServer(ctx: RunContext): McpServer {
       const name = basename(path)
       const dest = join(destDir, name)
       copyFileSync(path, dest)
-      addAgentComment(ctx.db, ctx.ticketId, `Attached file: ${dest}`)
+      addAgentComment(ctx, `Attached file: ${dest}`)
       return { content: [{ type: 'text', text: dest }] }
     },
   )
@@ -229,6 +231,7 @@ function createMcpServer(ctx: RunContext): McpServer {
         type: 'follow_up_filed',
         message: `Filed a follow-up ticket: "${title}"`,
       })
+      ctx.hub.boardChanged?.(ctx.workspaceId)
 
       return { content: [{ type: 'text', text: String(proposal.id) }] }
     },

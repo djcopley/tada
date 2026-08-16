@@ -15,6 +15,9 @@ export interface RecordActivityInput {
  * `activityChanged` method satisfies it, including a no-op for call sites/tests with no hub. */
 export interface ActivityBroadcaster {
   activityChanged(workspaceId: number): void
+  /** Optional: `{type:'board_changed'}` — clients refetch the board and every ticket detail on
+   * it, so this is also the signal for "a ticket's comments/fields changed". */
+  boardChanged?(workspaceId: number): void
 }
 
 export const noopActivityBroadcaster: ActivityBroadcaster = { activityChanged: () => {} }

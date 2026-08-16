@@ -139,11 +139,16 @@ export async function executeRun(
   // markFailed rather than propagate — otherwise the run wedges at 'running' with the card
   // stuck at in_progress and no journaled reason.
   const markFailed = (reason: string): void => {
+    // The reason is journaled as an error event (so the run screen's feed shows *why*, not just
+    // running → failed) and kept as the run's summary when the agent left none, so cards and the
+    // ticket's attempts list can surface it too.
+    journal.write({ type: 'error', payload: { message: reason } })
     journal.write({ type: 'status', payload: { kind: 'run_status', status: 'failed' } })
     assertRunTransition('running', 'failed')
+    const before = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
     db.drizzle
       .update(agentRuns)
-      .set({ status: 'failed', finishedAt: new Date() })
+      .set({ status: 'failed', finishedAt: new Date(), summary: before?.summary ?? reason })
       .where(eq(agentRuns.id, runId))
       .run()
 
@@ -265,7 +270,6 @@ export async function executeRun(
       adapterError = new Error(`unknown adapter: ${run.adapter}`)
     } else if (!(await isAvailable(adapter))) {
       const message = 'adapter not available on this server'
-      journal.write({ type: 'error', payload: { message } })
       markFailed(message)
       return
     } else {
@@ -316,7 +320,6 @@ export async function executeRun(
     // 4. decide the outcome
     if (adapterError !== undefined) {
       const message = adapterError instanceof Error ? adapterError.message : String(adapterError)
-      journal.write({ type: 'error', payload: { message } })
       markFailed(message)
       return
     }
@@ -345,7 +348,6 @@ export async function executeRun(
     if (!reported) {
       const fromFile = readOutcomeFile(runDir.path)
       if (fromFile.kind === 'invalid') {
-        journal.write({ type: 'error', payload: { message: fromFile.reason } })
         markFailed(fromFile.reason)
         return
       }
@@ -410,7 +412,6 @@ export async function executeRun(
     ).catch((err) => console.error('notifyRunFinished failed:', err))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    journal.write({ type: 'error', payload: { message } })
     markFailed(message)
   }
 }

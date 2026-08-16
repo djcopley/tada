@@ -153,6 +153,19 @@ describe('executeRun', () => {
     expect(acts.find((a) => a.type === 'run_failed')?.message).toContain(
       'agent did not report an outcome',
     )
+
+    // The reason is also on the run itself (summary) and in the journal (one error event), so
+    // the run screen / cards can show why rather than just "failed".
+    expect(updatedRun?.summary).toBe('agent did not report an outcome')
+    const errorEvents = db.drizzle
+      .select()
+      .from(events)
+      .where(eq(events.runId, run.id))
+      .all()
+      .filter((e) => e.type === 'error')
+    expect(errorEvents.map((e) => (e.payload as { message: string }).message)).toEqual([
+      'agent did not report an outcome',
+    ])
   })
 
   test('3. exitCode 1 -> failed', async () => {
@@ -384,7 +397,7 @@ describe('executeRun', () => {
       {
         to: 'ExponentPushToken[xyz]',
         title: `Ticket "${ticket.title}" failed`,
-        body: '',
+        body: 'exited with code 1',
         data: { ticketId: ticket.id },
       },
     ])

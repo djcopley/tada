@@ -200,6 +200,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       type: 'ticket_created',
       message: `You created "${ticket.title}"`,
     })
+    hub.boardChanged(workspaceId)
 
     return reply.code(201).send(ticket)
   })
@@ -390,6 +391,15 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .values({ ticketId: id, author: 'human', kind: 'feedback', body: parsed.data.feedback })
       .run()
 
+    // Recorded before the move so the feed reads "sent back" → "started attempt N+1", not the
+    // other way round (applyMove enqueues the new attempt synchronously).
+    recordActivity(db, hub, {
+      workspaceId: ticket.workspaceId,
+      ticketId: id,
+      type: 'sent_back',
+      message: `You sent back "${ticket.title}"`,
+    })
+
     const moveErr = await applyMove(
       deps,
       ticket,
@@ -398,13 +408,6 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       endOfColumnPosition(deps, readyCol.id),
     )
     if (moveErr) return reply.code(400).send({ error: moveErr.error })
-
-    recordActivity(db, hub, {
-      workspaceId: ticket.workspaceId,
-      ticketId: id,
-      type: 'sent_back',
-      message: `You sent back "${ticket.title}"`,
-    })
 
     return ticketOr404(deps, id)
   })
@@ -448,6 +451,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .values({ ticketId: id, author: 'human', body: parsed.data.body })
       .returning()
       .all()
+    hub.boardChanged(ticket.workspaceId)
 
     return reply.code(201).send(comment)
   })

@@ -68,6 +68,46 @@ describe('WebSocket route', () => {
     sock.close()
   })
 
+  test('creating a ticket and commenting on it broadcast board_changed to the workspace', async () => {
+    const started = await startApp(db, config)
+    app = started.app
+    const wsRes = await app.inject({
+      method: 'POST',
+      url: '/workspaces',
+      headers: { authorization: `Bearer ${config.bearerToken}` },
+      payload: { name: 'live' },
+    })
+    const wsId = (wsRes.json() as { id: number }).id
+
+    const sock = new WebSocket(
+      `ws://127.0.0.1:${started.port}/ws?workspaceId=${wsId}&token=${config.bearerToken}`,
+    )
+    await once(sock, 'open')
+    const received: unknown[] = []
+    sock.on('message', (raw) => received.push(JSON.parse(String(raw))))
+
+    const ticketRes = await app.inject({
+      method: 'POST',
+      url: '/tickets',
+      headers: { authorization: `Bearer ${config.bearerToken}` },
+      payload: { workspaceId: wsId, title: 'hello' },
+    })
+    const ticketId = (ticketRes.json() as { id: number }).id
+    await app.inject({
+      method: 'POST',
+      url: `/tickets/${ticketId}/comments`,
+      headers: { authorization: `Bearer ${config.bearerToken}` },
+      payload: { body: 'a note' },
+    })
+    await new Promise((r) => setTimeout(r, 50))
+
+    const boardChanges = received.filter((m) => (m as { type: string }).type === 'board_changed')
+    // One for the create, one for the comment — other boards/ticket screens refetch on these.
+    expect(boardChanges).toHaveLength(2)
+
+    sock.close()
+  })
+
   test('ws with wrong token is closed with 1008', async () => {
     const [ws] = db.drizzle
       .insert(workspaces)
