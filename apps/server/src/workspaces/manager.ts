@@ -60,6 +60,14 @@ function assertSafeName(name: string, what: string): void {
   }
 }
 
+/** Thrown when adding a source whose name is already used by another source in the workspace. */
+export class SourceExistsError extends Error {
+  constructor(name: string) {
+    super(`a source named "${name}" already exists in this workspace`)
+    this.name = 'SourceExistsError'
+  }
+}
+
 /** Thrown by `create` when the name is already taken (db row or on-disk directory). */
 export class WorkspaceExistsError extends Error {
   constructor(name: string) {
@@ -102,14 +110,20 @@ export class WorkspaceManager {
   async addRepoSource(wsId: number, url: string): Promise<void> {
     const path = this.pathFor(wsId)
     const name = repoNameFromUrl(url)
+    assertSafeName(name, 'repo source name')
     const cloneDir = join(path, 'repos', name)
 
-    await git(path, 'clone', url, cloneDir)
+    const manifest = this.readManifest(path)
+    this.assertSourceNameFree(manifest, name)
+
+    // `--` so a URL starting with '-' can't be read as a git option.
+    await git(path, 'clone', '--', url, cloneDir)
     const defaultBranch = await git(cloneDir, 'symbolic-ref', '--short', 'HEAD')
 
-    const manifest = this.readManifest(path)
-    manifest.sources.push({ type: 'repo', name, url, defaultBranch })
-    this.writeManifest(path, manifest)
+    // Re-read: the clone took a while and another add could have landed meanwhile.
+    const fresh = this.readManifest(path)
+    fresh.sources.push({ type: 'repo', name, url, defaultBranch })
+    this.writeManifest(path, fresh)
   }
 
   /** name = basename of the folder path. Rejects non-absolute or missing/non-directory paths. */
@@ -126,24 +140,35 @@ export class WorkspaceManager {
 
     const path = this.pathFor(wsId)
     const manifest = this.readManifest(path)
+    this.assertSourceNameFree(manifest, name)
     manifest.sources.push({ type: 'folder', name, path: folderPath })
     this.writeManifest(path, manifest)
+  }
+
+  /** Source names are unique per workspace regardless of type: they become sibling entries in
+   * a run dir (repos/<name>, folder symlink <name>), and removal is by name. */
+  private assertSourceNameFree(manifest: Manifest, name: string): void {
+    if (manifest.sources.some((s) => s.name === name)) {
+      throw new SourceExistsError(name)
+    }
   }
 
   /** Removes a source of either type by name. Repo sources also have their clone dir deleted;
    * folder sources are just detached from the manifest (the folder itself is server-external and
    * not owned by tada). */
-  async removeSource(wsId: number, name: string): Promise<void> {
+  async removeSource(wsId: number, name: string): Promise<boolean> {
     assertSafeName(name, 'source name')
     const path = this.pathFor(wsId)
     const manifest = this.readManifest(path)
     const source = manifest.sources.find((s) => s.name === name)
-    if (source?.type === 'repo') {
+    if (!source) return false
+    if (source.type === 'repo') {
       rmSync(join(path, 'repos', name), { recursive: true, force: true })
     }
 
-    manifest.sources = manifest.sources.filter((s) => s.name !== name)
+    manifest.sources = manifest.sources.filter((s) => s !== source)
     this.writeManifest(path, manifest)
+    return true
   }
 
   listSources(wsId: number): ApiSource[] {

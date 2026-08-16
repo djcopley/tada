@@ -26,8 +26,14 @@ function positiveIntParam(id: string): number | undefined {
 
 // basename-only: any '/' (or a resolved-away '..') in the file param is rejected outright, so
 // the write/delete path can never escape the memory dir - no path.resolve/relative dance needed.
+// Notes must be `*.md` (readMemory only lists .md files, so anything else would be written and
+// then invisible), and only the exact `AGENTS.md` is the charter - a case-variant would otherwise
+// become a note that shadows it in the agent's eyes.
 function isSafeFile(file: string): boolean {
-  return file === basename(file) && file !== '' && file !== '.' && file !== '..'
+  if (file !== basename(file) || file === '' || file === '.' || file === '..') return false
+  if (!file.endsWith('.md')) return false
+  if (file.toLowerCase() === 'agents.md' && file !== 'AGENTS.md') return false
+  return true
 }
 
 /** Note title: first `# ` heading in the body, else the filename with `.md` stripped. */

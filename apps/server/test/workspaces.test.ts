@@ -4,7 +4,11 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb } from '../src/db/index.js'
 import { dataDir } from '../src/paths.js'
-import { WorkspaceExistsError, WorkspaceManager } from '../src/workspaces/manager.js'
+import {
+  SourceExistsError,
+  WorkspaceExistsError,
+  WorkspaceManager,
+} from '../src/workspaces/manager.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
 
 function testDb() {
@@ -177,6 +181,33 @@ describe('WorkspaceManager', () => {
     const manager = new WorkspaceManager(db)
     mkdirSync(join(dataDir(), 'workspaces', 'stale'), { recursive: true })
     await expect(manager.create('stale')).rejects.toBeInstanceOf(WorkspaceExistsError)
+  })
+
+  test('source names are unique across types; removeSource removes exactly one and reports misses', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const id = await manager.create('demo')
+    const origin = await makeOrigin('proj')
+    await manager.addRepoSource(id, origin)
+
+    // A folder whose basename collides with the repo source is refused.
+    const collide = join(mkdtempSync(join(tmpdir(), 'tada-collide-')), 'proj')
+    mkdirSync(collide)
+    await expect(manager.addFolderSource(id, collide)).rejects.toBeInstanceOf(SourceExistsError)
+    await expect(manager.addRepoSource(id, origin)).rejects.toBeInstanceOf(SourceExistsError)
+    expect(manager.listSources(id)).toHaveLength(1)
+
+    expect(await manager.removeSource(id, 'nope')).toBe(false)
+    expect(await manager.removeSource(id, 'proj')).toBe(true)
+    expect(manager.listSources(id)).toHaveLength(0)
+    expect(existsSync(join(dataDir(), 'workspaces', 'demo', 'repos', 'proj'))).toBe(false)
+  })
+
+  test('addRepoSource refuses a url whose derived name would escape the repos dir', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const id = await manager.create('demo')
+    await expect(manager.addRepoSource(id, '..')).rejects.toThrow(/repo source name/)
   })
 
   test('removeSource rejects a path-traversal name', async () => {

@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createDefaultColumns } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
-import { WorkspaceExistsError } from '../workspaces/manager.js'
+import { SourceExistsError, WorkspaceExistsError } from '../workspaces/manager.js'
 import type { RouteDeps } from './deps.js'
 
 // basename-only: any '/' (or a resolved-away '..') in the name is rejected outright, so the
@@ -233,6 +233,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
         await wm.addFolderSource(id, parsed.data.path)
       }
     } catch (err) {
+      if (err instanceof SourceExistsError) return reply.code(409).send({ error: err.message })
       return reply.code(400).send({
         error: err instanceof Error ? err.message : 'failed to add source',
       })
@@ -256,7 +257,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
       return reply.code(400).send({ error: 'invalid source name' })
     }
 
-    await wm.removeSource(id, name)
+    const removed = await wm.removeSource(id, name)
+    if (!removed) return reply.code(404).send({ error: 'source not found' })
     return wm.listSources(id)
   })
 

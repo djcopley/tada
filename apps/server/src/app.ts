@@ -38,7 +38,9 @@ export function buildApp({
   broadcastHub,
   adapters,
 }: AppDeps): FastifyInstance {
-  const app = fastify()
+  // Warn-level logging (off under vitest) so 500s and other server-side failures leave a trace
+  // in the daemon's journal instead of vanishing.
+  const app = fastify({ logger: process.env.VITEST ? false : { level: 'warn' } })
   app.decorate('db', db)
   registerMcpRoute(app, db, wm, broadcastHub)
 

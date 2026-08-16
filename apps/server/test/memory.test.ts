@@ -107,6 +107,24 @@ describe('memory routes', () => {
     expect(res.status).toBe(400)
   })
 
+  test('PUT /memory rejects non-.md names and case-variants of AGENTS.md (they would be written but never listed)', async () => {
+    const { app, config } = await setupApp()
+    for (const file of ['notes.txt', 'agents.md', 'Agents.MD']) {
+      const res = await json(app, config, {
+        method: 'PUT',
+        url: `/memory/${file}`,
+        payload: { body: 'x' },
+      })
+      expect(res.status, file).toBe(400)
+    }
+    const ok = await json(app, config, {
+      method: 'PUT',
+      url: '/memory/my%20note.md',
+      payload: { body: 'x' },
+    })
+    expect(ok.status).toBe(204)
+  })
+
   test('a note file placed on disk without a metadata row is treated as kept/human on GET (lazy row)', async () => {
     const { app, config, db } = await setupApp()
 
