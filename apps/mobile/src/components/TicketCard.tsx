@@ -288,6 +288,8 @@ const DRAG_TAP_SLOP = 8
 /** How long after a drag the underlying Pressable's trailing press/click is ignored — on web
  * the browser still fires `click` on the source card after the pointer is released. */
 const POST_DRAG_PRESS_GUARD_MS = 400
+/** See `drop`: how long a web touch waits after release before its actions sheet opens. */
+const WEB_TOUCH_SHEET_DELAY_MS = 80
 
 type DragHandlers = {
   lift: (absX: number, absY: number) => void
@@ -394,8 +396,11 @@ export function TicketCard({
   const cardRef = useRef<View>(null)
   const proposal = isProposalTicket(ticket)
   // Timestamp of the last drag activation, so the card's own press handler can tell a real tap
-  // from the click that trails a drop (see POST_DRAG_PRESS_GUARD_MS).
+  // from the click that trails a drop (see POST_DRAG_PRESS_GUARD_MS). Only a drag that actually
+  // lifted arms it: a plain click/tap also starts (and then fails) the pan, and stamping there
+  // swallowed every ordinary press on web.
   const lastDragAt = useRef(0)
+  const dragActive = useRef(false)
   const webDragRef = useRef<WebDragState>({ x: 0, y: 0, holdTimer: null })
 
   useEffect(() => {
@@ -405,6 +410,7 @@ export function TicketCard({
 
   const lift = async (absX: number, absY: number) => {
     if (!dnd || !cardRef.current) return
+    dragActive.current = true
     // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
     lastDragAt.current = Date.now()
     const rect = await measureInWindow(cardRef.current)
@@ -424,26 +430,48 @@ export function TicketCard({
 
   const move = (absX: number, absY: number) => dnd?.moveDrag(absX, absY)
   const drop = (absX: number, absY: number, travelled: number) => {
+    dragActive.current = false
     // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
     lastDragAt.current = Date.now()
-    // On native the pan's long-press activation swallows the Pressable's own long-press, so a
-    // hold that never really moved is the long-press: put the card back and open its actions.
-    if (Platform.OS !== 'web' && travelled < DRAG_TAP_SLOP && onLongPress) {
+    // The pan's hold activation (native, and a finger on web) swallows the Pressable's own
+    // long-press, so a hold that never really moved is the long-press: put the card back and open
+    // its actions. A mouse never reaches here without travelling — its pan activates on distance.
+    if (travelled < DRAG_TAP_SLOP && onLongPress) {
       dnd?.cancelDrag()
-      onLongPress()
+      if (Platform.OS === 'web') {
+        // The browser dispatches compat mousedown/mouseup/click right after `touchend`, hit-
+        // tested at dispatch time: a sheet mounted synchronously here would receive them on
+        // whatever row sits under the finger (and act on it). Open it a beat later instead, so
+        // those land on the card, where the post-drag guard swallows them.
+        setTimeout(onLongPress, WEB_TOUCH_SHEET_DELAY_MS)
+      } else {
+        onLongPress()
+      }
       return
     }
     dnd?.endDrag(absX, absY)
   }
   const cancel = () => {
-    // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
-    lastDragAt.current = Date.now()
+    if (dragActive.current) {
+      dragActive.current = false
+      // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
+      lastDragAt.current = Date.now()
+    }
     dnd?.cancelDrag()
   }
   const guardedPress = () => {
     if (Date.now() - lastDragAt.current < POST_DRAG_PRESS_GUARD_MS) return
     onPress()
   }
+  // Web keeps the Pressable's own long-press for the mouse (a held mouse never moves far enough
+  // to start the distance pan) — but a finger's hold has already lifted the card by the time RN's
+  // 500ms long-press fires, and that one is delivered through `drop` instead.
+  const guardedLongPress = onLongPress
+    ? () => {
+        if (dragActive.current) return
+        onLongPress()
+      }
+    : undefined
 
   const dragging = dnd?.draggingId === ticket.id
 
@@ -460,8 +488,8 @@ export function TicketCard({
         testID={`ticket-card-${ticket.id}`}
         onPress={dnd && !proposal ? guardedPress : onPress}
         // Native long-press is delivered through the pan (see `drop`); web keeps the Pressable's
-        // own long-press since a held mouse never moves far enough to start the distance pan.
-        onLongPress={dnd && !proposal && Platform.OS !== 'web' ? undefined : onLongPress}
+        // own long-press for the mouse (see guardedLongPress).
+        onLongPress={dnd && !proposal && Platform.OS !== 'web' ? undefined : guardedLongPress}
         nestedInteractive={hasNestedButtons}
         style={proposal ? [styles.card, { borderStyle: 'dashed', borderColor: colors.borderStrong }] : styles.card}
       >

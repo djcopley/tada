@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
@@ -20,6 +20,7 @@ type Props = {
 }
 
 const SPRING = { damping: 22, stiffness: 260, mass: 0.7 }
+const SCRIM_GUARD_MS = 350
 
 /**
  * Bottom sheet with a drag handle: swipe down or tap the scrim to dismiss.
@@ -51,12 +52,22 @@ export function Sheet({ visible, onClose, children, testID }: Props) {
   }))
 
   // Reset the drag offset whenever the sheet reopens.
+  const openedAt = useRef(0)
   useEffect(() => {
     if (visible) {
+      openedAt.current = Date.now()
       // eslint-disable-next-line react-hooks/immutability -- Reanimated shared values are mutated via .value by design
       translateY.value = 0
     }
   }, [visible, translateY])
+  // A sheet opened by a touch release (a held card on the web board, see TicketCard `drop`) is
+  // already mounted when the browser dispatches the compat mousedown/mouseup/click that follow
+  // `touchend`; those are hit-tested against the fresh scrim and would dismiss the sheet as it
+  // appears. Ignore scrim presses in the first moments after opening.
+  const onScrimPress = () => {
+    if (Date.now() - openedAt.current < SCRIM_GUARD_MS) return
+    onClose()
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -65,7 +76,7 @@ export function Sheet({ visible, onClose, children, testID }: Props) {
           testID={testID ? `${testID}-scrim` : undefined}
           accessibilityLabel="Close"
           style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
-          onPress={onClose}
+          onPress={onScrimPress}
         />
         <GestureDetector gesture={pan}>
           <Animated.View

@@ -92,6 +92,7 @@ export default function Board() {
   const dragX = useSharedValue(0)
   const dragY = useSharedValue(0)
   const grabOffset = useRef<{ dx: number; dy: number } | null>(null)
+  const grabRect = useRef<Rect | null>(null)
   const overlayOrigin = useRef({ x: 0, y: 0 })
   const overlayRef = useRef<RNView>(null)
 
@@ -250,6 +251,7 @@ export default function Board() {
       beginDrag: (dragTicket, rect) => {
         dragRef.current = dragTicket
         grabOffset.current = null
+        grabRect.current = rect
         void measureInWindow(overlayRef.current as RNView).then((o) => {
           overlayOrigin.current = { x: o.x, y: o.y }
         })
@@ -263,10 +265,15 @@ export default function Board() {
         const active = dragRef.current
         if (!active) return
         if (!grabOffset.current) {
-          grabOffset.current = {
-            dx: active.width / 2,
-            dy: active.height / 2,
-          }
+          // Keep the card under the finger where it was grabbed, rather than snapping its centre
+          // to the pointer (which made a card grabbed by its edge jump on lift).
+          const rect = grabRect.current
+          grabOffset.current = rect
+            ? {
+                dx: Math.min(Math.max(absX - rect.x, 0), active.width),
+                dy: Math.min(Math.max(absY - rect.y, 0), active.height),
+              }
+            : { dx: active.width / 2, dy: active.height / 2 }
         }
         // eslint-disable-next-line react-hooks/immutability -- Reanimated shared values are mutated via .value by design
         dragX.value = absX - grabOffset.current.dx - overlayOrigin.current.x
