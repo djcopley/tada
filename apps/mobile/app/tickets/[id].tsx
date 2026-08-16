@@ -47,9 +47,9 @@ type TicketDetailData = {
 export default function TicketDetail() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const ticketId = Number(id)
-  const { data, isLoading } = useTicket(ticketId)
+  const { data, isLoading, isError } = useTicket(ticketId)
 
-  if (Number.isNaN(ticketId)) {
+  if (Number.isNaN(ticketId) || isError) {
     return (
       <Screen>
         <AppHeader title="Ticket" back />

@@ -40,7 +40,7 @@ function RunActivityBody({ runId }: { runId: number }) {
   const qc = useQueryClient()
   const { colors } = useTheme()
   const now = useNowTick(15_000)
-  const { data: run } = useRun(runId)
+  const { data: run, isError: runMissing } = useRun(runId)
   const { data: workspace } = useWorkspace(run?.workspaceId)
 
   const live = run ? ACTIVE_RUN_STATUSES.has(run.status) : false
@@ -93,6 +93,14 @@ function RunActivityBody({ runId }: { runId: number }) {
         if (!result.delivered) showToast('note saved for the next attempt')
       },
     })
+  }
+
+  if (runMissing) {
+    return (
+      <Screen>
+        <EmptyState icon="alert-circle" message="This run doesn't exist." />
+      </Screen>
+    )
   }
 
   const badge = runHeaderBadge(run, live, now)

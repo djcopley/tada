@@ -27,6 +27,7 @@ export function MemoryEditorScreen(props: Props) {
 
   const memoryData = scope === 'workspace' ? workspaceMemory.data : globalMemory.data
   const isLoading = scope === 'workspace' ? workspaceMemory.isLoading : globalMemory.isLoading
+  const isError = scope === 'workspace' ? workspaceMemory.isError : globalMemory.isError
   const saving = scope === 'workspace' ? putMemory.isPending : putGlobalMemory.isPending
 
   const [editedBody, setEditedBody] = useState('')
@@ -64,7 +65,7 @@ export function MemoryEditorScreen(props: Props) {
     return unsubscribe
   }, [navigation])
 
-  if (scope === 'workspace' && Number.isNaN(wsId)) {
+  if ((scope === 'workspace' && Number.isNaN(wsId)) || isError) {
     return (
       <Screen>
         <AppHeader title="Note" back backHref={listHref} />

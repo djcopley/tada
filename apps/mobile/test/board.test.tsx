@@ -216,6 +216,7 @@ async function renderBoard() {
 describe('Board screen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockBoard.mockReset()
     jest.spyOn(Date, 'now').mockReturnValue(FROZEN_NOW)
     mockGetWorkspace.mockResolvedValue(workspace())
     mockTicket.mockResolvedValue({ ticket: ticket({}), comments: [], runs: [], followUps: [] })
@@ -439,7 +440,7 @@ describe('Board screen', () => {
   })
 
   test('an in-review card shows your-turn, attempt/pr/tests meta, and wires accept + send back', async () => {
-    mockBoard.mockResolvedValueOnce(
+    mockBoard.mockResolvedValue(
       board({
         columns: [
           {
@@ -559,7 +560,7 @@ describe('Board screen', () => {
   })
 
   test('proposal Keep and Dismiss call useProposal with the right action', async () => {
-    mockBoard.mockResolvedValueOnce(
+    mockBoard.mockResolvedValue(
       board({
         columns: [
           {

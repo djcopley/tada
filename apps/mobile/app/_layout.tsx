@@ -84,6 +84,14 @@ export function AppQueryProvider({ children }: { children: ReactNode }) {
     return new QueryClient({
       queryCache: new QueryCache({ onError }),
       mutationCache: new MutationCache({ onError: onMutationError }),
+      defaultOptions: {
+        queries: {
+          // A 4xx (404 for an unknown id, 400 for a bad one) won't get better on retry — surface
+          // it immediately so screens can show their not-found state instead of a long skeleton.
+          retry: (failureCount, error) =>
+            !(error instanceof ApiError && error.status < 500) && failureCount < 3,
+        },
+      },
     })
   }, [disconnect])
 

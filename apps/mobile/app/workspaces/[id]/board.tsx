@@ -69,8 +69,8 @@ export default function Board() {
   const qc = useQueryClient()
   const now = useNowTick()
 
-  const { data: board, isLoading: boardLoading } = useBoard(wsId)
-  const { data: workspace, isLoading: workspaceLoading } = useWorkspace(wsId)
+  const { data: board, isLoading: boardLoading, isError: boardError } = useBoard(wsId)
+  const { data: workspace, isLoading: workspaceLoading, isError: workspaceError } = useWorkspace(wsId)
   const createTicket = useCreateTicket()
   const moveTicket = useMoveTicket(wsId)
   const patchTicket = usePatchTicket(wsId)
@@ -412,7 +412,7 @@ export default function Board() {
   }
 
   // ---------------------------------------------------------------- rendering
-  if (Number.isNaN(wsId)) {
+  if (Number.isNaN(wsId) || boardError || workspaceError) {
     return (
       <Screen>
         <AppHeader title="Board" back />

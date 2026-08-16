@@ -64,7 +64,7 @@ export function useWorkspaces() {
 
 export function useBoard(wsId: number) {
   const client = useClient()
-  return useQuery({ queryKey: keys.board(wsId), queryFn: () => client.board(wsId) })
+  return useQuery({ queryKey: keys.board(wsId), queryFn: () => client.board(wsId), enabled: Number.isFinite(wsId) })
 }
 
 /**
@@ -84,7 +84,7 @@ export function useBoards(workspaceIds: number[]) {
 
 export function useTicket(id: number) {
   const client = useClient()
-  return useQuery({ queryKey: keys.ticket(id), queryFn: () => client.ticket(id) })
+  return useQuery({ queryKey: keys.ticket(id), queryFn: () => client.ticket(id), enabled: Number.isFinite(id) })
 }
 
 /**
@@ -109,7 +109,7 @@ export function useMemory(wsId: number | undefined) {
   return useQuery({
     queryKey: keys.memory(wsId ?? -1),
     queryFn: () => client.memory(wsId as number),
-    enabled: wsId !== undefined,
+    enabled: wsId !== undefined && Number.isFinite(wsId),
   })
 }
 
@@ -125,13 +125,13 @@ export function useWorkspace(wsId: number | undefined) {
   return useQuery({
     queryKey: keys.workspace(wsId ?? -1),
     queryFn: () => client.getWorkspace(wsId as number),
-    enabled: wsId !== undefined,
+    enabled: wsId !== undefined && Number.isFinite(wsId),
   })
 }
 
 export function useRun(runId: number) {
   const client = useClient()
-  return useQuery({ queryKey: keys.run(runId), queryFn: () => client.run(runId) })
+  return useQuery({ queryKey: keys.run(runId), queryFn: () => client.run(runId), enabled: Number.isFinite(runId) })
 }
 
 export function useActivity(workspaceId?: number) {
@@ -288,8 +288,14 @@ export function useProposal() {
     mutationFn: (vars: { ticketId: number; action: 'keep' | 'dismiss' }) =>
       client.proposal(vars.ticketId, vars.action),
     onSuccess: (ticket, vars) => {
-      void qc.invalidateQueries({ queryKey: keys.ticket(vars.ticketId) })
-      if (ticket) void qc.invalidateQueries({ queryKey: keys.board(ticket.workspaceId) })
+      if (ticket) {
+        void qc.invalidateQueries({ queryKey: keys.ticket(vars.ticketId) })
+      } else {
+        // Dismissed: the ticket is gone, so drop it rather than refetch a 404.
+        qc.removeQueries({ queryKey: keys.ticket(vars.ticketId) })
+      }
+      // Dismiss returns no body, so refresh every board rather than only the kept ticket's.
+      void qc.invalidateQueries({ queryKey: ['board'] })
       void qc.invalidateQueries({ queryKey: keys.workspaces })
     },
   })
@@ -302,6 +308,8 @@ export function useNudge(runId: number) {
     mutationFn: (note: string) => client.nudge(runId, note),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.run(runId) })
+      // The nudge lands in the ticket thread as a comment too.
+      void qc.invalidateQueries({ queryKey: ['ticket'] })
     },
   })
 }

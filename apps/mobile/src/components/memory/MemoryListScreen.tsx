@@ -104,6 +104,16 @@ export function MemoryListScreen(props: Props) {
 
   const data = scope === 'workspace' ? workspaceMemory.data : globalMemory.data
   const isLoading = scope === 'workspace' ? workspaceMemory.isLoading : globalMemory.isLoading
+  const isError = scope === 'workspace' ? workspaceMemory.isError : globalMemory.isError
+
+  if (isError) {
+    return (
+      <Screen>
+        <AppHeader title="Memory" back />
+        <EmptyState icon="alert-circle" message="This workspace doesn't exist." />
+      </Screen>
+    )
+  }
 
   if (isLoading || !data) {
     return (

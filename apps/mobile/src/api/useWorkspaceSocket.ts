@@ -79,6 +79,12 @@ export function useWorkspaceSocket(
         } else if (msg.type === 'activity') {
           void queryClient.invalidateQueries({ queryKey: keys.activity() })
         } else if (msg.type === 'run_event') {
+          // A status event is the run finishing/starting: refresh the run itself (the run screen
+          // otherwise kept polling and showing "live" until a refocus) and the board it's on.
+          if (msg.event.type === 'status') {
+            void queryClient.invalidateQueries({ queryKey: keys.run(msg.runId) })
+            void queryClient.invalidateQueries({ queryKey: ['latestRunEvent', msg.runId] })
+          }
           onRunEventRef.current?.(msg)
         }
       }

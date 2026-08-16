@@ -71,7 +71,7 @@ export default function WorkspaceSettings() {
   const { wide } = useLayout()
   const { connection, connect, disconnect } = useConnection()
 
-  const { data: workspace, isLoading } = useWorkspace(wsId)
+  const { data: workspace, isLoading, isError } = useWorkspace(wsId)
   const { data: adapters } = useAdapters()
   const removeSource = useRemoveSource(wsId)
   const addSource = useAddSource(wsId)
@@ -120,7 +120,7 @@ export default function WorkspaceSettings() {
   const [newToken, setNewToken] = useState('')
   const [replacingToken, setReplacingToken] = useState(false)
 
-  if (Number.isNaN(wsId)) {
+  if (Number.isNaN(wsId) || isError) {
     return (
       <Screen>
         <AppHeader title="Settings" back />
