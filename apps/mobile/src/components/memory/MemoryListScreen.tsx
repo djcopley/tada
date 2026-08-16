@@ -119,7 +119,8 @@ export function MemoryListScreen(props: Props) {
   if (isLoading || !data) {
     return (
       <Screen>
-        <AppHeader title="Memory" back />
+        {/* Workspace memory is a tab: no back chevron while it loads (global memory is pushed and keeps one). */}
+        <AppHeader title="Memory" back={scope === 'global'} />
         <View style={styles.skeletons}>
           <Skeleton height={92} />
           <Skeleton height={92} />

@@ -435,7 +435,8 @@ export default function Board() {
   if (boardLoading || workspaceLoading || !board || !workspace) {
     return (
       <Screen>
-        <AppHeader title="…" back />
+        {/* A tab, so no back chevron while it loads — the frame's strip/Rail is the navigation. */}
+        <AppHeader title="Board" />
         <View style={styles.skeletons}>
           <Skeleton height={420} style={{ borderRadius: radius.panel }} />
         </View>
