@@ -119,6 +119,22 @@ describe('Connect screen', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/workspaces'))
   })
 
+  test('empty fields and a scheme-less address get field messages before any probe', async () => {
+    await renderConnect()
+
+    await fireEvent.press(screen.getByTestId('connect-button'))
+    expect(screen.getByTestId('connect-error')).toHaveTextContent('Enter your server address.')
+
+    await fireEvent.changeText(screen.getByTestId('base-url-input'), 'localhost:4343')
+    await fireEvent.press(screen.getByTestId('connect-button'))
+    expect(screen.getByTestId('connect-error')).toHaveTextContent(/start with http:\/\/ or https:\/\//)
+
+    await fireEvent.changeText(screen.getByTestId('base-url-input'), 'http://localhost:4343')
+    await fireEvent.press(screen.getByTestId('connect-button'))
+    expect(screen.getByTestId('connect-error')).toHaveTextContent(/Paste the API token/)
+    expect(mockHealth).not.toHaveBeenCalled()
+  })
+
   test('unreachable server shows an inline error and saves nothing', async () => {
     mockHealth.mockRejectedValueOnce(new Error('network down'))
     await renderConnect()

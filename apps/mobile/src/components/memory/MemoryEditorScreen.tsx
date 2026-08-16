@@ -1,7 +1,7 @@
-import { useNavigation } from 'expo-router'
+import { useNavigation, useRouter } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useGlobalMemory, useGlobalPutMemory, useMemory, usePutMemory } from '../../api/queries'
+import { useDeleteMemory, useGlobalMemory, useGlobalPutMemory, useMemory, usePutMemory } from '../../api/queries'
 import { AppHeader, Button, Dialog, EmptyState, Screen, Skeleton } from '../ui'
 import { useTheme } from '../../design/ThemeContext'
 import { fonts, space, type } from '../../design/tokens'
@@ -24,6 +24,11 @@ export function MemoryEditorScreen(props: Props) {
   const globalMemory = useGlobalMemory()
   const putMemory = usePutMemory(wsId ?? -1)
   const putGlobalMemory = useGlobalPutMemory()
+  const deleteMemory = useDeleteMemory(scope === 'workspace' ? wsId : undefined)
+  const router = useRouter()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  // The charter is pinned; only notes can be deleted.
+  const deletable = file !== 'AGENTS.md'
 
   const memoryData = scope === 'workspace' ? workspaceMemory.data : globalMemory.data
   const isLoading = scope === 'workspace' ? workspaceMemory.isLoading : globalMemory.isLoading
@@ -110,6 +115,17 @@ export function MemoryEditorScreen(props: Props) {
       })
   }
 
+  const handleDelete = () => {
+    setConfirmDelete(false)
+    dirtyRef.current = false
+    deleteMemory.mutate(file, {
+      onSuccess: () => {
+        showToast(`Deleted ${file}`)
+        router.replace(listHref)
+      },
+    })
+  }
+
   const discardAndLeave = () => {
     dirtyRef.current = false
     const action = leaveGuard?.action
@@ -130,6 +146,18 @@ export function MemoryEditorScreen(props: Props) {
           <Button testID="memory-save-button" label="Save" onPress={handleSave} disabled={!isDirty} loading={saving} small />
         </View>
       </AppHeader>
+      {deletable ? (
+        <View style={styles.deleteRow}>
+          <Button
+            testID="memory-delete-button"
+            variant="ghost"
+            small
+            icon="trash-2"
+            label="Delete note"
+            onPress={() => setConfirmDelete(true)}
+          />
+        </View>
+      ) : null}
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <TextInput
@@ -145,6 +173,18 @@ export function MemoryEditorScreen(props: Props) {
       </KeyboardAvoidingView>
 
       <Dialog
+        visible={confirmDelete}
+        title={`Delete ${file}?`}
+        onClose={() => setConfirmDelete(false)}
+        testID="memory-delete-dialog"
+        confirm={{ label: 'Delete', destructive: true, onPress: handleDelete, testID: 'memory-delete-confirm' }}
+      >
+        <Text style={[type.body, { color: colors.textMuted }]}>
+          Agents stop reading it before their next run. This cannot be undone.
+        </Text>
+      </Dialog>
+
+      <Dialog
         visible={leaveGuard !== null}
         title="Discard changes?"
         onClose={() => setLeaveGuard(null)}
@@ -158,6 +198,11 @@ export function MemoryEditorScreen(props: Props) {
 }
 
 const styles = StyleSheet.create({
+  deleteRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: space.lg,
+  },
   flex: {
     flex: 1,
   },

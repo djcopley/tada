@@ -28,9 +28,24 @@ export default function Connect() {
   const onConnect = async () => {
     setError(null)
     setChecks([])
+    // Field-level problems get a field-level message, not "could not reach server".
+    const trimmedUrl = baseUrl.trim()
+    const trimmedToken = token.trim()
+    if (!trimmedUrl) {
+      setError('Enter your server address.')
+      return
+    }
+    if (!/^https?:\/\//i.test(trimmedUrl)) {
+      setError('The address needs to start with http:// or https://')
+      return
+    }
+    if (!trimmedToken) {
+      setError('Paste the API token from your server.')
+      return
+    }
     setConnecting(true)
     try {
-      const client = new TadaClient({ baseUrl, token })
+      const client = new TadaClient({ baseUrl: trimmedUrl, token: trimmedToken })
       // /health is auth-exempt on the server, so it only proves the server
       // is reachable — it can't catch a bad token. /status is an
       // authenticated route; a 401 there means the token itself is wrong.
@@ -56,7 +71,7 @@ export default function Connect() {
 
       // Missing agent keys don't block the connection — the server is reachable and the
       // token is valid; the user can add keys later.
-      await connect({ baseUrl, token })
+      await connect({ baseUrl: trimmedUrl, token: trimmedToken })
       router.replace('/workspaces')
     } catch (err) {
       setError(err instanceof ApiError && err.status === 401 ? 'Invalid token' : 'Could not reach server')

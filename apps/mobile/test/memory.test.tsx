@@ -20,10 +20,11 @@ function setWidth(width: number) {
 
 const mockPush = jest.fn()
 const mockNavigate = jest.fn()
+const mockReplace = jest.fn()
 const mockUseLocalSearchParams = jest.fn()
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, navigate: mockNavigate }),
+  useRouter: () => ({ push: mockPush, navigate: mockNavigate, replace: mockReplace }),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
   useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, [cb]) },
   useNavigation: () => ({ addListener: jest.fn(() => jest.fn()), dispatch: jest.fn() }),
@@ -39,6 +40,8 @@ jest.mock('../src/settings', () => ({
 
 const mockMemory = jest.fn()
 const mockPutMemory = jest.fn()
+const mockDeleteMemory = jest.fn()
+const mockDeleteGlobalMemory = jest.fn()
 const mockGlobalMemory = jest.fn()
 const mockPutGlobalMemory = jest.fn()
 const mockKeepNote = jest.fn()
@@ -64,6 +67,8 @@ jest.mock('../src/api/client', () => {
       putMemory: mockPutMemory,
       globalMemory: mockGlobalMemory,
       putGlobalMemory: mockPutGlobalMemory,
+      deleteMemory: mockDeleteMemory,
+      deleteGlobalMemory: mockDeleteGlobalMemory,
       keepNote: mockKeepNote,
       discardNote: mockDiscardNote,
       listWorkspaces: mockListWorkspaces,
@@ -690,6 +695,38 @@ describe('Memory screens', () => {
       await waitFor(() => {
         expect(screen.getByTestId('toast-message')).toHaveTextContent('Saved')
       })
+    })
+  })
+
+  describe('Editor screen — delete', () => {
+    test('a note can be deleted after confirming; the charter cannot', async () => {
+      mockMemory.mockResolvedValue(memory({ notes: [note({ file: 'test.md', body: 'Original' })] }))
+      mockDeleteMemory.mockResolvedValueOnce(undefined)
+
+      await renderMemoryEditor('test.md')
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Original')).toBeTruthy()
+      })
+
+      await fireEvent.press(screen.getByTestId('memory-delete-button'))
+      expect(screen.getByTestId('memory-delete-dialog')).toBeTruthy()
+      await fireEvent.press(screen.getByTestId('memory-delete-confirm'))
+
+      await waitFor(() => {
+        expect(mockDeleteMemory).toHaveBeenCalledWith(1, 'test.md')
+      })
+      await waitFor(() => {
+        expect(mockReplace).toHaveBeenCalledWith('/workspaces/1/memory')
+      })
+    })
+
+    test('AGENTS.md has no delete control', async () => {
+      mockMemory.mockResolvedValue(memory())
+      await renderMemoryEditor('AGENTS.md')
+      await waitFor(() => {
+        expect(screen.getByTestId('memory-editor-input')).toBeTruthy()
+      })
+      expect(screen.queryByTestId('memory-delete-button')).toBeNull()
     })
   })
 

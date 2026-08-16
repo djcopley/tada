@@ -348,6 +348,18 @@ export function useGlobalPutMemory() {
   })
 }
 
+/** Deletes a note file (never AGENTS.md); `wsId` undefined = the global scope. */
+export function useDeleteMemory(wsId?: number) {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (file: string) => (wsId !== undefined ? client.deleteMemory(wsId, file) : client.deleteGlobalMemory(file)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: wsId !== undefined ? keys.memory(wsId) : keys.globalMemory })
+    },
+  })
+}
+
 export function useKeepNote(wsId?: number) {
   const client = useClient()
   const qc = useQueryClient()
