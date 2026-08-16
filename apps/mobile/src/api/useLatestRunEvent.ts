@@ -49,12 +49,16 @@ export function useLatestRunEvent(runId: number | undefined, enabled: boolean): 
  * `useQueries` call and returns a lookup by run id. */
 export function useLatestRunEvents(runIds: (number | undefined)[]): Map<number, string | undefined> {
   const client = useClient()
+  // Only resolved, distinct ids become queries: before ticket details load every entry is
+  // `undefined`, and two of those in one useQueries call are duplicate keys (react-query warns
+  // and the observers stomp each other).
+  const ids = Array.from(new Set(runIds.filter((id): id is number => id !== undefined)))
   const results = useQueries({
-    queries: runIds.map((runId) => latestRunEventQuery(client, runId, runId !== undefined)),
+    queries: ids.map((runId) => latestRunEventQuery(client, runId, true)),
   })
   const byRunId = new Map<number, string | undefined>()
-  runIds.forEach((runId, i) => {
-    if (runId !== undefined) byRunId.set(runId, results[i]?.data ?? undefined)
+  ids.forEach((runId, i) => {
+    byRunId.set(runId, results[i]?.data ?? undefined)
   })
   return byRunId
 }
