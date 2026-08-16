@@ -327,6 +327,18 @@ function nativePan(ticketId: number, h: DragHandlers) {
   )
 }
 
+/** Web: while a card is lifted, swallow touchmove's default so the browser can't turn the drag
+ * into a page/column scroll (the detector allows panning so that ordinary swipes on cards still
+ * scroll — see the GestureDetector's touchAction). Non-passive by necessity. */
+const preventTouchScroll = (e: Event) => e.preventDefault()
+let webScrollBlocked = false
+function blockWebScroll(on: boolean): void {
+  if (Platform.OS !== 'web' || typeof document === 'undefined' || on === webScrollBlocked) return
+  webScrollBlocked = on
+  if (on) document.addEventListener('touchmove', preventTouchScroll, { passive: false })
+  else document.removeEventListener('touchmove', preventTouchScroll)
+}
+
 type WebDragState = { x: number; y: number; holdTimer: ReturnType<typeof setTimeout> | null }
 
 /** Web: activation depends on the pointer. A mouse "click and drag" moves at once, so it
@@ -414,6 +426,7 @@ export function TicketCard({
   const lift = async (absX: number, absY: number) => {
     if (!dnd || !cardRef.current) return
     dragActive.current = true
+    blockWebScroll(true)
     // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
     lastDragAt.current = Date.now()
     const rect = await measureInWindow(cardRef.current)
@@ -434,6 +447,7 @@ export function TicketCard({
   const move = (absX: number, absY: number) => dnd?.moveDrag(absX, absY)
   const drop = (absX: number, absY: number, travelled: number) => {
     dragActive.current = false
+    blockWebScroll(false)
     // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
     lastDragAt.current = Date.now()
     // The pan's hold activation (native, and a finger on web) swallows the Pressable's own
@@ -455,6 +469,7 @@ export function TicketCard({
     dnd?.endDrag(absX, absY)
   }
   const cancel = () => {
+    blockWebScroll(false)
     if (dragActive.current) {
       dragActive.current = false
       // eslint-disable-next-line react-hooks/purity -- gesture handler, not render
@@ -518,7 +533,15 @@ export function TicketCard({
   // eslint-disable-next-line react-hooks/refs -- the handlers only touch lastDragAt/webDragRef inside gesture callbacks, not during render
   const pan = Platform.OS === 'web' ? webPan(ticket.id, webDragRef, handlers) : nativePan(ticket.id, handlers)
 
-  return <GestureDetector gesture={pan}>{card}</GestureDetector>
+  // Web: RNGH's default `touch-action: none` on the detector would stop the browser scrolling
+  // when a finger lands on a card — i.e. on mobile web you could not swipe the board or scroll a
+  // column from most of its area. Let the browser pan; while a drag is actually lifted, `lift`
+  // blocks touchmove's default so the drag isn't hijacked into a scroll (see blockWebScroll).
+  return (
+    <GestureDetector gesture={pan} touchAction="manipulation">
+      {card}
+    </GestureDetector>
+  )
 }
 
 const styles = StyleSheet.create({

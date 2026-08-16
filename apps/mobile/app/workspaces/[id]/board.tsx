@@ -3,7 +3,7 @@ import type { ApiBoard, ApiTicket, ColumnKind } from '@tada/shared'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { FlatList, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { FlatList, Platform, StyleSheet, Text, View, type View as RNView, type ViewStyle, useWindowDimensions } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../../src/api/client'
@@ -41,12 +41,14 @@ import { motion, radius, space, type } from '../../../src/design/tokens'
 import { useLayout } from '../../../src/layout'
 import { showToast } from '../../../src/toast'
 import { useClaimActiveWorkspace } from '../../../src/useClaimActiveWorkspace'
-import type { View as RNView } from 'react-native'
 
 /** Fixed width of the web Rail (see src/components/ui/Rail.tsx) — subtracted from the window
  * width so the wide 5-column grid sizes against the actual content area, not the whole screen. */
 const RAIL_WIDTH = 188
 const COLUMN_MARGIN = 32
+// Web-only CSS (RN-web passes unknown style keys through to the DOM) — typed loosely on purpose.
+const WEB_SNAP_CONTAINER = { scrollSnapType: 'x mandatory' } as unknown as ViewStyle
+const WEB_SNAP_ITEM = { scrollSnapAlign: 'start' } as unknown as ViewStyle
 /** Finger within this many px of a screen edge pages the board while dragging. */
 const EDGE_ZONE = 56
 const EDGE_DWELL_MS = 350
@@ -105,6 +107,8 @@ export default function Board() {
   const lastResolve = useRef(0)
   const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pageRef = useRef(0)
+  // Which column the narrow pager is showing (drives the page dots).
+  const [page, setPage] = useState(0)
   const pagerRef = useRef<FlatList<BoardColumn> | null>(null)
 
   const columns = useMemo(
@@ -450,6 +454,13 @@ export default function Board() {
     void createTicket.mutateAsync({ workspaceId: wsId, ...fields })
   }
 
+  // Narrow pages: one column per page, each a CSS snap point on web.
+  const renderPage = (column: BoardColumn) => (
+    <View key={column.id} style={Platform.OS === 'web' ? [styles.page, WEB_SNAP_ITEM] : styles.page}>
+      {renderColumn(column)}
+    </View>
+  )
+
   const renderColumn = (column: BoardColumn) => (
     <ColumnView
       key={column.id}
@@ -596,6 +607,16 @@ export default function Board() {
           />
         </View>
 
+        <View style={styles.pageDots} testID="board-page-dots">
+          {columns.map((c, i) => (
+            <View
+              key={c.id}
+              testID={`board-page-dot-${i}`}
+              style={[styles.pageDot, { backgroundColor: i === page ? colors.text : colors.borderStrong }]}
+            />
+          ))}
+        </View>
+
         <FlatList
           ref={pagerRef}
           testID="board-paged"
@@ -604,12 +625,20 @@ export default function Board() {
           decelerationRate="fast"
           scrollEnabled={!drag}
           showsHorizontalScrollIndicator={false}
+          // RN-web's ScrollView ignores snapToInterval; CSS scroll snapping does the same job
+          // there (each column wrapper is a snap point, see renderPage).
+          style={Platform.OS === 'web' ? WEB_SNAP_CONTAINER : undefined}
+          scrollEventThrottle={64}
+          onScroll={(e) => {
+            const p = Math.max(0, Math.min(columns.length - 1, Math.round(e.nativeEvent.contentOffset.x / columnWidth)))
+            if (p !== page) setPage(p)
+          }}
           onMomentumScrollEnd={(e) => {
             pageRef.current = Math.round(e.nativeEvent.contentOffset.x / columnWidth)
           }}
           data={columns}
           keyExtractor={(c) => String(c.id)}
-          renderItem={({ item }) => renderColumn(item)}
+          renderItem={({ item }) => renderPage(item)}
         />
 
         {actionsSheet}
@@ -656,6 +685,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
     paddingBottom: space.sm,
+  },
+  // A row, so the column inside stretches to the pager's full height as it did as a direct
+  // item — otherwise the lane is only as tall as its cards and a drop below the last card
+  // misses it.
+  page: {
+    flexDirection: 'row',
+  },
+  pageDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    paddingBottom: space.xs,
+  },
+  pageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   // Long workspace names shrink (ellipsis) rather than pushing the header's buttons off-screen.
   shrinkTrigger: {
