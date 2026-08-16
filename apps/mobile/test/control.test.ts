@@ -273,4 +273,7 @@ describe('narrowOvernightSubline', () => {
   test('runs with a failure mentions its time', () => {
     expect(narrowOvernightSubline(3, '03:12')).toBe('3 ran overnight · at 03:12 one failed')
   })
+  test('several failures count them from the first one', () => {
+    expect(narrowOvernightSubline(13, '03:12', 4)).toBe('13 ran overnight · since 03:12 four failed')
+  })
 })

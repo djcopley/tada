@@ -574,7 +574,7 @@ export default function Board() {
 
   return (
     <BoardDnDProvider value={dnd}>
-      <Screen edges={['top']} testID="board-narrow">
+      <Screen edges={['top', 'bottom']} testID="board-narrow">
         <View style={styles.narrowHeader}>
           <Text style={[type.title, { color: colors.text }]}>Board</Text>
           {workspaceSwitcherTrigger}

@@ -227,7 +227,7 @@ export default function Control() {
   // Wide's subline leans on memory (matches the desktop artboard); narrow's mentions the first
   // overnight failure's time instead, per the mobile artboard (docs/design/tada-build.dc.html:189).
   const subline = overnightSubline(overnightCount, pendingNotes.length)
-  const narrowSubline = narrowOvernightSubline(overnightCount, firstOvernightFailureAt)
+  const narrowSubline = narrowOvernightSubline(overnightCount, firstOvernightFailureAt, overnightFailures.length)
 
   // ---------------------------------------------------------------- celebration
   const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
@@ -549,7 +549,7 @@ export default function Control() {
   })
 
   return (
-    <Screen edges={['top']} testID="control-narrow">
+    <Screen edges={['top', 'bottom']} testID="control-narrow">
       {sockets}
       <View style={styles.narrowHeader}>
         <Text style={[type.title, { color: colors.text }]}>
@@ -582,6 +582,34 @@ export default function Control() {
         {needsYouSection(true)}
 
         {liveNow.length > 0 ? <LiveDigest testID="live-digest" lines={liveDigestLines} /> : null}
+
+        {/* Narrow used to stop here, which made Control a dead end: no way to reach a workspace
+            other than the strip's scoped one, and no New ticket / New workspace at all. */}
+        {sectionLabel(colors.textFaintSolid, 'Workspaces')}
+        {workspaces.map((w) => (
+          <WorkspaceStrip
+            key={w.id}
+            testID={`workspace-strip-${w.id}`}
+            workspace={w}
+            onBoard={() => router.push(`/workspaces/${w.id}/board`)}
+          />
+        ))}
+        <View style={styles.narrowActions}>
+          <Button
+            testID="new-ticket-button"
+            variant="primary"
+            small
+            label="New ticket"
+            onPress={() => setNewTicketVisible(true)}
+          />
+          <Button
+            testID="rail-new-workspace"
+            variant="ghost"
+            small
+            label="New workspace"
+            onPress={() => openNewWorkspaceDialog()}
+          />
+        </View>
       </ScrollView>
 
       <View style={styles.bottomStripWrap}>
@@ -659,5 +687,10 @@ const styles = StyleSheet.create({
   },
   bottomStripWrap: {
     padding: space.md,
+  },
+  narrowActions: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.xs,
   },
 })

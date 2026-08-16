@@ -147,9 +147,17 @@ export function narrowNeedsYouMeta(
 }
 
 /** Mobile-artboard subline variant: `"3 ran overnight · at 03:12 one failed"` when a run failed
- * since local midnight, else the same graceful degradation as `overnightSubline`. */
-export function narrowOvernightSubline(runsFinished: number, failureAt: string | null): string {
+ * since local midnight (`"… · since 03:12 four failed"` for several), else the same graceful
+ * degradation as `overnightSubline`. */
+export function narrowOvernightSubline(
+  runsFinished: number,
+  failureAt: string | null,
+  failureCount = failureAt ? 1 : 0,
+): string {
   if (runsFinished === 0) return 'nothing ran overnight'
+  if (failureAt && failureCount > 1) {
+    return `${runsFinished} ran overnight · since ${failureAt} ${countWord(failureCount).toLowerCase()} failed`
+  }
   if (failureAt) return `${runsFinished} ran overnight · at ${failureAt} one failed`
   return `${runsFinished} ran overnight`
 }

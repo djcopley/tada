@@ -382,7 +382,7 @@ export function MemoryListScreen(props: Props) {
   }
 
   return (
-    <Screen edges={['top']} testID="memory-narrow">
+    <Screen edges={['top', 'bottom']} testID="memory-narrow">
       <View style={styles.narrowHeader}>
         <Text style={[type.title, { color: colors.text }]}>Memory</Text>
         {switcherTrigger}
