@@ -117,8 +117,11 @@ export function TicketActions({
   }
 
   const chooseAdapter = (adapter: string) => {
+    // A model belongs to a harness: switching the harness re-points the model override at the
+    // new harness's first model (as Settings does), so the pair never becomes claude + fake-1.
+    const firstModel = modelsForAdapter(adapter)[0]
     patchTicket.mutate(
-      { id: ticket.id, patch: { adapterOverride: adapter } },
+      { id: ticket.id, patch: { adapterOverride: adapter, ...(firstModel ? { modelOverride: firstModel } : {}) } },
       { onSuccess: () => setView('main'), onError: handleMutationError },
     )
   }

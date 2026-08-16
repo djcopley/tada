@@ -25,7 +25,7 @@ import {
   retryMeta,
 } from '../board/cardMeta'
 import { measureInWindow, useBoardDnD } from '../board/dnd'
-import { elapsedLabel } from '../control'
+import { elapsedLabel, heldWord } from '../control'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
 import { Badge } from './ui/Badge'
@@ -100,14 +100,15 @@ function AgentWell({ text, testID }: { text: string | undefined; testID?: string
   )
 }
 
-function MinimalBody({ title, meta, liveMeta }: { title: string; meta: string; liveMeta?: boolean }) {
+function MinimalBody({ title, meta, tone = 'muted' }: { title: string; meta: string; tone?: 'muted' | 'fail' | 'stopped' }) {
   const { colors } = useTheme()
+  const metaColor = tone === 'fail' ? colors.failText : tone === 'stopped' ? colors.textMuted : colors.textFaintSolid
   return (
     <View style={styles.body}>
       <Text numberOfLines={2} style={[type.bodyStrong, styles.title, { color: colors.text }]}>
         {title}
       </Text>
-      <Text numberOfLines={1} style={[type.monoSmall, { color: liveMeta ? colors.liveText : colors.textFaintSolid }]}>
+      <Text numberOfLines={1} style={[type.monoSmall, { color: metaColor }]}>
         {meta}
       </Text>
     </View>
@@ -275,7 +276,9 @@ export function TicketCardBody(props: BodyProps) {
   const latestRun = detail?.runs[detail.runs.length - 1]
   const heldRetry = ticket.queueState === 'held' ? retryMeta(latestRun) : null
   const meta = heldRetry ?? (isTopQueued ? nextUpMeta(workspace) : minimalCardMeta(workspace, ticket, now))
-  return <MinimalBody title={ticket.title} meta={meta} liveMeta={Boolean(heldRetry)} />
+  // Held cards say failed/stopped in their meta — red for a failure, plain muted ink for a stop.
+  const tone = heldRetry ? (heldWord(latestRun) === 'stopped' ? 'stopped' : 'fail') : 'muted'
+  return <MinimalBody title={ticket.title} meta={meta} tone={tone} />
 }
 
 /** Native: drag activates after a short hold; a plain tap still opens the ticket. */

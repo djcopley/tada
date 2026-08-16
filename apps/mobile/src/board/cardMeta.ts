@@ -1,5 +1,5 @@
 import type { ApiComment, ApiRun, ApiTicket, ApiWorkspaceDetail } from '@tada/shared'
-import { prNumberFromUrl } from '../control'
+import { heldWord, prNumberFromUrl } from '../control'
 import { bareAge } from '../relativeTime'
 
 /**
@@ -29,12 +29,13 @@ export function nextUpMeta(workspace: ApiWorkspaceDetail): string {
   return withSource(primarySourceName(workspace), 'next up')
 }
 
-/** A held ticket (queueState 'held') carries a prior failed run — its meta becomes the
- * live-text `retry · attempt N` for the attempt about to run, replacing source/age entirely.
+/** A held ticket (queueState 'held') carries a prior failed or stopped run — its meta says so
+ * and names the attempt a re-queue would start (`failed · retry as attempt 2`), replacing
+ * source/age entirely, so it never reads like a scheduled retry or an ordinary queued card.
  * `null` when there's no run yet to retry from. */
 export function retryMeta(latestRun: ApiRun | undefined): string | null {
   if (!latestRun) return null
-  return `retry · attempt ${latestRun.attemptNumber + 1}`
+  return `${heldWord(latestRun)} · retry as attempt ${latestRun.attemptNumber + 1}`
 }
 
 /** In-review card meta: `attempt N · pr #X · tests pass`, omitting any piece the run lacks. */

@@ -78,7 +78,9 @@ export default function Board() {
   const accept = useAccept()
   const sendBack = useSendBack()
   const proposal = useProposal()
-  const [selectedTicket, setSelectedTicket] = useState<ApiTicket | null>(null)
+  // The sheet is keyed by id and reads the ticket fresh from the board on every render, so an
+  // override it just changed is what it shows next (a snapshot went stale after each PATCH).
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [celebratingIds, setCelebratingIds] = useState<Set<number>>(new Set())
 
   useWorkspaceSocket(Number.isNaN(wsId) ? undefined : wsId)
@@ -442,7 +444,7 @@ export default function Board() {
   }
 
   const onTicketPress = (ticket: ApiTicket) => router.push(`/tickets/${ticket.id}`)
-  const onTicketLongPress = (ticket: ApiTicket) => setSelectedTicket(ticket)
+  const onTicketLongPress = (ticket: ApiTicket) => setSelectedTicketId(ticket.id)
   const onCreateTicket = (fields: { title: string; description: string }) => {
     void createTicket.mutateAsync({ workspaceId: wsId, ...fields })
   }
@@ -504,13 +506,14 @@ export default function Board() {
     </>
   )
 
+  const selectedTicket = selectedTicketId === null ? undefined : allTickets.find((t) => t.id === selectedTicketId)
   const actionsSheet = selectedTicket && (
     <TicketActions
       ticket={selectedTicket}
       columns={board.columns}
       workspace={workspace}
       visible
-      onClose={() => setSelectedTicket(null)}
+      onClose={() => setSelectedTicketId(null)}
     />
   )
 

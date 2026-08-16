@@ -98,10 +98,17 @@ export function runStatLine(run: ApiRun | undefined): string {
   return parts.join(' · ')
 }
 
-/** "attempt 1 · timed out at 30m" when the failed run left a summary, else "attempt 1 · failed". */
+/** A held ticket's last run either failed or was stopped by you — the word every held surface
+ * uses (badge, meta, board card), so a cancelled run never reads as a failure. */
+export function heldWord(run: ApiRun | undefined): 'failed' | 'stopped' {
+  return run?.status === 'cancelled' ? 'stopped' : 'failed'
+}
+
+/** "attempt 1 · timed out at 30m" when the failed run left a summary, else "attempt 1 · failed"
+ * ("attempt 1 · stopped" for a run you cancelled). */
 export function failureLine(run: ApiRun | undefined): string {
   if (!run) return ''
-  return `attempt ${run.attemptNumber} · ${run.summary && run.summary.trim() ? run.summary : 'failed'}`
+  return `attempt ${run.attemptNumber} · ${run.summary && run.summary.trim() ? run.summary : heldWord(run)}`
 }
 
 /** Bare "12m" / "1h 4m" elapsed label — the mono meta trailing a live RunStatusChip. */
@@ -139,7 +146,7 @@ export function narrowNeedsYouMeta(
   const marker = failed
     ? /timed?\s*out|timeout/i.test(run?.summary ?? '')
       ? 'timed out'
-      : 'failed'
+      : heldWord(run)
     : prNumberFromUrl(run?.prUrl)
       ? `pr #${prNumberFromUrl(run?.prUrl)}`
       : undefined

@@ -1,7 +1,9 @@
 // Type definitions for domain entities
 export type ColumnKind = 'backlog' | 'ready' | 'in_progress' | 'in_review' | 'done' | 'custom'
 export type RunStatus = 'queued' | 'running' | 'needs_review' | 'failed' | 'cancelled'
-export type QueueState = 'queued' | 'held' | null // held = failed run; needs re-queue by human
+// held = the last run failed or was stopped; the scheduler leaves the card alone until a human
+// re-queues it (Re-run / Send to Ready / drag). null = not in the queue at all.
+export type QueueState = 'queued' | 'held' | null
 export type Actor = 'human' | 'orchestrator'
 
 export interface RunOutcome {

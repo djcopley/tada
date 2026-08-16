@@ -310,7 +310,8 @@ describe('Scheduler', () => {
       expect(runStatus(db, runId)).toBe('cancelled')
     })
     expect(sawAbort).toBe(true)
-    expect(ticketState(db, ticket.id)).toEqual({ columnKind: 'ready', queueState: null })
+    // Parked as held — the card should read as stopped-needs-you, not as an ordinary queued card.
+    expect(ticketState(db, ticket.id)).toEqual({ columnKind: 'ready', queueState: 'held' })
   })
 
   test('enqueue: throws on unknown adapter name', async () => {

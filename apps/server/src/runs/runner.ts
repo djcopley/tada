@@ -191,10 +191,12 @@ export async function executeRun(
       .where(eq(agentRuns.id, runId))
       .run()
 
+    // Parked as `held`, like a failure: it stays visibly "needs you" (Control's triage list, the
+    // board's retry meta) instead of looking like an ordinary queued card that never runs.
     assertCardMove('in_progress', 'ready')
     db.drizzle
       .update(tickets)
-      .set({ columnId: readyColumn.id, queueState: null })
+      .set({ columnId: readyColumn.id, queueState: 'held' })
       .where(eq(tickets.id, ticket.id))
       .run()
   }

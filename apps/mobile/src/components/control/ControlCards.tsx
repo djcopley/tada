@@ -4,6 +4,7 @@ import {
   activityGlyph,
   elapsedLabel,
   failureLine,
+  heldWord,
   hhmm,
   prNumberFromUrl,
   runStatLine,
@@ -95,7 +96,10 @@ export function NeedsYouCard({
     <Card testID={testID} style={styles.triageCard}>
       <CardHeader title={ticket.title} meta={wide ? meta : undefined} />
       <View style={styles.triageMetaRow}>
-        <Badge status={failed ? 'failed' : 'accepted'} label={failed ? 'failed' : 'your turn'} />
+        <Badge
+          status={failed ? (heldWord(latestRun) === 'stopped' ? 'neutral' : 'failed') : 'accepted'}
+          label={failed ? heldWord(latestRun) : 'your turn'}
+        />
         {wide && statLine ? (
           <Text style={[type.monoSmall, styles.flexShrink, { color: colors.textFaintSolid }]}>{statLine}</Text>
         ) : null}

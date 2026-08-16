@@ -168,7 +168,7 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
     )
   }
 
-  const badge = ticketStatusBadge(column?.kind, ticket.queueState)
+  const badge = ticketStatusBadge(column?.kind, ticket.queueState, latestRun)
   const metaLine = ticketMetaLine(workspace?.name ?? '—', workspace?.sources[0]?.name, ticket.createdAt, ticket.origin)
   const rows = attemptRows(runs, comments, { accepted: column?.kind === 'done' })
   const memoryInfo = memorySummary(memory?.notes ?? [])

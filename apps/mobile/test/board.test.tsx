@@ -362,7 +362,7 @@ describe('Board screen', () => {
     })
     expect(screen.getByText('parlor-api · next up')).toBeTruthy()
     await waitFor(() => {
-      expect(screen.getByText('retry · attempt 2')).toBeTruthy()
+      expect(screen.getByText('failed · retry as attempt 2')).toBeTruthy()
     })
   })
 

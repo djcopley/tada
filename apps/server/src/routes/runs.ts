@@ -36,7 +36,12 @@ export function cancelRun(
       .set({ status: 'cancelled', finishedAt: new Date() })
       .where(eq(agentRuns.id, runId))
       .run()
-    db.drizzle.update(tickets).set({ queueState: null }).where(eq(tickets.id, fresh.ticketId)).run()
+    // `held` rather than null so the card reads as stopped-needs-you (see runner markCancelled).
+    db.drizzle
+      .update(tickets)
+      .set({ queueState: 'held' })
+      .where(eq(tickets.id, fresh.ticketId))
+      .run()
     // Nothing else broadcasts here (the run never reached the runner), so tell boards the card
     // is no longer queued.
     const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, fresh.ticketId)).get()

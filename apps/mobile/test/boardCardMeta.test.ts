@@ -103,7 +103,8 @@ describe('retryMeta', () => {
     expect(retryMeta(undefined)).toBeNull()
   })
   test('the attempt about to run, one past the failed attempt', () => {
-    expect(retryMeta(run({ attemptNumber: 1, status: 'failed' }))).toBe('retry · attempt 2')
+    expect(retryMeta(run({ attemptNumber: 1, status: 'failed' }))).toBe('failed · retry as attempt 2')
+    expect(retryMeta(run({ attemptNumber: 1, status: 'cancelled' }))).toBe('stopped · retry as attempt 2')
   })
 })
 

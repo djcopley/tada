@@ -1,6 +1,6 @@
 import type { ApiComment, ApiMemoryNote, ApiRun, ColumnKind, QueueState, TicketOrigin } from '@tada/shared'
 import type { BadgeStatus } from './components/ui/Badge'
-import { prNumberFromUrl } from './control'
+import { heldWord, prNumberFromUrl } from './control'
 import { relativeTime } from './relativeTime'
 
 /**
@@ -27,8 +27,11 @@ export function ticketMetaLine(
 export function ticketStatusBadge(
   columnKind: ColumnKind | undefined,
   queueState: QueueState,
+  latestRun?: ApiRun,
 ): { status: BadgeStatus; label: string } | null {
-  if (queueState === 'held') return { status: 'failed', label: 'failed' }
+  if (queueState === 'held') {
+    return heldWord(latestRun) === 'stopped' ? { status: 'neutral', label: 'stopped' } : { status: 'failed', label: 'failed' }
+  }
   switch (columnKind) {
     case 'in_review':
       return { status: 'accepted', label: 'your turn' }
