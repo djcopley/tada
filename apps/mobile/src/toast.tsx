@@ -44,7 +44,7 @@ export function ToastHost() {
   if (message === null) return null
 
   return (
-    <View pointerEvents="none" style={[styles.container, { bottom: insets.bottom + space.xxl }]}>
+    <View style={[styles.container, { bottom: insets.bottom + space.xxl, pointerEvents: 'none' }]}>
       <Animated.View
         entering={FadeInDown.duration(180)}
         exiting={FadeOutDown.duration(180)}

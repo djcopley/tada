@@ -1,9 +1,36 @@
 import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
-import * as Notifications from 'expo-notifications'
 import { useEffect } from 'react'
 import { Platform } from 'react-native'
 import type { TadaClient } from './api/client'
+
+type NotificationsModule = typeof import('expo-notifications')
+
+let handlerInstalled = false
+
+/**
+ * expo-notifications is loaded lazily and only off-web: merely importing it on web logs
+ * "Listening to push token changes is not yet fully supported on web" on every page load, and
+ * nothing here runs on web anyway. First load also installs the foreground handler so a
+ * notification that arrives while the app is open is actually shown.
+ */
+function loadNotifications(): NotificationsModule | null {
+  if (Platform.OS === 'web') return null
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberately not a static import (see above)
+  const Notifications = require('expo-notifications') as NotificationsModule
+  if (!handlerInstalled) {
+    handlerInstalled = true
+    Notifications.setNotificationHandler?.({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    })
+  }
+  return Notifications
+}
 
 /**
  * Registers this device for push notifications and posts the resulting
@@ -14,7 +41,8 @@ import type { TadaClient } from './api/client'
  * which has no permission model to call into.
  */
 export async function registerForPush(client: TadaClient): Promise<void> {
-  if (Platform.OS === 'web') return
+  const Notifications = loadNotifications()
+  if (!Notifications) return
 
   try {
     const current = await Notifications.getPermissionsAsync()
@@ -28,10 +56,17 @@ export async function registerForPush(client: TadaClient): Promise<void> {
     // Required by getExpoPushTokenAsync outside of Expo Go on modern SDKs;
     // absent in most local dev setups, so pass it only when present.
     const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined
-    const tokenResponse = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
-    )
-    await client.registerPushToken(tokenResponse.data)
+    let token: string
+    try {
+      token = (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data
+    } catch (err) {
+      // Without an EAS projectId (every local dev build) token retrieval is expected to fail, so
+      // that case is a debug line rather than a warning on every connect.
+      if (projectId) console.warn('Push registration failed', err)
+      else console.debug('Push registration skipped (no EAS projectId configured)', err)
+      return
+    }
+    await client.registerPushToken(token)
   } catch (err) {
     console.warn('Push registration failed', err)
   }
@@ -60,6 +95,9 @@ export function useNotificationDeepLinks(): void {
 
   useEffect(() => {
     if (Platform.OS === 'web') return
+
+    const Notifications = loadNotifications()
+    if (!Notifications) return
 
     let cancelled = false
 

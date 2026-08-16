@@ -217,20 +217,14 @@ export const motion = {
  */
 export function shadows(palette: Palette): { card: ViewStyle; lifted: ViewStyle } {
   const isNight = palette === night
+  // `boxShadow` rather than the shadow* props: react-native-web deprecates the latter (one
+  // warning per screen), and RN 0.76+ renders boxShadow natively on both platforms.
   return {
     card: {
-      shadowColor: '#000000',
-      shadowOpacity: isNight ? 0.18 : 0.08,
-      shadowRadius: 2,
-      shadowOffset: { width: 0, height: 1 },
-      elevation: 2,
+      boxShadow: `0 1px 2px rgba(0, 0, 0, ${isNight ? 0.18 : 0.08})`,
     },
     lifted: {
-      shadowColor: '#000000',
-      shadowOpacity: isNight ? 0.65 : 0.2,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 12 },
-      elevation: 8,
+      boxShadow: `0 12px 24px rgba(0, 0, 0, ${isNight ? 0.65 : 0.2})`,
     },
   }
 }

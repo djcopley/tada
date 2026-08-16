@@ -1,7 +1,7 @@
 import type { ApiComment } from '@tada/shared'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
-import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTheme } from '../design/ThemeContext'
 import { radius, space, type } from '../design/tokens'
 import { relativeTime } from '../relativeTime'
@@ -132,16 +132,16 @@ export function CommentThread({
 
   return (
     <View style={styles.container}>
-      <FlatList
-        testID="comment-thread"
-        data={sorted}
-        keyExtractor={(c) => String(c.id)}
-        scrollEnabled={false}
-        renderItem={({ item }) => {
+      {/* A plain map, not a FlatList: this thread sits inside the ticket screen's ScrollView, and a
+          same-orientation VirtualizedList nested in a ScrollView warns on every mount (and can't
+          virtualize there anyway). */}
+      <View testID="comment-thread">
+        {sorted.map((item) => {
           const human = item.author === 'human'
           if (human) {
             return (
               <View
+                key={item.id}
                 testID={`comment-${item.id}`}
                 style={[
                   styles.bubble,
@@ -172,6 +172,7 @@ export function CommentThread({
           // The agent's voice: mono on recessed ink with the ▸ prompt.
           return (
             <View
+              key={item.id}
               testID={`comment-${item.id}`}
               style={[
                 styles.bubble,
@@ -191,8 +192,8 @@ export function CommentThread({
               </Text>
             </View>
           )
-        }}
-      />
+        })}
+      </View>
       <View style={styles.inputRow}>
         <TextInput
           testID="comment-input"

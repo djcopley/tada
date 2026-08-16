@@ -506,7 +506,7 @@ export default function Board() {
   )
 
   const overlay = (
-    <View ref={overlayRef} collapsable={false} pointerEvents="none" style={StyleSheet.absoluteFill}>
+    <View ref={overlayRef} collapsable={false} style={[StyleSheet.absoluteFill, styles.overlayPassthrough]}>
       {drag ? (
         <Animated.View
           style={[
@@ -618,6 +618,9 @@ export default function Board() {
 }
 
 const styles = StyleSheet.create({
+  overlayPassthrough: {
+    pointerEvents: 'none',
+  },
   skeletons: {
     padding: space.lg,
     flex: 1,

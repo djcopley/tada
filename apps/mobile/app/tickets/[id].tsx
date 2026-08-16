@@ -277,7 +277,12 @@ function TicketDetailBody({ ticketId, data }: { ticketId: number; data: TicketDe
   return (
     <Screen edges={['top', 'bottom']} testID="ticket-detail-screen">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        <ScrollView testID="ticket-detail" style={styles.flex} contentContainerStyle={styles.content}>
+        <ScrollView
+          testID="ticket-detail"
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
           {header}
           {titleBlock}
           {wide ? (
