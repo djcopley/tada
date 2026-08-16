@@ -118,6 +118,15 @@ function writeMemory(
 ): void {
   const notesDir = join(dir, 'notes')
   mkdirSync(notesDir, { recursive: true })
+  if (file !== 'AGENTS.md') {
+    // On a case-insensitive filesystem `PILOT.md` and `pilot.md` are one file: writing under the
+    // new spelling would silently overwrite the existing note while the listing kept the old
+    // name. Treat a case-only match as that existing note.
+    const sameFile = readdirSync(notesDir).find(
+      (f) => f !== file && f.toLowerCase() === file.toLowerCase(),
+    )
+    if (sameFile) file = sameFile
+  }
   const dest = file === 'AGENTS.md' ? join(dir, 'AGENTS.md') : join(notesDir, file)
   writeFileSync(dest, body)
 

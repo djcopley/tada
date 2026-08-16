@@ -641,20 +641,37 @@ describe('REST API + WebSocket events', () => {
       payload: { name: 'Acme Web' },
     })
 
-    // Availability is by exact (trimmed) name - the same rule POST /workspaces enforces - so a
-    // differently-cased or differently-spaced name is still free even if it slugs the same.
+    // Availability applies the rules POST /workspaces enforces: names collide case-insensitively
+    // (the workspace directory may sit on a case-insensitive filesystem), while a differently-
+    // spaced name is still free even if it slugs the same; an invalid name says why.
     const taken = await json(app, config, {
       method: 'GET',
       url: '/workspaces/check-name?name=Acme%20Web',
     })
     expect(taken.status).toBe(200)
-    expect(taken.body).toEqual({ id: 'acme-web', available: false })
+    expect(taken.body).toEqual({ id: 'acme-web', available: false, reason: 'taken' })
+
+    const caseCollision = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=acme%20WEB',
+    })
+    expect(caseCollision.body).toEqual({ id: 'acme-web', available: false, reason: 'taken' })
 
     const stillFree = await json(app, config, {
       method: 'GET',
       url: '/workspaces/check-name?name=acme-web',
     })
     expect(stillFree.body).toEqual({ id: 'acme-web', available: true })
+
+    const invalid = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=bad%2Fname',
+    })
+    expect(invalid.body).toEqual({
+      id: 'badname',
+      available: false,
+      reason: 'invalid workspace name',
+    })
   })
 
   test('POST /workspaces with a duplicate name returns 409 and leaves the original intact', async () => {
@@ -685,7 +702,7 @@ describe('REST API + WebSocket events', () => {
       method: 'GET',
       url: '/workspaces/check-name?name=dup',
     })
-    expect(check.body).toEqual({ id: 'dup', available: false })
+    expect(check.body).toEqual({ id: 'dup', available: false, reason: 'taken' })
   })
 
   test('GET /workspaces needsReviewCount follows the in_review column (drops back after accept) and survives a broken manifest', async () => {
@@ -1455,6 +1472,10 @@ describe('Ticket flows: accept, send-back, proposals, attempts, run detail', () 
     expect(run.ticketId).toBe(ticketId)
     expect(run.ticketTitle).toBe('Reviewable ticket')
     expect(run.workspaceId).toBe(wsId)
+    // The per-run MCP bearer and the server-local transcript path never leave the server.
+    expect(run).not.toHaveProperty('runToken')
+    expect(run).not.toHaveProperty('transcriptPath')
+    expect((ticketRes.body as ApiTicketDetail).runs[0]).not.toHaveProperty('runToken')
 
     const missing = await json(app, config, { method: 'GET', url: '/runs/999999' })
     expect(missing.status).toBe(404)

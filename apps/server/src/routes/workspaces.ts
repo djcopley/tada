@@ -1,9 +1,11 @@
-import { basename } from 'node:path'
-import { and, asc, eq } from 'drizzle-orm'
+import { existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createDefaultColumns } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
+import { dataDir } from '../paths.js'
 import { SourceExistsError, WorkspaceExistsError } from '../workspaces/manager.js'
 import type { RouteDeps } from './deps.js'
 
@@ -52,7 +54,7 @@ function slugify(name: string): string {
 }
 
 export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, wm, adapters } = deps
+  const { db, wm, adapters, scheduler } = deps
 
   // One workspace with a missing/corrupt manifest.json must not take the whole list (and the
   // client with it) down; it just reports no sources.
@@ -137,15 +139,21 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     const { name } = req.query as { name?: string }
     if (!name) return reply.code(400).send({ error: 'name is required' })
 
-    // `id` is the display slug; availability is by exact name, the same rule POST /workspaces
-    // enforces (workspaces.name is unique as typed), so the two never disagree.
+    // `id` is the display slug. Availability applies exactly the rules POST /workspaces will:
+    // the name must validate, and it collides case-insensitively (the on-disk workspace dir
+    // lives on a possibly case-insensitive filesystem, so `wn-CASE` cannot coexist with
+    // `WN-case` — WorkspaceManager.create refuses it) — so the live check never disagrees
+    // with the create.
     const id = slugify(name)
+    const valid = createWorkspaceSchema.safeParse({ name })
+    if (!valid.success) return { id, available: false, reason: 'invalid workspace name' }
     const taken = db.drizzle
       .select({ id: workspaces.id })
       .from(workspaces)
-      .where(eq(workspaces.name, name.trim()))
+      .where(sql`lower(${workspaces.name}) = lower(${name.trim()})`)
       .get()
-    return { id, available: !taken }
+    const onDisk = existsSync(join(dataDir(), 'workspaces', name.trim()))
+    return taken || onDisk ? { id, available: false, reason: 'taken' } : { id, available: true }
   })
 
   app.get('/repos/known', async () => {
@@ -213,6 +221,9 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     if (Object.keys(patch).length > 0) {
       db.drizzle.update(workspaces).set(patch).where(eq(workspaces.id, id)).run()
     }
+    // A raised cap should start waiting runs now, not whenever something else next ticks.
+    if (patch.concurrency !== undefined && patch.concurrency > existing.concurrency)
+      scheduler.tick()
     return db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
   })
 

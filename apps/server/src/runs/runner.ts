@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ColumnKind, RunStatus } from '@tada/shared'
 import { canMoveCard, canTransitionRun } from '@tada/shared'
@@ -260,6 +260,16 @@ export async function executeRun(
         finishedAt: r.finishedAt,
       })),
     })
+    // Kept next to the transcript for debugging (what exactly did attempt N see — was the send-
+    // back feedback in there?). Best-effort: a write failure must not fail the run.
+    try {
+      writeFileSync(join(runDir.path, 'prompt.md'), prompt)
+    } catch (err) {
+      journal.write({
+        type: 'error',
+        payload: { message: `could not save prompt.md: ${String(err)}` },
+      })
+    }
 
     // 3. run the adapter with a timeout
     const adapter = deps.adapters.get(run.adapter)

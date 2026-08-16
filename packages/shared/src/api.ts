@@ -176,6 +176,8 @@ export interface ApiKnownRepo {
 export interface ApiNameCheck {
   id: string
   available: boolean
+  /** Why it isn't available — 'taken' or the validation message POST /workspaces would give. */
+  reason?: string
 }
 
 export type WsMessage =

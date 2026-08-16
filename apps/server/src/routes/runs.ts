@@ -6,6 +6,7 @@ import type { TadaDb } from '../db/index.js'
 import { agentRuns, comments, events, pushTokens, tickets } from '../db/schema.js'
 import type { Scheduler } from '../runs/scheduler.js'
 import type { RouteDeps } from './deps.js'
+import { publicRun } from './serialize.js'
 
 const pushTokenSchema = z.object({ token: z.string().min(1) })
 const nudgeSchema = z.object({ note: z.string().min(1) })
@@ -64,7 +65,7 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .get()
     if (!row) return reply.code(404).send({ error: 'run not found' })
 
-    return { ...row.run, ticketTitle: row.ticketTitle, workspaceId: row.workspaceId }
+    return { ...publicRun(row.run), ticketTitle: row.ticketTitle, workspaceId: row.workspaceId }
   })
 
   app.get('/runs/:id/events', async (req, reply) => {
@@ -119,7 +120,8 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!run) return reply.code(404).send({ error: 'run not found' })
 
     cancelRun(db, scheduler, id, hub)
-    return db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    const after = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    return after ? publicRun(after) : after
   })
 
   // Mid-run steer: the note is always recorded on the ticket (so it shows up in the discussion

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
 import type { ApiKnownRepo, ApiSource } from '@tada/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { TadaDb } from '../db/index.js'
 import { workspaces } from '../db/schema.js'
@@ -86,10 +86,12 @@ export class WorkspaceManager {
     // Checked up front so a duplicate never gets as far as touching disk: the manifest/AGENTS.md
     // writes below would otherwise wipe the existing workspace before the unique-name insert
     // failed.
+    // Case-insensitive on purpose: the workspace directory may sit on a case-insensitive
+    // filesystem (macOS), where `Parlor` and `parlor` would be the same folder.
     const taken = this.db.drizzle
       .select({ id: workspaces.id })
       .from(workspaces)
-      .where(eq(workspaces.name, name))
+      .where(sql`lower(${workspaces.name}) = lower(${name})`)
       .get()
     if (taken || existsSync(path)) throw new WorkspaceExistsError(name)
 

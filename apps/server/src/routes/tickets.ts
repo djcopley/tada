@@ -8,6 +8,7 @@ import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.
 import { cleanupRunDirs } from '../runs/runDir.js'
 import type { RouteDeps } from './deps.js'
 import { cancelRun } from './runs.js'
+import { publicRun } from './serialize.js'
 
 const TITLE_MAX = 500
 const DESCRIPTION_MAX = 100_000
@@ -233,7 +234,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
       .where(eq(tickets.followUpOfTicketId, id))
       .all()
 
-    return { ...ticket, comments: ticketComments, runs, followUps }
+    return { ...ticket, comments: ticketComments, runs: runs.map(publicRun), followUps }
   })
 
   app.patch('/tickets/:id', async (req, reply) => {
