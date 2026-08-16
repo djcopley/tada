@@ -60,12 +60,30 @@ function assertSafeName(name: string, what: string): void {
   }
 }
 
+/** Thrown by `create` when the name is already taken (db row or on-disk directory). */
+export class WorkspaceExistsError extends Error {
+  constructor(name: string) {
+    super(`workspace already exists: ${name}`)
+    this.name = 'WorkspaceExistsError'
+  }
+}
+
 export class WorkspaceManager {
   constructor(private readonly db: TadaDb) {}
 
   async create(name: string): Promise<number> {
     assertSafeName(name, 'workspace name')
     const path = join(dataDir(), 'workspaces', name)
+
+    // Checked up front so a duplicate never gets as far as touching disk: the manifest/AGENTS.md
+    // writes below would otherwise wipe the existing workspace before the unique-name insert
+    // failed.
+    const taken = this.db.drizzle
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.name, name))
+      .get()
+    if (taken || existsSync(path)) throw new WorkspaceExistsError(name)
 
     mkdirSync(join(path, 'repos'), { recursive: true })
     mkdirSync(join(path, 'memory', 'notes'), { recursive: true })

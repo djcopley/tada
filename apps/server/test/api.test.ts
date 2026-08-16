@@ -637,15 +637,54 @@ describe('REST API + WebSocket events', () => {
     await json(app, config, {
       method: 'POST',
       url: '/workspaces',
-      payload: { name: 'acme-web' },
+      payload: { name: 'Acme Web' },
     })
 
+    // Availability is by exact (trimmed) name - the same rule POST /workspaces enforces - so a
+    // differently-cased or differently-spaced name is still free even if it slugs the same.
     const taken = await json(app, config, {
       method: 'GET',
       url: '/workspaces/check-name?name=Acme%20Web',
     })
     expect(taken.status).toBe(200)
     expect(taken.body).toEqual({ id: 'acme-web', available: false })
+
+    const stillFree = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=acme-web',
+    })
+    expect(stillFree.body).toEqual({ id: 'acme-web', available: true })
+  })
+
+  test('POST /workspaces with a duplicate name returns 409 and leaves the original intact', async () => {
+    const { app, config, wm } = await setupApp()
+    const first = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'dup' },
+    })
+    const wsId = (first.body as { id: number }).id
+    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
+    await json(app, config, {
+      method: 'POST',
+      url: `/workspaces/${wsId}/sources`,
+      payload: { type: 'folder', path: folder },
+    })
+
+    const dup = await json(app, config, {
+      method: 'POST',
+      url: '/workspaces',
+      payload: { name: 'dup' },
+    })
+    expect(dup.status).toBe(409)
+    expect(dup.body).toEqual({ error: 'workspace name already exists' })
+    expect(wm.listSources(wsId)).toHaveLength(1)
+
+    const check = await json(app, config, {
+      method: 'GET',
+      url: '/workspaces/check-name?name=dup',
+    })
+    expect(check.body).toEqual({ id: 'dup', available: false })
   })
 
   test('GET /workspaces reports sourceCount and queuedCount (ready column + queueState=queued only), scoped per workspace', async () => {

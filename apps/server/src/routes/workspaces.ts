@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { createDefaultColumns } from '../db/index.js'
 import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
+import { WorkspaceExistsError } from '../workspaces/manager.js'
 import type { RouteDeps } from './deps.js'
 
 // basename-only: any '/' (or a resolved-away '..') in the name is rejected outright, so the
@@ -89,7 +90,15 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     const parsed = createWorkspaceSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
 
-    const id = await wm.create(parsed.data.name)
+    let id: number
+    try {
+      id = await wm.create(parsed.data.name)
+    } catch (err) {
+      if (err instanceof WorkspaceExistsError) {
+        return reply.code(409).send({ error: 'workspace name already exists' })
+      }
+      throw err
+    }
     createDefaultColumns(db, id)
     const row = db.drizzle.select().from(workspaces).where(eq(workspaces.id, id)).get()
     return reply.code(201).send(row)
@@ -109,10 +118,15 @@ export function registerWorkspaceRoutes(app: FastifyInstance, deps: RouteDeps): 
     const { name } = req.query as { name?: string }
     if (!name) return reply.code(400).send({ error: 'name is required' })
 
+    // `id` is the display slug; availability is by exact name, the same rule POST /workspaces
+    // enforces (workspaces.name is unique as typed), so the two never disagree.
     const id = slugify(name)
-    const rows = db.drizzle.select({ name: workspaces.name }).from(workspaces).all()
-    const available = !rows.some((row) => slugify(row.name) === id)
-    return { id, available }
+    const taken = db.drizzle
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.name, name.trim()))
+      .get()
+    return { id, available: !taken }
   })
 
   app.get('/repos/known', async () => {

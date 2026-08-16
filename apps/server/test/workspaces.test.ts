@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb } from '../src/db/index.js'
 import { dataDir } from '../src/paths.js'
-import { WorkspaceManager } from '../src/workspaces/manager.js'
+import { WorkspaceExistsError, WorkspaceManager } from '../src/workspaces/manager.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
 
 function testDb() {
@@ -155,6 +155,28 @@ describe('WorkspaceManager', () => {
     const manager = new WorkspaceManager(db)
     await expect(manager.create('../evil')).rejects.toThrow(/invalid/i)
     expect(existsSync(join(dataDir(), 'workspaces', 'evil'))).toBe(false)
+  })
+
+  test('create with a duplicate name throws WorkspaceExistsError and leaves the existing workspace untouched', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    const id = await manager.create('demo')
+    const origin = await makeOrigin('proj')
+    await manager.addRepoSource(id, origin)
+    const agentsPath = join(dataDir(), 'workspaces', 'demo', 'memory', 'AGENTS.md')
+    writeFileSync(agentsPath, '# edited\n')
+
+    await expect(manager.create('demo')).rejects.toBeInstanceOf(WorkspaceExistsError)
+
+    expect(manager.manifest(id).sources).toHaveLength(1)
+    expect(readFileSync(agentsPath, 'utf-8')).toBe('# edited\n')
+  })
+
+  test('create refuses a name whose directory already exists on disk', async () => {
+    const db = testDb()
+    const manager = new WorkspaceManager(db)
+    mkdirSync(join(dataDir(), 'workspaces', 'stale'), { recursive: true })
+    await expect(manager.create('stale')).rejects.toBeInstanceOf(WorkspaceExistsError)
   })
 
   test('removeSource rejects a path-traversal name', async () => {
