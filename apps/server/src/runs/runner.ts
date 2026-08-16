@@ -225,6 +225,12 @@ export async function executeRun(
     )
 
     const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
+    // A cancel that arrived while the worktrees were being built (a slow clone/checkout) must
+    // not start the agent — the abort signal is only wired up around adapter.start below.
+    if (externalSignal?.aborted) {
+      markCancelled()
+      return
+    }
 
     const ticketComments = db.drizzle
       .select()

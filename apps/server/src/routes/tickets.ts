@@ -368,6 +368,17 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     const moveErr = await applyMove(deps, ticket, fromCol, toCol, parsed.data.position)
     if (moveErr) return reply.code(400).send({ error: moveErr.error })
 
+    // Dragging a reviewed ticket into Done *is* accepting it — record it like the Accept button
+    // does, so the activity feed and anything reading it agree.
+    if (fromCol.kind === 'in_review' && toCol.kind === 'done') {
+      recordActivity(db, hub, {
+        workspaceId: ticket.workspaceId,
+        ticketId: id,
+        type: 'accepted',
+        message: `You accepted "${ticket.title}"`,
+      })
+    }
+
     return ticketOr404(deps, id)
   })
 
