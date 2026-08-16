@@ -1,8 +1,8 @@
 import type { ApiComment, ApiRun, ApiTicket, ApiWorkspaceDetail, ColumnKind } from '@tada/shared'
 import * as Haptics from 'expo-haptics'
-import { useEffect, useRef } from 'react'
+import { type MutableRefObject, useEffect, useRef } from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import { Gesture, GestureDetector, type GestureStateManager, PointerType } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
   runOnJS,
@@ -289,6 +289,91 @@ const DRAG_TAP_SLOP = 8
  * the browser still fires `click` on the source card after the pointer is released. */
 const POST_DRAG_PRESS_GUARD_MS = 400
 
+type DragHandlers = {
+  lift: (absX: number, absY: number) => void
+  move: (absX: number, absY: number) => void
+  drop: (absX: number, absY: number, travelled: number) => void
+  cancel: () => void
+}
+
+/** Native: the pan activates after a short hold (RNGH cancels the underlying press responder on
+ * activation), with worklet callbacks hopping to JS for the board's drag state. */
+function nativePan(ticketId: number, h: DragHandlers) {
+  return (
+    Gesture.Pan()
+      .withTestId(`ticket-drag-${ticketId}`)
+      .activateAfterLongPress(DRAG_HOLD_MS)
+      .onStart((e) => {
+        'worklet'
+        runOnJS(h.lift)(e.absoluteX, e.absoluteY)
+      })
+      .onUpdate((e) => {
+        'worklet'
+        runOnJS(h.move)(e.absoluteX, e.absoluteY)
+      })
+      .onEnd((e) => {
+        'worklet'
+        runOnJS(h.drop)(e.absoluteX, e.absoluteY, Math.hypot(e.translationX, e.translationY))
+      })
+      .onFinalize((_e, success) => {
+        'worklet'
+        if (!success) runOnJS(h.cancel)()
+      })
+  )
+}
+
+type WebDragState = { x: number; y: number; holdTimer: ReturnType<typeof setTimeout> | null }
+
+/** Web: activation depends on the pointer. A mouse "click and drag" moves at once, so it
+ * activates on distance (a long-press timer would fail the gesture the moment the pointer moved);
+ * a finger on a touchscreen has to hold first, exactly like native, or the columns' own touch
+ * scrolling wins — that's what the manual activation below reproduces. Everything runs on the JS
+ * thread here (there is no UI thread on web), hence `.runOnJS(true)` and plain callbacks. */
+function webPan(ticketId: number, state: MutableRefObject<WebDragState>, h: DragHandlers) {
+  const clearHold = () => {
+    if (state.current.holdTimer) clearTimeout(state.current.holdTimer)
+    state.current.holdTimer = null
+  }
+  return Gesture.Pan()
+    .withTestId(`ticket-drag-${ticketId}`)
+    .runOnJS(true)
+    .manualActivation(true)
+    .onTouchesDown((e, sm: GestureStateManager) => {
+      const t = e.allTouches[0]
+      if (!t) return
+      state.current.x = t.absoluteX
+      state.current.y = t.absoluteY
+      clearHold()
+      if (e.pointerType !== PointerType.MOUSE) {
+        state.current.holdTimer = setTimeout(() => {
+          state.current.holdTimer = null
+          sm.activate()
+        }, DRAG_HOLD_MS)
+      }
+    })
+    .onTouchesMove((e, sm: GestureStateManager) => {
+      const t = e.allTouches[0]
+      if (!t) return
+      const travelled = Math.hypot(t.absoluteX - state.current.x, t.absoluteY - state.current.y)
+      if (e.pointerType === PointerType.MOUSE) {
+        if (travelled > DRAG_MIN_DISTANCE) sm.activate()
+      } else if (state.current.holdTimer && travelled > DRAG_TAP_SLOP) {
+        // Moved before the hold elapsed: this is a scroll, not a drag.
+        clearHold()
+        sm.fail()
+      }
+    })
+    .onTouchesUp(clearHold)
+    .onTouchesCancelled(clearHold)
+    .onStart((e) => h.lift(e.absoluteX, e.absoluteY))
+    .onUpdate((e) => h.move(e.absoluteX, e.absoluteY))
+    .onEnd((e) => h.drop(e.absoluteX, e.absoluteY, Math.hypot(e.translationX, e.translationY)))
+    .onFinalize((_e, success) => {
+      clearHold()
+      if (!success) h.cancel()
+    })
+}
+
 export function TicketCard({
   ticket,
   workspace,
@@ -311,6 +396,7 @@ export function TicketCard({
   // Timestamp of the last drag activation, so the card's own press handler can tell a real tap
   // from the click that trails a drop (see POST_DRAG_PRESS_GUARD_MS).
   const lastDragAt = useRef(0)
+  const webDragRef = useRef<WebDragState>({ x: 0, y: 0, holdTimer: null })
 
   useEffect(() => {
     if (!dnd || !cardRef.current) return
@@ -397,23 +483,9 @@ export function TicketCard({
   // its fate instead), so it never gets the pan gesture attached.
   if (!dnd || proposal) return card
 
-  const basePan = Gesture.Pan().withTestId(`ticket-drag-${ticket.id}`)
-  const pan = (Platform.OS === 'web' ? basePan.minDistance(DRAG_MIN_DISTANCE) : basePan.activateAfterLongPress(DRAG_HOLD_MS))
-    // eslint-disable-next-line react-hooks/refs -- `lift` reads cardRef inside a gesture handler, not during render
-    .onStart((e) => {
-      runOnJS(lift)(e.absoluteX, e.absoluteY)
-    })
-    .onUpdate((e) => {
-      runOnJS(move)(e.absoluteX, e.absoluteY)
-    })
-    // eslint-disable-next-line react-hooks/refs -- `drop`/`cancel` touch lastDragAt inside gesture handlers, not during render
-    .onEnd((e) => {
-      runOnJS(drop)(e.absoluteX, e.absoluteY, Math.hypot(e.translationX, e.translationY))
-    })
-    // eslint-disable-next-line react-hooks/refs -- see above
-    .onFinalize((_e, success) => {
-      if (!success) runOnJS(cancel)()
-    })
+  const handlers: DragHandlers = { lift, move, drop, cancel }
+  // eslint-disable-next-line react-hooks/refs -- the handlers only touch lastDragAt/webDragRef inside gesture callbacks, not during render
+  const pan = Platform.OS === 'web' ? webPan(ticket.id, webDragRef, handlers) : nativePan(ticket.id, handlers)
 
   return <GestureDetector gesture={pan}>{card}</GestureDetector>
 }
