@@ -9,8 +9,41 @@ operational), report back on the ticket, and notify your phone. Single-user tool
 manager, and scheduler that dispatches tickets to agent adapters (Claude via the Claude Agent SDK
 under your Max subscription, plus a pluggable adapter interface for other CLIs). It runs as a
 systemd service on a box you own — reachable over your Tailscale tailnet — and every agent run
-gets its own git worktree so canonical repo clones stay pristine. This repository contains the
-server; the Expo client (`tada-app`, iOS/Android/web) is a separate, future plan.
+gets its own git worktree so canonical repo clones stay pristine. This repository also contains
+the client, `tada-app` (`apps/mobile`) — one Expo codebase for iOS, Android, and web.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/board.png" alt="Board view: tickets moving through Backlog, Queued, Running, In review, and Done" width="900">
+</p>
+
+<p align="center">
+  <em>Tickets move left to right as agents pick them up, work, and hand them back for review.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/ticket.png" alt="Ticket detail: a finished run awaiting review, with diff stats and an Accept run / Send back choice" width="820">
+</p>
+
+<p align="center">
+  <em>Every run lands here — read the summary and diff stats, then accept it or send it back with feedback.</em>
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/control-mobile.png" alt="Mobile Control screen: what needs your review and what's currently running" width="280">
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/board-mobile.png" alt="Mobile board: the same columns, paged one at a time" width="280">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><em>Control — what needs you, what's running</em></td>
+    <td align="center"><em>Board — same columns, paged for a phone</em></td>
+  </tr>
+</table>
 
 ## Install
 
