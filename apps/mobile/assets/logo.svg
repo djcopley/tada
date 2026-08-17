@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- tada mark: the orange asterisk from the tada✱ wordmark on the ink tile.
+       Ink #1B1613 = night `ground`, orange #EF8B3F = the `live` token.
+       Three full-diameter capsules at 30/90/150 deg make the six rays.
+       Kept in sync with the rasterizer that emits the PNG/ICO assets. -->
+  <rect width="1024" height="1024" rx="228" fill="#1B1613"/>
+  <g fill="#EF8B3F">
+    <rect x="107" y="437" width="810" height="150" rx="75" transform="rotate(90 512 512)"/>
+    <rect x="107" y="437" width="810" height="150" rx="75" transform="rotate(30 512 512)"/>
+    <rect x="107" y="437" width="810" height="150" rx="75" transform="rotate(150 512 512)"/>
+    <circle cx="512" cy="512" r="150"/>
+  </g>
+</svg>
