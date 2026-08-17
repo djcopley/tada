@@ -26,6 +26,7 @@ export class CodexAdapter implements Adapter {
   readonly models = ['gpt-5.2-codex', 'gpt-5.2']
   readonly efforts = ['low', 'medium', 'high']
   readonly supportsInjection = false
+  readonly supportsGates = false
 
   available(): Promise<boolean> {
     return probeCli(CLI)

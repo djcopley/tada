@@ -1,16 +1,19 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { ActivityBroadcaster } from '../activity.js'
+import type { Broadcaster } from '../activity.js'
 import { recordActivity } from '../activity.js'
 import type { TadaDb } from '../db/index.js'
-import { agentRuns, columns, comments, events, memoryNotes, tickets } from '../db/schema.js'
+import { agentRuns, comments, events, memoryNotes, tickets } from '../db/schema.js'
 import { stateDir } from '../paths.js'
-import type { WorkspaceManager } from '../workspaces/manager.js'
+import { takeAnswer } from '../runs/answers.js'
+import { addWorktree, runDirFor } from '../runs/runDir.js'
+import { stampRepoTag } from '../runs/tags.js'
+import type { SourceStore } from '../sources/store.js'
 
 export interface RunOutcome {
   status: 'success' | 'failed'
@@ -21,70 +24,112 @@ export interface RunOutcome {
 
 interface RunContext {
   db: TadaDb
-  wm: WorkspaceManager
-  hub: ActivityBroadcaster
+  store: SourceStore
+  hub: Broadcaster
   runId: number
   ticketId: number
-  workspaceId: number
-}
-
-// lowercase, spaces -> '-', strip to [a-z0-9-]; falls back to 'note' if nothing valid remains.
-function slugify(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-  return slug === '' ? 'note' : slug
-}
-
-/**
- * The note file this run may write for `slug`, without clobbering anyone else's note.
- *
- * `<slug>.md` is taken as soon as a memory_notes row claims it, or a file with that name is
- * already on disk (a hand-placed note that hasn't been indexed yet) — in which case the next free
- * `<slug>-2.md`, `<slug>-3.md`, ... is used. The one name this run may reuse is a note it wrote
- * itself and that is still pending review: rewriting its own draft is an update, not a
- * collision. Without this, an agent picking a title a human already used would overwrite the
- * human's kept note and flip it to pending/agent — and a human then discarding the "agent" note
- * would delete content they wrote.
- */
-function freeNoteFile(ctx: RunContext, notesDir: string, slug: string): string {
-  for (let n = 1; n <= 1000; n++) {
-    const file = n === 1 ? `${slug}.md` : `${slug}-${n}.md`
-    const row = ctx.db.drizzle
-      .select()
-      .from(memoryNotes)
-      .where(
-        and(
-          eq(memoryNotes.scope, 'workspace'),
-          eq(memoryNotes.workspaceId, ctx.workspaceId),
-          eq(memoryNotes.file, file),
-        ),
-      )
-      .get()
-
-    if (row) {
-      if (row.state === 'pending' && row.runId === ctx.runId) return file
-      continue
-    }
-    if (!existsSync(join(notesDir, file))) return file
-  }
-  throw new Error(`no free memory note filename for slug ${slug}`)
 }
 
 function addAgentComment(ctx: RunContext, body: string): void {
-  ctx.db.drizzle.insert(comments).values({ ticketId: ctx.ticketId, author: 'agent', body }).run()
+  ctx.db.drizzle
+    .insert(comments)
+    .values({ ticketId: ctx.ticketId, runId: ctx.runId, author: 'agent', body })
+    .run()
   // An open ticket screen learns about the new comment through the board_changed refetch.
-  ctx.hub.boardChanged?.(ctx.workspaceId)
+  ctx.hub.boardChanged()
 }
 
 function createMcpServer(ctx: RunContext): McpServer {
   const server = new McpServer({ name: 'tada', version: '0.0.0' })
 
   server.registerTool(
+    'use_repo',
+    {
+      description:
+        "Check a connected repo out into your run directory (at ./<name>, on this ticket's branch) before working in it. Returns the path and the memory notes tagged to that repo. Idempotent.",
+      inputSchema: { name: z.string() },
+    },
+    async ({ name }) => {
+      const repo = ctx.store.repo(name)
+      if (!repo) {
+        const known = ctx.store.repos().map((r) => r.name)
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `no repo named "${name}". connected repos: ${known.length ? known.join(', ') : '(none)'}`,
+            },
+          ],
+        }
+      }
+      const runDir = runDirFor(ctx.store, ctx.runId)
+      const fresh = !(name in runDir.repoDirs)
+      const path = await addWorktree(ctx.store, runDir, ctx.ticketId, repo)
+      // The tag is stamped here and only here: making a worktree is what "touching" a repo means.
+      stampRepoTag(ctx.db, ctx.ticketId, name)
+      if (fresh) {
+        const event = {
+          type: 'text' as const,
+          payload: { text: `made a worktree for ${name} — off ${repo.defaultBranch}` },
+        }
+        ctx.db.drizzle
+          .insert(events)
+          .values({ runId: ctx.runId, ...event })
+          .run()
+        ctx.hub.runEvent(ctx.runId, event)
+        ctx.hub.boardChanged()
+      }
+
+      const notes = ctx.db.drizzle
+        .select()
+        .from(memoryNotes)
+        .where(
+          and(
+            eq(memoryNotes.state, 'kept'),
+            sql`exists (select 1 from json_each(${memoryNotes.tags}) where value = ${name})`,
+          ),
+        )
+        .all()
+      const noteText = notes.length
+        ? `\n\nMemory notes for ${name}:\n${notes.map((n) => `### ${n.title}\n${n.body}`).join('\n\n')}`
+        : ''
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `worktree ready at ${path} on branch ticket/${ctx.ticketId} (off ${repo.defaultBranch}).${noteText}`,
+          },
+        ],
+      }
+    },
+  )
+
+  server.registerTool(
+    'ask_user',
+    {
+      description:
+        'Ask the human a question and wait for their answer. Offer options when there is a natural choice. The run pauses until they reply.',
+      inputSchema: {
+        question: z.string(),
+        options: z.array(z.string()).optional(),
+        // Filled in by the gate on the way through; never something the agent supplies itself.
+        answer: z.string().optional(),
+      },
+    },
+    async ({ answer }) => {
+      const text = answer ?? takeAnswer(ctx.runId)
+      if (text === undefined) {
+        return { isError: true, content: [{ type: 'text', text: 'no answer was recorded' }] }
+      }
+      return { content: [{ type: 'text', text: `The human answered: ${text}` }] }
+    },
+  )
+
+  server.registerTool(
     'update_ticket',
     {
-      description: "Add a comment to the ticket driving this run's work",
+      description: "Post a progress note or finding on the ticket driving this run's work",
       inputSchema: { comment: z.string() },
     },
     async ({ comment }) => {
@@ -114,8 +159,7 @@ function createMcpServer(ctx: RunContext): McpServer {
     async ({ path }) => {
       const destDir = join(stateDir(), 'attachments', String(ctx.runId))
       mkdirSync(destDir, { recursive: true })
-      const name = basename(path)
-      const dest = join(destDir, name)
+      const dest = join(destDir, basename(path))
       copyFileSync(path, dest)
       addAgentComment(ctx, `Attached file: ${dest}`)
       return { content: [{ type: 'text', text: dest }] }
@@ -126,62 +170,32 @@ function createMcpServer(ctx: RunContext): McpServer {
     'write_memory_note',
     {
       description:
-        'Save a durable learning about this workspace (a build quirk, credential location, API behavior) as a new memory note, pending human review',
-      inputSchema: { title: z.string(), body: z.string() },
+        'Propose a durable memory note (a build quirk, a convention, an API behaviour). Tag it with repo names when it only applies there; untagged notes ride on every run. A human keeps or dismisses it.',
+      inputSchema: { title: z.string(), body: z.string(), tags: z.array(z.string()).optional() },
     },
-    async ({ title, body }) => {
-      const notesDir = join(ctx.wm.memoryDir(ctx.workspaceId), 'notes')
-      mkdirSync(notesDir, { recursive: true })
-      const file = freeNoteFile(ctx, notesDir, slugify(title))
-      writeFileSync(join(notesDir, file), body)
-
-      const existing = ctx.db.drizzle
-        .select()
-        .from(memoryNotes)
-        .where(
-          and(
-            eq(memoryNotes.scope, 'workspace'),
-            eq(memoryNotes.workspaceId, ctx.workspaceId),
-            eq(memoryNotes.file, file),
-          ),
-        )
-        .get()
-
-      if (existing) {
-        ctx.db.drizzle
-          .update(memoryNotes)
-          .set({
-            title,
-            author: 'agent',
-            runId: ctx.runId,
-            state: 'pending',
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(memoryNotes.id, existing.id))
-          .run()
-      } else {
-        ctx.db.drizzle
-          .insert(memoryNotes)
-          .values({
-            scope: 'workspace',
-            workspaceId: ctx.workspaceId,
-            file,
-            title,
-            author: 'agent',
-            runId: ctx.runId,
-            state: 'pending',
-          })
-          .run()
-      }
-
+    async ({ title, body, tags }) => {
+      const known = new Set(ctx.store.repos().map((r) => r.name))
+      const cleanTags = (tags ?? []).filter((t) => known.has(t))
+      const [note] = ctx.db.drizzle
+        .insert(memoryNotes)
+        .values({
+          title,
+          body,
+          tags: cleanTags,
+          author: 'agent',
+          runId: ctx.runId,
+          state: 'pending',
+        })
+        .returning()
+        .all()
+      if (!note) throw new Error('failed to insert memory note')
       recordActivity(ctx.db, ctx.hub, {
-        workspaceId: ctx.workspaceId,
+        ticketId: ctx.ticketId,
         runId: ctx.runId,
-        type: 'memory_written',
-        message: `Wrote memory note: ${title}`,
+        type: 'memory_proposed',
+        message: `Agent proposed a memory note — "${title}" — waiting on your keep`,
       })
-
-      return { content: [{ type: 'text', text: `saved ${file}` }] }
+      return { content: [{ type: 'text', text: `proposed note #${note.id}` }] }
     },
   )
 
@@ -189,30 +203,21 @@ function createMcpServer(ctx: RunContext): McpServer {
     'propose_ticket',
     {
       description:
-        'Propose a follow-up ticket for work discovered but out of scope for this run. Files it in the Backlog as a pending proposal for a human to keep or dismiss.',
+        'Propose a follow-up ticket for work discovered but out of scope for this run. Files it in the backlog as a pending proposal for a human to keep or dismiss.',
       inputSchema: { title: z.string(), description: z.string().optional() },
     },
     async ({ title, description }) => {
-      const backlog = ctx.db.drizzle
-        .select()
-        .from(columns)
-        .where(and(eq(columns.workspaceId, ctx.workspaceId), eq(columns.kind, 'backlog')))
-        .get()
-      if (!backlog) throw new Error(`workspace ${ctx.workspaceId} has no backlog column`)
-
       const last = ctx.db.drizzle
-        .select()
+        .select({ position: tickets.position })
         .from(tickets)
-        .where(eq(tickets.columnId, backlog.id))
+        .where(eq(tickets.column, 'backlog'))
         .orderBy(desc(tickets.position))
         .limit(1)
         .get()
-
       const [proposal] = ctx.db.drizzle
         .insert(tickets)
         .values({
-          workspaceId: ctx.workspaceId,
-          columnId: backlog.id,
+          column: 'backlog',
           title,
           description: description ?? '',
           position: (last?.position ?? 0) + 1,
@@ -225,14 +230,12 @@ function createMcpServer(ctx: RunContext): McpServer {
       if (!proposal) throw new Error('failed to insert proposed ticket')
 
       recordActivity(ctx.db, ctx.hub, {
-        workspaceId: ctx.workspaceId,
         ticketId: proposal.id,
         runId: ctx.runId,
         type: 'follow_up_filed',
-        message: `Filed a follow-up ticket: "${title}"`,
+        message: `Agent filed a follow-up: "${title}"`,
       })
-      ctx.hub.boardChanged?.(ctx.workspaceId)
-
+      ctx.hub.boardChanged()
       return { content: [{ type: 'text', text: String(proposal.id) }] }
     },
   )
@@ -306,8 +309,8 @@ function bearerToken(header: string | undefined): string | undefined {
 export function registerMcpRoute(
   app: FastifyInstance,
   db: TadaDb,
-  wm: WorkspaceManager,
-  hub: ActivityBroadcaster,
+  store: SourceStore,
+  hub: Broadcaster,
 ): void {
   app.post('/mcp', async (req, reply) => {
     const token = bearerToken(req.headers.authorization)
@@ -315,25 +318,12 @@ export function registerMcpRoute(
       ? db.drizzle.select().from(agentRuns).where(eq(agentRuns.runToken, token)).get()
       : undefined
 
-    if (!run || (run.status !== 'queued' && run.status !== 'running')) {
+    if (!run || (run.status !== 'queued' && run.status !== 'running' && run.status !== 'held')) {
       await reply.code(401).send({ error: 'unauthorized' })
       return
     }
 
-    const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, run.ticketId)).get()
-    if (!ticket) {
-      await reply.code(401).send({ error: 'unauthorized' })
-      return
-    }
-
-    const server = createMcpServer({
-      db,
-      wm,
-      hub,
-      runId: run.id,
-      ticketId: run.ticketId,
-      workspaceId: ticket.workspaceId,
-    })
+    const server = createMcpServer({ db, store, hub, runId: run.id, ticketId: run.ticketId })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
 
     reply.raw.on('close', () => {

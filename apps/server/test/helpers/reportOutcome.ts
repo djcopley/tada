@@ -10,7 +10,6 @@ import { agentRuns, events } from '../../src/db/schema.js'
 export function reportOutcome(
   db: TadaDb,
   runId: number,
-  _ticketId: number,
   status: 'success' | 'failed',
   summary: string,
   testsPassed?: number,

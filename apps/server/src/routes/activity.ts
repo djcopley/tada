@@ -1,5 +1,5 @@
 import type { ActivityType, ApiActivity } from '@tada/shared'
-import { and, desc, eq, type SQL } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { activity, tickets } from '../db/schema.js'
 import type { RouteDeps } from './deps.js'
@@ -10,8 +10,7 @@ export function registerActivityRoutes(app: FastifyInstance, deps: RouteDeps): v
   const { db } = deps
 
   app.get('/activity', async (req, reply) => {
-    const query = req.query as { workspaceId?: string; limit?: string }
-
+    const query = req.query as { limit?: string }
     let limit = DEFAULT_LIMIT
     if (query.limit !== undefined) {
       const n = Number(query.limit)
@@ -19,20 +18,9 @@ export function registerActivityRoutes(app: FastifyInstance, deps: RouteDeps): v
       limit = n
     }
 
-    let workspaceId: number | undefined
-    if (query.workspaceId !== undefined) {
-      const n = Number(query.workspaceId)
-      if (!Number.isInteger(n)) return reply.code(400).send({ error: 'invalid workspaceId' })
-      workspaceId = n
-    }
-
-    const conditions: SQL[] = []
-    if (workspaceId !== undefined) conditions.push(eq(activity.workspaceId, workspaceId))
-
     const rows = db.drizzle
       .select({
         id: activity.id,
-        workspaceId: activity.workspaceId,
         ticketId: activity.ticketId,
         runId: activity.runId,
         type: activity.type,
@@ -45,7 +33,6 @@ export function registerActivityRoutes(app: FastifyInstance, deps: RouteDeps): v
       // ticket at all, e.g. memory notes) - ticketTitle is null in either case, never a reason
       // to drop the row.
       .leftJoin(tickets, eq(activity.ticketId, tickets.id))
-      .where(and(...conditions))
       .orderBy(desc(activity.id))
       .limit(limit)
       .all()
@@ -54,6 +41,7 @@ export function registerActivityRoutes(app: FastifyInstance, deps: RouteDeps): v
       ...r,
       type: r.type as ActivityType,
       ticketTitle: r.ticketTitle ?? null,
+      createdAt: r.createdAt.toISOString(),
     }))
     return result
   })

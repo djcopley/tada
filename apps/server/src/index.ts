@@ -6,7 +6,7 @@ import { loadConfig } from './config.js'
 import { openDb } from './db/index.js'
 import { dataDir } from './paths.js'
 import { Scheduler } from './runs/scheduler.js'
-import { WorkspaceManager } from './workspaces/manager.js'
+import { SourceStore } from './sources/store.js'
 import { BroadcastHub } from './ws.js'
 
 async function main(): Promise<void> {
@@ -14,22 +14,20 @@ async function main(): Promise<void> {
 
   mkdirSync(dataDir(), { recursive: true })
   const db = openDb(join(dataDir(), 'tada.db'))
-  const wm = new WorkspaceManager(db)
-
+  const store = new SourceStore()
   const adapters = buildAdapterRegistry()
-
-  const hub = new BroadcastHub(db)
+  const hub = new BroadcastHub()
   const scheduler = new Scheduler({
     db,
-    wm,
+    store,
     adapters,
-    broadcast: hub.broadcast,
+    broadcast: hub.runEvent,
     hub,
     mcpUrl: `http://127.0.0.1:${config.port}/mcp`,
   })
   scheduler.recover()
 
-  const app = buildApp({ db, config, wm, scheduler, broadcastHub: hub, adapters })
+  const app = buildApp({ db, config, store, scheduler, broadcastHub: hub, adapters })
   const address = await app.listen({ port: config.port, host: config.host })
   app.log.info(`tada server listening on ${address}`)
 }

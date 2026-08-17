@@ -1,6 +1,6 @@
 /**
  * Gated integration test for ClaudeAdapter: drives a real Claude Agent SDK session against a
- * live tada MCP endpoint.
+ * live tada MCP endpoint, through the gate hook.
  *
  * Requires:
  *  - `claude` CLI logged in on this machine (the SDK shells out to it / uses its credentials).
@@ -9,104 +9,72 @@
  * Run manually with:
  *   TADA_IT=1 pnpm --filter @tada/server exec vitest run test/claudeAdapter.it.test.ts
  */
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { ClaudeAdapter } from '../src/adapters/claude.js'
 import type { Adapter } from '../src/adapters/types.js'
-import { buildApp } from '../src/app.js'
-import { loadConfig } from '../src/config.js'
-import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, columns, tickets } from '../src/db/schema.js'
+import { agentRuns, settings, tickets } from '../src/db/schema.js'
 import { git } from '../src/git.js'
-import { executeRun } from '../src/runs/runner.js'
-import { WorkspaceManager } from '../src/workspaces/manager.js'
-import { makeAppDeps } from './helpers/appDeps.js'
-import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
-
-function testDb() {
-  return openDb(join(mkdtempSync(join(tmpdir(), 'tada-it-db-')), 'test.db'))
-}
+import { makeOrigin } from './helpers/gitFixtures.js'
+import { makeTestApp, seedTicket, type TestApp, waitFor } from './helpers/testApp.js'
 
 describe.skipIf(!process.env.TADA_IT)('ClaudeAdapter (integration)', () => {
-  let app: FastifyInstance | undefined
-
-  beforeEach(() => {
-    isolateXdg()
-  })
+  let t: TestApp | undefined
 
   afterEach(async () => {
-    await app?.close()
-    app = undefined
+    await t?.app.close()
+    t = undefined
   })
 
-  test('creates hello.txt, commits it, and reports success', async () => {
-    const db: TadaDb = testDb()
-    const wm = new WorkspaceManager(db)
-    const wsId = await wm.create('demo')
+  test('uses the repo, commits, gets held at a gate, is approved, and files itself', async () => {
+    const adapters = new Map<string, Adapter>([['claude', new ClaudeAdapter()]])
+    t = await makeTestApp({ adapters })
+    const address = await t.app.listen({ port: 0, host: '127.0.0.1' })
+    // point the scheduler's runner at the live MCP endpoint
+    ;(t.scheduler as unknown as { deps: { mcpUrl: string } }).deps.mcpUrl = `${address}/mcp`
     const origin = await makeOrigin('proj')
-    await wm.addRepoSource(wsId, origin)
+    await t.store.addRepo(origin)
+    t.db.drizzle
+      .update(settings)
+      .set({ model: 'haiku', effort: 'low' })
+      .where(eq(settings.id, 1))
+      .run()
+    // make `git status` a gate so the test sees a hold without touching github
+    await t.json({
+      method: 'POST',
+      url: '/rules',
+      payload: { title: 'Status', patterns: ['*git status*'], decision: 'ask' },
+    })
 
-    createDefaultColumns(db, wsId)
-    const readyCol = db.drizzle
-      .select()
-      .from(columns)
-      .where(eq(columns.workspaceId, wsId))
-      .all()
-      .find((c) => c.kind === 'ready')
-    if (!readyCol) throw new Error('ready column not seeded')
+    const ticket = seedTicket(t.db, {
+      column: 'queued',
+      title: 'Create hello.txt',
+      description:
+        'Use the repo "proj". Create a file hello.txt containing "hello" and commit it. Then run `git status` once. Then report success.',
+    })
+    const runId = t.scheduler.enqueue(ticket.id)
+    const tt = t
 
-    const [ticket] = db.drizzle
-      .insert(tickets)
-      .values({
-        workspaceId: wsId,
-        columnId: readyCol.id,
-        title: 'Add hello.txt',
-        description:
-          "Create a file named hello.txt containing 'hello tada', commit it, then report success via report_outcome.",
-        position: 1,
-        queueState: 'queued',
-      })
-      .returning()
-      .all()
-    if (!ticket) throw new Error('ticket insert returned no row')
+    await waitFor(
+      () =>
+        tt.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()?.status ===
+        'held',
+      300_000,
+    )
+    const held = tt.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+    expect(held?.heldReason).toBe('permission')
+    await tt.json({ method: 'POST', url: `/runs/${runId}/approve`, payload: {} })
 
-    const [run] = db.drizzle
-      .insert(agentRuns)
-      .values({
-        ticketId: ticket.id,
-        adapter: 'claude',
-        model: 'haiku',
-        status: 'queued',
-        runToken: 'it-tok',
-      })
-      .returning()
-      .all()
-    if (!run) throw new Error('agentRun insert returned no row')
-
-    // Real MCP endpoint: the ClaudeAdapter's SDK session calls back into report_outcome over
-    // HTTP, so `pendingOutcome` needs an actual listening server, not the runner test's default
-    // placeholder mcpUrl.
-    // The adapter runs in streaming-input mode now: `start()` returns a live session whose queue
-    // stays open until the SDK reports a result, which is also what makes `session.inject()`
-    // (POST /runs/:id/nudge) possible. The runner drives all of that; this test only checks the
-    // end-to-end outcome.
-    const claude = new ClaudeAdapter()
-    expect(await claude.available()).toBe(true)
-    const adapters = new Map<string, Adapter>([[claude.id, claude]])
-    app = buildApp(makeAppDeps(db, loadConfig(), { adapters }))
-    const address = await app.listen({ port: 0, host: '127.0.0.1' })
-
-    await executeRun({ db, wm, adapters, pr: false, mcpUrl: `${address}/mcp` }, run.id)
-
-    const updatedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run.id)).get()
-    expect(updatedRun?.status).toBe('needs_review')
-    expect(updatedRun?.summary).toBeTruthy()
-
-    const log = await git(origin, 'log', `ticket/${ticket.id}`, '--oneline')
+    await waitFor(() => {
+      const s = tt.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()?.status
+      return s === 'done' || s === 'failed'
+    }, 300_000)
+    const run = tt.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+    expect(run?.status).toBe('done')
+    expect(
+      tt.db.drizzle.select().from(tickets).where(eq(tickets.id, ticket.id)).get()?.repoTags,
+    ).toEqual(['proj'])
+    const log = await git(tt.store.cloneDir('proj'), 'log', `ticket/${ticket.id}`, '--oneline')
     expect(log.length).toBeGreaterThan(0)
   }, 600_000)
 })

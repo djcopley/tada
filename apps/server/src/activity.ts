@@ -1,45 +1,45 @@
 import type { ActivityType } from '@tada/shared'
+import type { AdapterEvent } from './adapters/types.js'
 import type { TadaDb } from './db/index.js'
 import { activity } from './db/schema.js'
 
 export interface RecordActivityInput {
-  workspaceId: number
   ticketId?: number
   runId?: number
   type: ActivityType
   message: string
 }
 
-/** Structural subset of `BroadcastHub` that `recordActivity` needs - avoids importing ws.ts
- * (and its db/websocket dependencies) into this module just for a type. Any object with an
- * `activityChanged` method satisfies it, including a no-op for call sites/tests with no hub. */
-export interface ActivityBroadcaster {
-  activityChanged(workspaceId: number): void
-  /** Optional: `{type:'board_changed'}` — clients refetch the board and every ticket detail on
-   * it, so this is also the signal for "a ticket's comments/fields changed". */
-  boardChanged?(workspaceId: number): void
+/** Structural subset of `BroadcastHub` the server core needs — avoids importing ws.ts (and its
+ * websocket dependencies) everywhere just for a type. */
+export interface Broadcaster {
+  activityChanged(): void
+  /** `{type:'board_changed'}` — clients refetch the board and every open ticket, so this is also
+   * the signal for "a ticket's thread/fields/run changed". */
+  boardChanged(): void
+  rulesChanged(): void
+  /** A journaled run event (also what the run journal's broadcast hook calls). */
+  runEvent(runId: number, event: AdapterEvent): void
 }
 
-export const noopActivityBroadcaster: ActivityBroadcaster = { activityChanged: () => {} }
+export const noopBroadcaster: Broadcaster = {
+  activityChanged: () => {},
+  boardChanged: () => {},
+  rulesChanged: () => {},
+  runEvent: () => {},
+}
 
-/** Inserts an activity row and broadcasts `{type:'activity', workspaceId}` on the hub, so the
- * control screen's activity feed updates live without a manual refresh. This is the only way to
- * record activity - every call site must supply a hub (a no-op one is fine when there's genuinely
- * no live hub, e.g. some tests). */
-export function recordActivity(
-  db: TadaDb,
-  hub: ActivityBroadcaster,
-  input: RecordActivityInput,
-): void {
+/** Inserts a Today/activity row and broadcasts it, so Control's feed updates live. This is the only
+ * way to record activity. */
+export function recordActivity(db: TadaDb, hub: Broadcaster, input: RecordActivityInput): void {
   db.drizzle
     .insert(activity)
     .values({
-      workspaceId: input.workspaceId,
       ticketId: input.ticketId ?? null,
       runId: input.runId ?? null,
       type: input.type,
       message: input.message,
     })
     .run()
-  hub.activityChanged(input.workspaceId)
+  hub.activityChanged()
 }

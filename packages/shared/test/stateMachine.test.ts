@@ -1,34 +1,51 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { canMoveCard, canTransitionRun } from '../src/stateMachine.js'
 
 describe('canTransitionRun', () => {
-  test.each([
-    ['queued', 'running', true],
-    ['queued', 'cancelled', true],
-    ['running', 'needs_review', true],
-    ['running', 'failed', true],
-    ['running', 'cancelled', true],
-    ['queued', 'needs_review', false],
-    ['needs_review', 'running', false],
-    ['failed', 'running', false],
-    ['running', 'queued', false],
-  ] as const)('%s -> %s = %s', (from, to, ok) => {
-    expect(canTransitionRun(from, to)).toBe(ok)
+  it('runs go queued -> running -> held <-> running -> done', () => {
+    expect(canTransitionRun('queued', 'running')).toBe(true)
+    expect(canTransitionRun('running', 'held')).toBe(true)
+    expect(canTransitionRun('held', 'running')).toBe(true)
+    expect(canTransitionRun('running', 'done')).toBe(true)
+  })
+
+  it('failure and cancellation are reachable from running and held', () => {
+    expect(canTransitionRun('running', 'failed')).toBe(true)
+    expect(canTransitionRun('held', 'failed')).toBe(true)
+    expect(canTransitionRun('held', 'cancelled')).toBe(true)
+    expect(canTransitionRun('queued', 'cancelled')).toBe(true)
+  })
+
+  it('terminal states are terminal — no auto-retry path exists', () => {
+    for (const from of ['done', 'failed', 'cancelled'] as const) {
+      for (const to of ['queued', 'running', 'held', 'done', 'failed', 'cancelled'] as const) {
+        expect(canTransitionRun(from, to)).toBe(false)
+      }
+    }
+    expect(canTransitionRun('queued', 'held')).toBe(false)
+    expect(canTransitionRun('held', 'done')).toBe(false)
   })
 })
 
 describe('canMoveCard', () => {
-  test('orchestrator: ready->in_progress, in_progress->in_review, in_progress->ready only', () => {
-    expect(canMoveCard('orchestrator', 'ready', 'in_progress')).toBe(true)
-    expect(canMoveCard('orchestrator', 'in_progress', 'in_review')).toBe(true)
-    expect(canMoveCard('orchestrator', 'in_progress', 'ready')).toBe(true)
-    expect(canMoveCard('orchestrator', 'backlog', 'ready')).toBe(false)
-    expect(canMoveCard('orchestrator', 'in_review', 'done')).toBe(false)
+  it('humans may put a card in backlog, queued or done', () => {
+    expect(canMoveCard('human', 'backlog', 'queued')).toBe(true)
+    expect(canMoveCard('human', 'stopped', 'backlog')).toBe(true)
+    expect(canMoveCard('human', 'done', 'backlog')).toBe(true)
+    expect(canMoveCard('human', 'queued', 'done')).toBe(true)
   })
-  test('human: anywhere except into in_progress', () => {
-    expect(canMoveCard('human', 'backlog', 'ready')).toBe(true)
-    expect(canMoveCard('human', 'in_review', 'done')).toBe(true)
-    expect(canMoveCard('human', 'in_review', 'ready')).toBe(true)
-    expect(canMoveCard('human', 'ready', 'in_progress')).toBe(false)
+
+  it('humans never move a card into running or stopped', () => {
+    expect(canMoveCard('human', 'queued', 'running')).toBe(false)
+    expect(canMoveCard('human', 'backlog', 'stopped')).toBe(false)
+  })
+
+  it('the orchestrator drives the run lanes', () => {
+    expect(canMoveCard('orchestrator', 'queued', 'running')).toBe(true)
+    expect(canMoveCard('orchestrator', 'running', 'stopped')).toBe(true)
+    expect(canMoveCard('orchestrator', 'stopped', 'running')).toBe(true)
+    expect(canMoveCard('orchestrator', 'running', 'done')).toBe(true)
+    expect(canMoveCard('orchestrator', 'backlog', 'running')).toBe(false)
+    expect(canMoveCard('orchestrator', 'done', 'backlog')).toBe(false)
   })
 })

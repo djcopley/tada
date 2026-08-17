@@ -1,7 +1,13 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type {
+  HookCallback,
+  HookInput,
+  Options,
+  SDKMessage,
+  SyncHookJSONOutput,
+} from '@anthropic-ai/claude-agent-sdk'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { UserMessageQueue } from './claudeQueue.js'
 import type {
@@ -10,7 +16,12 @@ import type {
   AdapterResult,
   AdapterSession,
   AdapterStartCtx,
+  ToolGate,
 } from './types.js'
+
+/** A held run can wait on a human for hours. The SDK's default hook timeout would give up long
+ * before that, so every gate hook gets a week. */
+const GATE_HOOK_TIMEOUT_S = 7 * 24 * 60 * 60
 
 const INPUT_PREVIEW_MAX_CHARS = 500
 
@@ -91,12 +102,45 @@ function hasClaudeCredentials(): boolean {
   )
 }
 
+/**
+ * The gate as a `PreToolUse` hook: fires for every tool call regardless of permission mode, may
+ * await indefinitely (a hold), and its decision reaches the model — a deny's reason is what the
+ * agent reads as the tool's error, which is how "deny with a note" redirects it in place.
+ */
+export function gateHook(gate: ToolGate): HookCallback {
+  return async (input: HookInput, toolUseID): Promise<SyncHookJSONOutput> => {
+    if (input.hook_event_name !== 'PreToolUse') return {}
+    const decision = await gate({
+      tool: input.tool_name,
+      input: (input.tool_input ?? {}) as Record<string, unknown>,
+      toolUseId: toolUseID ?? input.tool_use_id,
+    })
+    if (decision.behavior === 'allow') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          ...(decision.updatedInput ? { updatedInput: decision.updatedInput } : {}),
+        },
+      }
+    }
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: decision.reason,
+      },
+    }
+  }
+}
+
 export class ClaudeAdapter implements Adapter {
   readonly id = 'claude'
   readonly label = 'Claude'
   readonly models = ['sonnet', 'opus', 'haiku']
   readonly efforts = ['low', 'medium', 'high']
   readonly supportsInjection = true
+  readonly supportsGates = true
 
   private availability: Promise<boolean> | undefined
 
@@ -126,6 +170,9 @@ export class ClaudeAdapter implements Adapter {
         allowDangerouslySkipPermissions: true,
         abortController: abortControllerFrom(ctx.signal),
         ...thinkingOptions(ctx.effort),
+        hooks: {
+          PreToolUse: [{ hooks: [gateHook(ctx.gate)], timeout: GATE_HOOK_TIMEOUT_S }],
+        },
         mcpServers: {
           tada: {
             type: 'http',
@@ -162,6 +209,10 @@ export class ClaudeAdapter implements Adapter {
         if (delivered) ctx.journal.write({ type: 'text', payload: { text: `nudge: ${note}` } })
         return delivered
       },
+      // Time holds land in the gate (the run pauses at its next tool call), so there is nothing to
+      // suspend here.
+      pause: () => false,
+      resume: () => false,
     }
   }
 }

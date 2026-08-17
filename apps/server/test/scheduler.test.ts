@@ -1,482 +1,186 @@
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
-import { describe, expect, test, vi } from 'vitest'
-import type { FakeScript } from '../src/adapters/fake.js'
+import { describe, expect, test } from 'vitest'
 import { FakeAdapter } from '../src/adapters/fake.js'
 import type { Adapter } from '../src/adapters/types.js'
-import { createDefaultColumns, openDb, type TadaDb } from '../src/db/index.js'
-import { agentRuns, columns, tickets, workspaces } from '../src/db/schema.js'
-import { Scheduler } from '../src/runs/scheduler.js'
-import { WorkspaceManager } from '../src/workspaces/manager.js'
-import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
+import { agentRuns, settings, tickets } from '../src/db/schema.js'
+import { reportOutcome } from './helpers/reportOutcome.js'
+import { makeTestApp, seedRun, seedTicket, type TestApp, waitFor } from './helpers/testApp.js'
 
-function testDb(): TadaDb {
-  return openDb(join(mkdtempSync(join(tmpdir(), 'tada-db-')), 'test.db'))
-}
-
-async function makeWorkspace(
-  db: TadaDb,
-  manager: WorkspaceManager,
-  name: string,
-  opts: { concurrency?: number } = {},
-): Promise<{ wsId: number; readyColId: number; inProgressColId: number }> {
-  const wsId = await manager.create(name)
-  await manager.addRepoSource(wsId, await makeOrigin(name))
-  if (opts.concurrency !== undefined) {
-    db.drizzle
-      .update(workspaces)
-      .set({ concurrency: opts.concurrency })
-      .where(eq(workspaces.id, wsId))
-      .run()
-  }
-  createDefaultColumns(db, wsId)
-  const cols = db.drizzle.select().from(columns).where(eq(columns.workspaceId, wsId)).all()
-  const readyCol = cols.find((c) => c.kind === 'ready')
-  const inProgressCol = cols.find((c) => c.kind === 'in_progress')
-  if (!readyCol) throw new Error('ready column not seeded')
-  if (!inProgressCol) throw new Error('in_progress column not seeded')
-  return { wsId, readyColId: readyCol.id, inProgressColId: inProgressCol.id }
-}
-
-function makeTicket(
-  db: TadaDb,
-  wsId: number,
-  columnId: number,
-  position: number,
-  queueState: 'queued' | 'held' | null,
-) {
-  const [ticket] = db.drizzle
-    .insert(tickets)
-    .values({ workspaceId: wsId, columnId, title: `t${position}`, position, queueState })
-    .returning()
-    .all()
-  if (!ticket) throw new Error('ticket insert returned no row')
-  return ticket
-}
-
-function seedQueuedRun(db: TadaDb, ticketId: number, adapter: string, runToken: string) {
-  const [run] = db.drizzle
-    .insert(agentRuns)
-    .values({ ticketId, adapter, model: 'fake-1', status: 'queued', runToken })
-    .returning()
-    .all()
-  if (!run) throw new Error('agentRun insert returned no row')
-  return run
-}
-
-function runStatus(db: TadaDb, runId: number): string | undefined {
-  return db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()?.status
-}
-
-function ticketState(db: TadaDb, ticketId: number) {
-  const t = db.drizzle.select().from(tickets).where(eq(tickets.id, ticketId)).get()
-  if (!t) throw new Error(`ticket ${ticketId} not found`)
-  const col = db.drizzle.select().from(columns).where(eq(columns.id, t.columnId)).get()
-  return { columnKind: col?.kind, queueState: t.queueState }
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void
-  const promise = new Promise<void>((res) => {
-    resolve = res
+/** A fake whose runs block until released, and which can hold on a gate on demand. */
+function blockingFake(t: () => TestApp, opts: { gateFirst?: boolean } = {}) {
+  const releases = new Map<number, () => void>()
+  const released = new Set<number>()
+  const fake = new FakeAdapter({
+    act: async (ctx) => {
+      const run = t()
+        .db.drizzle.select()
+        .from(agentRuns)
+        .where(eq(agentRuns.runToken, ctx.runToken))
+        .get()
+      if (!run) throw new Error('no run')
+      if (opts.gateFirst) await ctx.gate({ tool: 'Bash', input: { command: 'gh pr create' } })
+      // `release` may land before the run gets this far (status flips to running before start)
+      if (!released.has(run.id)) await new Promise<void>((resolve) => releases.set(run.id, resolve))
+      reportOutcome(t().db, run.id, 'success', 'ok')
+    },
   })
-  return { promise, resolve }
+  return {
+    fake,
+    release: (id: number) => {
+      released.add(id)
+      releases.get(id)?.()
+    },
+  }
 }
 
-function adaptersWith(entries: Record<string, FakeScript>): Map<string, Adapter> {
-  return new Map(Object.entries(entries).map(([name, script]) => [name, new FakeAdapter(script)]))
+const statuses = (t: TestApp) =>
+  Object.fromEntries(
+    t.db.drizzle
+      .select()
+      .from(agentRuns)
+      .all()
+      .map((r) => [r.id, r.status]),
+  )
+
+async function setup(opts: { gateFirst?: boolean; concurrency?: number } = {}) {
+  let t!: TestApp
+  const { fake, release } = blockingFake(() => t, opts)
+  t = await makeTestApp({ adapters: new Map<string, Adapter>([['fake', fake]]) })
+  t.db.drizzle
+    .update(settings)
+    .set({ adapter: 'fake', model: 'fake-1', concurrency: opts.concurrency ?? 1 })
+    .where(eq(settings.id, 1))
+    .run()
+  return { t, release }
 }
 
 describe('Scheduler', () => {
-  test('1. order follows position, not insertion order; second run starts only after first resolves', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    // A is inserted first but has the higher position; B should start first.
-    const ticketA = makeTicket(db, wsId, readyColId, 2, 'queued')
-    const ticketB = makeTicket(db, wsId, readyColId, 1, 'queued')
-
-    const a = deferred()
-    const b = deferred()
-    const adapters = adaptersWith({
-      fakeA: { act: () => a.promise },
-      fakeB: { act: () => b.promise },
+  test('respects the concurrency cap and starts by position', async () => {
+    const { t, release } = await setup({ concurrency: 0 })
+    const a = seedTicket(t.db, { column: 'queued', position: 2, title: 'a' })
+    const b = seedTicket(t.db, { column: 'queued', position: 1, title: 'b' })
+    const runA = t.scheduler.enqueue(a.id)
+    const runB = t.scheduler.enqueue(b.id)
+    t.db.drizzle.update(settings).set({ concurrency: 1 }).where(eq(settings.id, 1)).run()
+    t.scheduler.tick()
+    await waitFor(() => statuses(t)[runB] === 'running', 1000).catch(() => {
+      throw new Error(`statuses: ${JSON.stringify(statuses(t))}`)
     })
-    const runA = seedQueuedRun(db, ticketA.id, 'fakeA', 'tokA')
-    const runB = seedQueuedRun(db, ticketB.id, 'fakeB', 'tokB')
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    scheduler.tick()
-
-    expect(runStatus(db, runB.id)).toBe('running')
-    expect(runStatus(db, runA.id)).toBe('queued')
-
-    b.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, runA.id)).toBe('running')
-    })
-
-    a.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, runA.id)).not.toBe('running')
-    })
+    // b (position 1) went first; a waits
+    expect(statuses(t)[runA]).toBe('queued')
+    expect(t.scheduler.runningCount()).toBe(1)
+    release(runB)
+    await waitFor(() => statuses(t)[runB] === 'done')
+    await waitFor(() => statuses(t)[runA] === 'running')
+    release(runA)
+    await waitFor(() => statuses(t)[runA] === 'done')
   })
 
-  test('2. concurrency 2 runs both tickets simultaneously', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 2 })
+  test('a held run releases its slot: the queue keeps moving past a gate', async () => {
+    const { t, release } = await setup({ concurrency: 1, gateFirst: true })
+    const a = seedTicket(t.db, { column: 'queued', position: 1 })
+    const b = seedTicket(t.db, { column: 'queued', position: 2 })
+    const runA = t.scheduler.enqueue(a.id)
+    const runB = t.scheduler.enqueue(b.id)
+    await waitFor(() => statuses(t)[runA] === 'held')
+    // the hold freed the slot, so b started (and is itself now held at its gate)
+    await waitFor(() => statuses(t)[runB] === 'held')
+    expect(t.scheduler.runningCount()).toBe(0)
 
-    const ticketA = makeTicket(db, wsId, readyColId, 1, 'queued')
-    const ticketB = makeTicket(db, wsId, readyColId, 2, 'queued')
-
-    const a = deferred()
-    const b = deferred()
-    const adapters = adaptersWith({
-      fakeA: { act: () => a.promise },
-      fakeB: { act: () => b.promise },
-    })
-    const runA = seedQueuedRun(db, ticketA.id, 'fakeA', 'tokA')
-    const runB = seedQueuedRun(db, ticketB.id, 'fakeB', 'tokB')
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    scheduler.tick()
-
-    expect(runStatus(db, runA.id)).toBe('running')
-    expect(runStatus(db, runB.id)).toBe('running')
-
-    a.resolve()
-    b.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, runA.id)).not.toBe('running')
-      expect(runStatus(db, runB.id)).not.toBe('running')
-    })
+    // approving a resumes it immediately — it doesn't wait behind anything
+    await t.json({ method: 'POST', url: `/runs/${runA}/approve`, payload: {} })
+    await waitFor(() => statuses(t)[runA] === 'running')
+    release(runA)
+    await waitFor(() => statuses(t)[runA] === 'done')
+    await t.json({ method: 'POST', url: `/runs/${runB}/approve`, payload: {} })
+    await waitFor(() => statuses(t)[runB] === 'running')
+    release(runB)
+    await waitFor(() => statuses(t)[runB] === 'done')
   })
 
-  test('3. two workspaces, one busy: the other still starts its own run', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const ws1 = await makeWorkspace(db, manager, 'ws1', { concurrency: 1 })
-    const ws2 = await makeWorkspace(db, manager, 'ws2', { concurrency: 1 })
+  test('a resumed run gets priority: it runs even when the cap is full, and new starts wait', async () => {
+    const { t, release } = await setup({ concurrency: 1, gateFirst: true })
+    const a = seedTicket(t.db, { column: 'queued', position: 1 })
+    const runA = t.scheduler.enqueue(a.id)
+    await waitFor(() => statuses(t)[runA] === 'held')
 
-    const ticket1 = makeTicket(db, ws1.wsId, ws1.readyColId, 1, 'queued')
-    const ticket2 = makeTicket(db, ws2.wsId, ws2.readyColId, 1, 'queued')
+    // fill the slot with a run that never gates
+    const plain = new FakeAdapter({ act: () => new Promise<void>(() => {}) })
+    const deps = (t.scheduler as unknown as { deps: { adapters: Map<string, Adapter> } }).deps
+    deps.adapters.set('plain', plain)
+    t.db.drizzle.update(settings).set({ adapter: 'plain' }).where(eq(settings.id, 1)).run()
+    const b = seedTicket(t.db, { column: 'queued', position: 2 })
+    const runB = t.scheduler.enqueue(b.id)
+    await waitFor(() => statuses(t)[runB] === 'running')
+    expect(t.scheduler.runningCount()).toBe(1)
 
-    const p1 = deferred()
-    const p2 = deferred()
-    const adapters = adaptersWith({
-      fake1: { act: () => p1.promise },
-      fake2: { act: () => p2.promise },
-    })
-    const run1 = seedQueuedRun(db, ticket1.id, 'fake1', 'tok1')
-    const run2 = seedQueuedRun(db, ticket2.id, 'fake2', 'tok2')
+    // approving a resumes it despite the cap
+    await t.json({ method: 'POST', url: `/runs/${runA}/approve`, payload: {} })
+    await waitFor(() => statuses(t)[runA] === 'running')
+    expect(t.scheduler.runningCount()).toBe(2)
 
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    scheduler.tick()
-
-    expect(runStatus(db, run1.id)).toBe('running')
-    expect(runStatus(db, run2.id)).toBe('running')
-
-    p1.resolve()
-    p2.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, run1.id)).not.toBe('running')
-      expect(runStatus(db, run2.id)).not.toBe('running')
-    })
+    // but a third, fresh run waits
+    const c = seedTicket(t.db, { column: 'queued', position: 3 })
+    const runC = t.scheduler.enqueue(c.id)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(statuses(t)[runC]).toBe('queued')
+    release(runA)
   })
 
-  test('4. held tickets are never picked', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    // Lower position but held: must be skipped in favor of the queued one.
-    const heldTicket = makeTicket(db, wsId, readyColId, 1, 'held')
-    const queuedTicket = makeTicket(db, wsId, readyColId, 2, 'queued')
-
-    let heldStarted = false
-    const queuedRunDeferred = deferred()
-    const adapters = adaptersWith({
-      heldAdapter: {
-        act: () => {
-          heldStarted = true
-          return Promise.resolve()
-        },
-      },
-      queuedAdapter: { act: () => queuedRunDeferred.promise },
+  test('recover: queued runs survive a restart, running/held ones fail with the card in stopped', async () => {
+    const t = await makeTestApp()
+    const q = seedTicket(t.db, { column: 'queued', title: 'q' })
+    const r = seedTicket(t.db, { column: 'running', title: 'r' })
+    const h = seedTicket(t.db, { column: 'stopped', title: 'h' })
+    const rq = seedRun(t.db, q.id, { status: 'queued' })
+    const rr = seedRun(t.db, r.id, { status: 'running', startedAt: new Date() })
+    const rh = seedRun(t.db, h.id, {
+      status: 'held',
+      heldReason: 'permission',
+      startedAt: new Date(),
     })
-    const heldRun = seedQueuedRun(db, heldTicket.id, 'heldAdapter', 'tokHeld')
-    const queuedRun = seedQueuedRun(db, queuedTicket.id, 'queuedAdapter', 'tokQueued')
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    scheduler.tick()
-
-    expect(runStatus(db, queuedRun.id)).toBe('running')
-    expect(runStatus(db, heldRun.id)).toBe('queued')
-    expect(heldStarted).toBe(false)
-
-    queuedRunDeferred.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, queuedRun.id)).not.toBe('running')
-    })
+    t.scheduler.recover()
+    const s = statuses(t)
+    // the queued run is picked up again (and, with no adapter here, fails on its own terms —
+    // the point is that recovery itself left it queued rather than killing it)
+    expect(['queued', 'running', 'failed']).toContain(s[rq.id])
+    expect(s[rq.id]).not.toBe('cancelled')
+    expect(s[rr.id]).toBe('failed')
+    expect(s[rh.id]).toBe('failed')
+    const cols = Object.fromEntries(
+      t.db.drizzle
+        .select()
+        .from(tickets)
+        .all()
+        .map((x) => [x.title, x.column]),
+    )
+    expect(cols).toMatchObject({ r: 'stopped', h: 'stopped' })
   })
 
-  test('5. recover() fails orphaned running runs and unwedges the ticket, held', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, inProgressColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    const ticket = makeTicket(db, wsId, inProgressColId, 1, null)
-    const run = seedQueuedRun(db, ticket.id, 'fake', 'tokOrphan')
-    db.drizzle.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id)).run()
-
-    const scheduler = new Scheduler({
-      db,
-      wm: manager,
-      adapters: adaptersWith({}),
-      pr: false,
-    })
-    scheduler.recover()
-
-    expect(runStatus(db, run.id)).toBe('failed')
-    expect(ticketState(db, ticket.id)).toEqual({ columnKind: 'ready', queueState: 'held' })
-  })
-
-  test('5b. recover() cancels orphaned queued runs and unwedges the ticket, held', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    const ticket = makeTicket(db, wsId, readyColId, 1, 'queued')
-    const run = seedQueuedRun(db, ticket.id, 'fake', 'tokOrphan')
-
-    const scheduler = new Scheduler({
-      db,
-      wm: manager,
-      adapters: adaptersWith({}),
-      pr: false,
-    })
-    scheduler.recover()
-
-    expect(runStatus(db, run.id)).toBe('cancelled')
-    expect(ticketState(db, ticket.id)).toEqual({ columnKind: 'ready', queueState: 'held' })
-  })
-
-  test('6. cancel mid-run aborts the adapter signal and marks the run cancelled', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    const ticket = makeTicket(db, wsId, readyColId, 1, null)
-
-    let started = false
-    let sawAbort = false
-    const script: FakeScript = {
-      act: (ctx) =>
-        new Promise<void>((resolve) => {
-          started = true
-          ctx.signal.addEventListener('abort', () => {
-            sawAbort = true
-          })
-          setTimeout(resolve, 60_000).unref()
-        }),
-    }
-    const adapters = adaptersWith({ fake: script })
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    const runId = scheduler.enqueue(ticket.id, { adapter: 'fake', model: 'fake-1' })
-
-    expect(runStatus(db, runId)).toBe('running')
-
-    // The adapter starts only after the (real, async) run-directory build completes; cancel
-    // once it's actually acting so the abort listener is attached before we abort.
-    await vi.waitFor(() => {
-      expect(started).toBe(true)
-    })
-
-    scheduler.cancel(runId)
-
-    await vi.waitFor(() => {
-      expect(runStatus(db, runId)).toBe('cancelled')
-    })
-    expect(sawAbort).toBe(true)
-    // Parked as held — the card should read as stopped-needs-you, not as an ordinary queued card.
-    expect(ticketState(db, ticket.id)).toEqual({ columnKind: 'ready', queueState: 'held' })
-  })
-
-  test('enqueue: throws on unknown adapter name', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-    const ticket = makeTicket(db, wsId, readyColId, 1, null)
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters: adaptersWith({}), pr: false })
-
-    expect(() => scheduler.enqueue(ticket.id, { adapter: 'nope' })).toThrow(/unknown adapter/)
-  })
-
-  test('enqueue: resolves adapter/model from ticket override, falling back to workspace default', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-    db.drizzle
-      .update(workspaces)
-      .set({ defaultAdapter: 'fake', defaultModel: 'fake-1' })
-      .where(eq(workspaces.id, wsId))
+  test('enqueue snapshots settings onto the run (adapter, model, effort, budget)', async () => {
+    const { t } = await setup()
+    t.db.drizzle
+      .update(settings)
+      .set({ timeoutMs: 123_000, effort: 'high' })
+      .where(eq(settings.id, 1))
       .run()
-
-    const never = deferred()
-    const adapters = adaptersWith({ fake: { act: () => never.promise } })
-    const ticket = makeTicket(db, wsId, readyColId, 1, null)
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    const runId = scheduler.enqueue(ticket.id)
-
-    const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
-    expect(run?.adapter).toBe('fake')
-    expect(run?.model).toBe('fake-1')
-
-    never.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, runId)).not.toBe('running')
+    const a = seedTicket(t.db, { column: 'queued' })
+    const id = t.scheduler.enqueue(a.id)
+    const run = t.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    expect(run).toMatchObject({
+      adapter: 'fake',
+      model: 'fake-1',
+      effort: 'high',
+      budgetMs: 123_000,
+      attemptNumber: 1,
     })
   })
 
-  test('enqueue: attemptNumber is 1 + count of prior runs for the ticket', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-    db.drizzle
-      .update(workspaces)
-      .set({ defaultAdapter: 'fake', defaultModel: 'fake-1' })
-      .where(eq(workspaces.id, wsId))
-      .run()
-    const ticket = makeTicket(db, wsId, readyColId, 1, null)
-
-    const never = deferred()
-    const adapters = adaptersWith({ fake: { act: () => never.promise } })
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-
-    // First enqueue: no prior runs -> attempt 1.
-    const run1Id = scheduler.enqueue(ticket.id)
-    expect(
-      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run1Id)).get()?.attemptNumber,
-    ).toBe(1)
-
-    // Seed two more terminal runs directly (as if two more attempts had already happened) and
-    // confirm the next enqueue counts all of them, regardless of status.
-    db.drizzle
-      .insert(agentRuns)
-      .values([
-        { ticketId: ticket.id, adapter: 'fake', model: 'fake-1', status: 'failed', runToken: 'a' },
-        {
-          ticketId: ticket.id,
-          adapter: 'fake',
-          model: 'fake-1',
-          status: 'needs_review',
-          runToken: 'b',
-        },
-      ])
-      .run()
-
-    const run4Id = scheduler.enqueue(ticket.id)
-    expect(
-      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, run4Id)).get()?.attemptNumber,
-    ).toBe(4)
-
-    never.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, run1Id)).not.toBe('running')
-    })
-  })
-
-  test('enqueue: resolves effort from opts, falling back to ticket.effortOverride, then workspace.defaultEffort', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-    db.drizzle
-      .update(workspaces)
-      .set({ defaultAdapter: 'fake', defaultModel: 'fake-1', defaultEffort: 'high' })
-      .where(eq(workspaces.id, wsId))
-      .run()
-
-    const never = deferred()
-    const adapters = adaptersWith({ fake: { act: () => never.promise } })
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-
-    // No override anywhere -> workspace default
-    const ticketDefault = makeTicket(db, wsId, readyColId, 1, null)
-    const runDefaultId = scheduler.enqueue(ticketDefault.id)
-    expect(
-      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runDefaultId)).get()?.effort,
-    ).toBe('high')
-
-    // Ticket override -> used over workspace default
-    const ticketOverride = makeTicket(db, wsId, readyColId, 2, null)
-    db.drizzle
-      .update(tickets)
-      .set({ effortOverride: 'low' })
-      .where(eq(tickets.id, ticketOverride.id))
-      .run()
-    const runOverrideId = scheduler.enqueue(ticketOverride.id)
-    expect(
-      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runOverrideId)).get()?.effort,
-    ).toBe('low')
-
-    // Explicit opts.effort -> wins over everything
-    const runOptsId = scheduler.enqueue(ticketOverride.id, { effort: 'medium' })
-    expect(
-      db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runOptsId)).get()?.effort,
-    ).toBe('medium')
-
-    never.resolve()
-    await vi.waitFor(() => {
-      expect(runStatus(db, runDefaultId)).not.toBe('running')
-    })
-  })
-
-  test('tick: a pending-proposal ticket queued in ready is never picked up', async () => {
-    isolateXdg()
-    const db = testDb()
-    const manager = new WorkspaceManager(db)
-    const { wsId, readyColId } = await makeWorkspace(db, manager, 'ws', { concurrency: 1 })
-
-    const ticket = makeTicket(db, wsId, readyColId, 1, 'queued')
-    db.drizzle
-      .update(tickets)
-      .set({ proposalState: 'pending' })
-      .where(eq(tickets.id, ticket.id))
-      .run()
-
-    let started = false
-    const adapters = adaptersWith({
-      fake: {
-        act: () => {
-          started = true
-          return Promise.resolve()
-        },
-      },
-    })
-    const run = seedQueuedRun(db, ticket.id, 'fake', 'tok')
-
-    const scheduler = new Scheduler({ db, wm: manager, adapters, pr: false })
-    scheduler.tick()
-
-    expect(started).toBe(false)
-    expect(runStatus(db, run.id)).toBe('queued')
+  test('a pending proposal never starts', async () => {
+    const { t } = await setup()
+    const p = seedTicket(t.db, { column: 'queued', proposalState: 'pending', origin: 'agent' })
+    const id = t.scheduler.enqueue(p.id)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(statuses(t)[id]).toBe('queued')
   })
 })

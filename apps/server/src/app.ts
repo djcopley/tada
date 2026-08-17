@@ -7,12 +7,13 @@ import type { TadaDb } from './db/index.js'
 import { registerMcpRoute } from './mcp/server.js'
 import { registerActivityRoutes } from './routes/activity.js'
 import { registerMemoryRoutes } from './routes/memory.js'
+import { registerRuleRoutes } from './routes/rules.js'
 import { registerRunRoutes } from './routes/runs.js'
+import { registerSettingsRoutes } from './routes/settings.js'
 import { registerSystemRoutes } from './routes/system.js'
 import { registerTicketRoutes } from './routes/tickets.js'
-import { registerWorkspaceRoutes } from './routes/workspaces.js'
 import type { Scheduler } from './runs/scheduler.js'
-import type { WorkspaceManager } from './workspaces/manager.js'
+import type { SourceStore } from './sources/store.js'
 import { type BroadcastHub, registerWsRoute } from './ws.js'
 
 declare module 'fastify' {
@@ -24,7 +25,7 @@ declare module 'fastify' {
 export interface AppDeps {
   db: TadaDb
   config: Config
-  wm: WorkspaceManager
+  store: SourceStore
   scheduler: Scheduler
   broadcastHub: BroadcastHub
   adapters: Map<string, Adapter>
@@ -33,7 +34,7 @@ export interface AppDeps {
 export function buildApp({
   db,
   config,
-  wm,
+  store,
   scheduler,
   broadcastHub,
   adapters,
@@ -42,7 +43,7 @@ export function buildApp({
   // in the daemon's journal instead of vanishing.
   const app = fastify({ logger: process.env.VITEST ? false : { level: 'warn' } })
   app.decorate('db', db)
-  registerMcpRoute(app, db, wm, broadcastHub)
+  registerMcpRoute(app, db, store, broadcastHub)
 
   // The web build runs from a different origin than the server (Expo's dev server, or wherever the
   // static bundle is hosted), so every browser request is cross-origin and needs CORS. Reflecting
@@ -89,10 +90,11 @@ export function buildApp({
     registerWsRoute(app, broadcastHub, config)
   })
 
-  const routeDeps = { db, wm, scheduler, hub: broadcastHub, adapters }
-  registerWorkspaceRoutes(app, routeDeps)
+  const routeDeps = { db, store, scheduler, hub: broadcastHub, adapters }
+  registerSettingsRoutes(app, routeDeps)
   registerTicketRoutes(app, routeDeps)
   registerRunRoutes(app, routeDeps)
+  registerRuleRoutes(app, routeDeps)
   registerMemoryRoutes(app, routeDeps)
   registerActivityRoutes(app, routeDeps)
   registerSystemRoutes(app, routeDeps)

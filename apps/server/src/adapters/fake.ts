@@ -8,12 +8,16 @@ import type {
 
 export interface FakeScript {
   events?: AdapterEvent[]
+  /** The fake's "work". Gets the start ctx, so a script can call `ctx.gate(...)` to exercise
+   * holds exactly the way the Claude adapter's hook would. */
   act?: (ctx: AdapterStartCtx) => Promise<void>
   exitCode?: number
   /** Defaults to true; set false to exercise the unavailable-adapter path. */
   available?: boolean
   /** Defaults to true; set false to exercise the "nudge not delivered" path. */
   supportsInjection?: boolean
+  /** Defaults to true. False = a CLI-style agent: no gate, eager worktrees, SIGSTOP-style pause. */
+  supportsGates?: boolean
 }
 
 export class FakeAdapter implements Adapter {
@@ -22,11 +26,15 @@ export class FakeAdapter implements Adapter {
   readonly models = ['fake-1']
   readonly efforts = ['low', 'medium', 'high']
   readonly supportsInjection: boolean
+  readonly supportsGates: boolean
   /** Notes handed to `inject`, in order — the assertion surface for nudge tests. */
   readonly injected: string[] = []
+  /** pause/resume calls, in order. */
+  readonly signals: ('pause' | 'resume')[] = []
 
   constructor(private script: FakeScript = {}) {
     this.supportsInjection = script.supportsInjection ?? true
+    this.supportsGates = script.supportsGates ?? true
   }
 
   async available(): Promise<boolean> {
@@ -46,7 +54,17 @@ export class FakeAdapter implements Adapter {
       inject: (note: string): boolean => {
         if (!this.supportsInjection) return false
         this.injected.push(note)
-        ctx.journal.write({ type: 'text', payload: { text: `nudge: ${note}` } })
+        ctx.journal.write({ type: 'text', payload: { text: `note: ${note}` } })
+        return true
+      },
+      pause: () => {
+        if (this.supportsGates) return false
+        this.signals.push('pause')
+        return true
+      },
+      resume: () => {
+        if (this.supportsGates) return false
+        this.signals.push('resume')
         return true
       },
     }

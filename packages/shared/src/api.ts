@@ -2,32 +2,27 @@
 import type {
   ActivityType,
   ColumnKind,
-  CommentKind,
-  MemoryScope,
+  HeldReason,
+  Hold,
   NoteState,
+  PingChannel,
   ProposalState,
-  QueueState,
+  RuleDecision,
+  RuleSource,
   RunStatus,
   SourceType,
   TicketOrigin,
 } from './domain.js'
 
-export interface ApiWorkspace {
-  id: number
-  name: string
-  defaultAdapter: string
-  defaultModel: string
-  defaultEffort: string
+export interface ApiSettings {
+  adapter: string
+  model: string
+  effort: string
   concurrency: number
   timeoutMs: number
-  createdAt: string
-}
-
-export interface ApiWorkspaceListItem extends ApiWorkspace {
-  runningCount: number
-  needsReviewCount: number
-  queuedCount: number
-  sourceCount: number
+  pingChannel: PingChannel
+  /** 0 = never re-ping. */
+  repingMs: number
 }
 
 export interface ApiSource {
@@ -38,42 +33,23 @@ export interface ApiSource {
   path?: string
 }
 
-export interface ApiWorkspaceDetail extends ApiWorkspace {
-  sources: ApiSource[]
-}
-
-export interface ApiColumn {
+export interface ApiRule {
   id: number
-  workspaceId: number
-  kind: ColumnKind
-  title: string
-  position: number
-}
-
-export interface ApiTicket {
-  id: number
-  workspaceId: number
-  columnId: number
   title: string
   description: string
+  /** Tool name the rule applies to (`Bash`, `Write`, `mcp__tada__use_repo`, ...) or `*`. */
+  tool: string
+  /** Glob patterns matched against the call's summary (the Bash command, a file path, or the
+   * JSON of the input). Empty = matches every call of `tool`. */
+  patterns: string[]
+  decision: RuleDecision
+  publishes: boolean
   position: number
-  queueState: QueueState
-  adapterOverride: string | null
-  modelOverride: string | null
-  effortOverride: string | null
-  origin: TicketOrigin
-  proposalState: ProposalState
-  followUpOfTicketId: number | null
-  createdAt: string
-}
-
-export interface ApiComment {
-  id: number
-  ticketId: number
-  author: 'human' | 'agent'
-  kind: CommentKind
-  body: string
-  createdAt: string
+  source: RuleSource
+  sourceRunId: number | null
+  updatedAt: string
+  /** How many runs are held on this rule right now. */
+  holdingCount: number
 }
 
 export interface ApiRun {
@@ -84,8 +60,12 @@ export interface ApiRun {
   effort: string
   attemptNumber: number
   status: RunStatus
-  branch: string | null
-  prUrl: string | null
+  heldReason: HeldReason | null
+  hold: Hold | null
+  /** When the current hold began (for "held 2h 14m"). */
+  heldAt: string | null
+  /** Milliseconds of budget this run has been granted in total. */
+  budgetMs: number
   summary: string | null
   diffAdditions: number | null
   diffDeletions: number | null
@@ -95,24 +75,47 @@ export interface ApiRun {
   createdAt: string
 }
 
+export interface ApiTicket {
+  id: number
+  column: ColumnKind
+  title: string
+  description: string
+  position: number
+  repoTags: string[]
+  origin: TicketOrigin
+  proposalState: ProposalState
+  followUpOfTicketId: number | null
+  createdAt: string
+  doneAt: string | null
+  /** The most recent run, if any — enough for a card to render its state. */
+  run: ApiRun | null
+}
+
+export interface ApiComment {
+  id: number
+  ticketId: number
+  runId: number | null
+  author: 'human' | 'agent'
+  body: string
+  createdAt: string
+}
+
 export interface ApiRunDetail extends ApiRun {
   ticketTitle: string
-  workspaceId: number
+  repoTags: string[]
 }
 
 export interface ApiTicketDetail extends ApiTicket {
   comments: ApiComment[]
   runs: ApiRun[]
   followUps: { id: number; title: string; proposalState: ProposalState }[]
+  followUpOf: { id: number; title: string } | null
 }
 
-export interface ApiBoard {
-  columns: (ApiColumn & { tickets: ApiTicket[] })[]
-}
+export type ApiBoard = Record<ColumnKind, ApiTicket[]>
 
 export interface ApiActivity {
   id: number
-  workspaceId: number
   ticketId: number | null
   runId: number | null
   type: ActivityType
@@ -123,20 +126,14 @@ export interface ApiActivity {
 
 export interface ApiMemoryNote {
   id: number
-  scope: MemoryScope
-  workspaceId: number | null
-  file: string
   title: string
+  body: string
+  tags: string[]
   author: 'human' | 'agent'
   runId: number | null
   state: NoteState
-  body: string
+  createdAt: string
   updatedAt: string
-}
-
-export interface ApiMemory {
-  agentsMd: string
-  notes: ApiMemoryNote[]
 }
 
 export interface ApiAdapterInfo {
@@ -146,6 +143,7 @@ export interface ApiAdapterInfo {
   models: string[]
   efforts: string[]
   supportsInjection: boolean
+  supportsGates: boolean
 }
 
 export interface ApiHealth {
@@ -156,7 +154,9 @@ export interface ApiHealth {
 export interface ApiStatus {
   ok: true
   version: string
-  workspaces: string[]
+  sources: ApiSource[]
+  ticketCount: number
+  noteCount: number
   agents: { id: string; available: boolean }[]
 }
 
@@ -168,19 +168,29 @@ export interface ApiRunEvent {
   createdAt: string
 }
 
-export interface ApiKnownRepo {
-  url: string
-  name: string
+export interface ApiDiffFile {
+  path: string
+  additions: number
+  deletions: number
+  patch: string
 }
 
-export interface ApiNameCheck {
-  id: string
-  available: boolean
-  /** Why it isn't available — 'taken' or the validation message POST /workspaces would give. */
-  reason?: string
+export interface ApiRepoDiff {
+  repo: string
+  defaultBranch: string
+  branch: string
+  additions: number
+  deletions: number
+  files: ApiDiffFile[]
+}
+
+export interface ApiRunDiff {
+  runId: number
+  repos: ApiRepoDiff[]
 }
 
 export type WsMessage =
   | { type: 'run_event'; runId: number; event: { type: string; payload: unknown } }
-  | { type: 'board_changed'; workspaceId: number }
-  | { type: 'activity'; workspaceId: number }
+  | { type: 'board_changed' }
+  | { type: 'activity' }
+  | { type: 'rules_changed' }

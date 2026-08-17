@@ -140,20 +140,29 @@ export function cliLineEvent(line: string): AdapterEvent {
 
 /**
  * Runs a one-shot CLI agent, journaling its stdout line by line. These CLIs take their whole task
- * on argv and have no channel for mid-run input, so the session's `inject` always declines.
+ * on argv and have no channel for mid-run input, so the session's `inject` always declines. They
+ * run outside the gate too, so an out-of-time hold suspends the whole process (SIGSTOP) and
+ * "continue" wakes it (SIGCONT).
  */
 export function startCliSession(ctx: AdapterStartCtx, cmd: string, args: string[]): AdapterSession {
   ctx.journal.write({ type: 'text', payload: { text: CLI_CAPABILITY_NOTE } })
 
+  let subprocess: ReturnType<typeof execa> | undefined
   const done = (async (): Promise<AdapterResult> => {
     ctx.signal.throwIfAborted()
-    const subprocess = execa(cmd, args, { cwd: ctx.runDir, cancelSignal: ctx.signal })
+    subprocess = execa(cmd, args, { cwd: ctx.runDir, cancelSignal: ctx.signal })
     for await (const line of subprocess) {
-      if (line.length > 0) ctx.journal.write(cliLineEvent(line))
+      const text = typeof line === 'string' ? line : Buffer.from(line).toString('utf-8')
+      if (text.length > 0) ctx.journal.write(cliLineEvent(text))
     }
     const result = await subprocess
     return { exitCode: result.exitCode ?? 0 }
   })()
 
-  return { done, inject: () => false }
+  return {
+    done,
+    inject: () => false,
+    pause: () => subprocess?.kill('SIGSTOP') ?? false,
+    resume: () => subprocess?.kill('SIGCONT') ?? false,
+  }
 }

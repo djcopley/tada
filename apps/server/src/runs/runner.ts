@@ -1,50 +1,79 @@
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ColumnKind, RunStatus } from '@tada/shared'
+import type { ColumnKind, Hold, RunStatus } from '@tada/shared'
 import { canMoveCard, canTransitionRun } from '@tada/shared'
-import { asc, eq } from 'drizzle-orm'
-import type { ActivityBroadcaster } from '../activity.js'
-import { noopActivityBroadcaster, recordActivity } from '../activity.js'
-import type { Adapter, AdapterEvent, AdapterSession } from '../adapters/types.js'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import type { Broadcaster } from '../activity.js'
+import { noopBroadcaster, recordActivity } from '../activity.js'
+import type {
+  Adapter,
+  AdapterEvent,
+  AdapterSession,
+  GateDecision,
+  GateRequest,
+} from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
-import { agentRuns, columns, comments, tickets, workspaces } from '../db/schema.js'
+import { agentRuns, comments, memoryNotes, settings, tickets } from '../db/schema.js'
 import { pendingOutcome } from '../mcp/server.js'
-import { notifyRunFinished } from '../notify.js'
-import { ensureGlobalMemoryDir, stateDir } from '../paths.js'
-import type { WorkspaceManager } from '../workspaces/manager.js'
-import { completeRun } from './completion.js'
+import { holdPingText, ping } from '../notify.js'
+import { stateDir } from '../paths.js'
+import { callSummary, matchRule } from '../rules.js'
+import type { SourceStore } from '../sources/store.js'
+import { storeAnswer } from './answers.js'
+import { reposAhead, runDiff } from './diff.js'
 import { Journal } from './journal.js'
 import { readOutcomeFile } from './outcome.js'
 import { composePrompt } from './prompt.js'
-import { branchFor, buildRunDir, cleanupRunDirs } from './runDir.js'
+import { addWorktree, buildRunDir, cleanupRunDirs, type RunDir, runDirFor } from './runDir.js'
+import { stampRepoTag } from './tags.js'
 
 export type BroadcastFn = (runId: number, e: AdapterEvent) => void
 
+/** The tool name the Claude SDK gives tada's `ask_user` MCP tool. */
+export const ASK_USER_TOOL = 'mcp__tada__ask_user'
+
 export interface RunnerDeps {
   db: TadaDb
-  wm: WorkspaceManager
+  store: SourceStore
   adapters: Map<string, Adapter>
   broadcast?: BroadcastFn
-  /** Broadcasts activity feed updates. Defaults to a no-op (tests that don't care about the
-   * activity feed can omit it); production always supplies the real BroadcastHub. */
-  hub?: ActivityBroadcaster
-  /** Open PRs for pushed branches. Defaults to true; set false in tests (no `gh`/network). */
-  pr?: boolean
+  /** Broadcasts board/activity/rules changes. Defaults to a no-op for tests that don't care. */
+  hub?: Broadcaster
   /** MCP endpoint the adapter should call back to. Defaults to a placeholder for tests. */
   mcpUrl?: string
   /** fetch implementation used for Expo push notifications. Defaults to global fetch; override in tests. */
   fetchImpl?: typeof fetch
+  /** Re-ping delay while held; read from settings when absent. Tests pass 0 (never). */
+  repingMs?: number
+  /** Called the moment a run enters a hold — its slot is free, so the scheduler should tick. */
+  onHeld?: () => void
 }
 
-/** Plain-English duration for activity messages, e.g. `timed out at 30m`. */
-function humanizeMs(ms: number): string {
+/** How a human resolves a hold. Each kind only applies to the matching hold reason. */
+export type HoldResolution =
+  | { kind: 'approve' }
+  | { kind: 'deny'; note: string }
+  | { kind: 'answer'; answer: string }
+  | { kind: 'continue'; extraMs: number }
+
+/** The control surface the Scheduler keeps for a run that is in flight in this process. */
+export interface LiveRun {
+  /** Resolves the current hold. Returns false when the run isn't held, or the resolution doesn't
+   * fit the hold (an `answer` for a permission gate, say). */
+  resolve(res: HoldResolution): boolean
+  inject(note: string): boolean
+  /** The hold this run is waiting on right now, if any. */
+  currentHold(): Hold | undefined
+}
+
+/** Plain-English duration for activity messages, e.g. `30m`. */
+export function humanizeMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`
   const seconds = ms / 1000
   if (seconds < 60) return `${Math.round(seconds)}s`
   const minutes = seconds / 60
   if (minutes < 60) return `${Math.round(minutes)}m`
-  const hours = minutes / 60
-  return `${Math.round(hours)}h`
+  return `${Math.round((minutes / 60) * 10) / 10}h`
 }
 
 function assertRunTransition(from: RunStatus, to: RunStatus): void {
@@ -59,17 +88,6 @@ function assertCardMove(from: ColumnKind, to: ColumnKind): void {
   }
 }
 
-function columnFor(db: TadaDb, workspaceId: number, kind: ColumnKind) {
-  const row = db.drizzle
-    .select()
-    .from(columns)
-    .where(eq(columns.workspaceId, workspaceId))
-    .all()
-    .find((c) => c.kind === kind)
-  if (!row) throw new Error(`workspace ${workspaceId} has no ${kind} column`)
-  return row
-}
-
 /** An adapter that throws while probing is treated as unavailable rather than crashing the run. */
 async function isAvailable(adapter: Adapter): Promise<boolean> {
   try {
@@ -79,126 +97,293 @@ async function isAvailable(adapter: Adapter): Promise<boolean> {
   }
 }
 
-/** Executes a single run to a terminal state (needs_review, failed, or cancelled).
+/**
+ * Executes a single run to a terminal state (done, failed, or cancelled), holding along the way
+ * whenever a gate, a question, or the time budget stops it.
  *
- * `onSession` hands the live AdapterSession back to the caller (the Scheduler) as soon as the
- * adapter starts, which is how `POST /runs/:id/nudge` reaches into a running agent. */
+ * `onLive` hands the run's control surface back to the caller (the Scheduler) as soon as the
+ * adapter starts, which is how the approve/deny/answer/continue/note routes reach into a run.
+ */
 export async function executeRun(
   deps: RunnerDeps,
   runId: number,
-  externalSignal?: AbortSignal,
-  onSession?: (session: AdapterSession) => void,
+  externalSignal: AbortSignal,
+  onLive?: (live: LiveRun) => void,
 ): Promise<void> {
-  const { db, wm } = deps
-  const hub = deps.hub ?? noopActivityBroadcaster
+  const { db, store } = deps
+  const hub = deps.hub ?? noopBroadcaster
 
   const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
   if (!run) throw new Error(`run ${runId} not found`)
-
   const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, run.ticketId)).get()
   if (!ticket) throw new Error(`ticket ${run.ticketId} not found`)
-
-  const workspace = db.drizzle
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, ticket.workspaceId))
-    .get()
-  if (!workspace) throw new Error(`workspace ${ticket.workspaceId} not found`)
 
   const transcriptPath = join(stateDir(), 'transcripts', `${runId}.jsonl`)
   const journal = new Journal(db, runId, transcriptPath, deps.broadcast)
 
-  // 1. mark run running + move card ready -> in_progress
-  assertRunTransition(run.status, 'running')
-  journal.write({ type: 'status', payload: { kind: 'run_status', status: 'running' } })
-  db.drizzle
-    .update(agentRuns)
-    .set({ status: 'running', transcriptPath, startedAt: new Date() })
-    .where(eq(agentRuns.id, runId))
-    .run()
+  const currentRun = () => db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
+  const currentColumn = (): ColumnKind =>
+    db.drizzle
+      .select({ column: tickets.column })
+      .from(tickets)
+      .where(eq(tickets.id, ticket.id))
+      .get()?.column ?? 'backlog'
 
+  const setRunStatus = (to: RunStatus, extra: Partial<typeof agentRuns.$inferInsert> = {}) => {
+    const from = currentRun()?.status ?? run.status
+    assertRunTransition(from, to)
+    journal.write({ type: 'status', payload: { kind: 'run_status', status: to } })
+    db.drizzle
+      .update(agentRuns)
+      .set({ status: to, ...extra })
+      .where(eq(agentRuns.id, runId))
+      .run()
+  }
+
+  const moveCard = (to: ColumnKind, extra: Partial<typeof tickets.$inferInsert> = {}) => {
+    const from = currentColumn()
+    if (from === to) return
+    assertCardMove(from, to)
+    db.drizzle
+      .update(tickets)
+      .set({ column: to, ...extra })
+      .where(eq(tickets.id, ticket.id))
+      .run()
+  }
+
+  // 1. mark run running + move card queued -> running
+  setRunStatus('running', { transcriptPath, startedAt: new Date() })
+  moveCard('running')
   recordActivity(db, hub, {
-    workspaceId: ticket.workspaceId,
     ticketId: ticket.id,
     runId,
     type: 'run_started',
-    message: `Started "${ticket.title}"`,
+    message: `Agent started "${ticket.title}"`,
   })
 
-  const readyColumn = columnFor(db, ticket.workspaceId, 'ready')
-  const inProgressColumn = columnFor(db, ticket.workspaceId, 'in_progress')
-  assertCardMove('ready', 'in_progress')
-  db.drizzle
-    .update(tickets)
-    .set({ columnId: inProgressColumn.id, queueState: null })
-    .where(eq(tickets.id, ticket.id))
-    .run()
-
-  // Every failure between here and a terminal state (including unexpected throws from
-  // buildRunDir, prompt composition, memory reads, or completeRun) must route through
-  // markFailed rather than propagate — otherwise the run wedges at 'running' with the card
-  // stuck at in_progress and no journaled reason.
+  // Every failure between here and a terminal state must route through markFailed rather than
+  // propagate — otherwise the run wedges at running/held with the card stuck in its lane and no
+  // journaled reason.
   const markFailed = (reason: string): void => {
-    // The reason is journaled as an error event (so the run screen's feed shows *why*, not just
-    // running → failed) and kept as the run's summary when the agent left none, so cards and the
-    // ticket's attempts list can surface it too.
     journal.write({ type: 'error', payload: { message: reason } })
-    journal.write({ type: 'status', payload: { kind: 'run_status', status: 'failed' } })
-    assertRunTransition('running', 'failed')
-    const before = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
-    db.drizzle
-      .update(agentRuns)
-      .set({ status: 'failed', finishedAt: new Date(), summary: before?.summary ?? reason })
-      .where(eq(agentRuns.id, runId))
-      .run()
-
-    assertCardMove('in_progress', 'ready')
-    db.drizzle
-      .update(tickets)
-      .set({ columnId: readyColumn.id, queueState: 'held' })
-      .where(eq(tickets.id, ticket.id))
-      .run()
-
+    const before = currentRun()
+    setRunStatus('failed', {
+      finishedAt: new Date(),
+      summary: before?.summary ?? reason,
+      hold: null,
+      heldReason: null,
+    })
+    // Failure sits in the same stopped-on-you lane as a hold — the only red in the product.
+    moveCard('stopped')
     recordActivity(db, hub, {
-      workspaceId: ticket.workspaceId,
       ticketId: ticket.id,
       runId,
       type: 'run_failed',
-      message: `"${ticket.title}" failed: ${reason}`,
+      message: `"${ticket.title}" failed — ${reason}`,
     })
-
-    // report_outcome may have stored a summary before the run went on to fail (e.g. a crash
-    // after the agent called it); re-read the row rather than trusting the stale `run` closure.
-    const failedRun = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
-    notifyRunFinished(
+    hub.boardChanged()
+    void ping(
       db,
-      { id: runId, status: 'failed', summary: failedRun?.summary ?? null },
-      ticket,
+      { ticketId: ticket.id, runId, title: `"${ticket.title}" failed`, body: reason },
       deps.fetchImpl,
-    ).catch((err) => console.error('notifyRunFinished failed:', err))
+    )
   }
 
-  // Deliberate cancellation (Scheduler.cancel) is not a failure: the card goes back to Ready with
-  // queueState null. It is NOT immediately eligible to be picked up again - the scheduler only
-  // starts tickets with queueState 'queued', so a cancelled card sits idle in Ready until a human
-  // re-drags it (any move into Ready re-enqueues via the tickets/:id/move route).
+  // Deliberate cancellation (Stop run) is not a failure: the card goes to backlog and nothing
+  // restarts it until a human queues it again.
   const markCancelled = (): void => {
-    journal.write({ type: 'status', payload: { kind: 'run_status', status: 'cancelled' } })
-    assertRunTransition('running', 'cancelled')
+    setRunStatus('cancelled', { finishedAt: new Date(), hold: null, heldReason: null })
+    moveCard('backlog')
+    recordActivity(db, hub, {
+      ticketId: ticket.id,
+      runId,
+      type: 'run_cancelled',
+      message: `You stopped "${ticket.title}"`,
+    })
+    hub.boardChanged()
+  }
+
+  let session: AdapterSession | undefined
+
+  // ---- holds -----------------------------------------------------------------------------------
+  // A hold is a pending promise the gate (or the time budget) is waiting on. The run's status is
+  // `held` for exactly as long as one is pending, and the scheduler stops counting it against
+  // the concurrency cap for that time.
+  let pending: { hold: Hold; resolve: (r: HoldResolution | { kind: 'abort' }) => void } | undefined
+  let timeExhausted = false
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  const repingMs = deps.repingMs ?? currentSettingsRepingMs(db)
+
+  const enterHold = (hold: Hold): void => {
+    const heldAt = new Date()
+    setRunStatus('held', { heldReason: hold.reason, hold, heldAt })
+    moveCard('stopped')
+    journal.write({ type: 'gate', payload: { kind: 'hold', hold } })
+    recordActivity(db, hub, {
+      ticketId: ticket.id,
+      runId,
+      type: 'run_held',
+      message: holdActivityMessage(ticket.title, hold),
+    })
+    hub.boardChanged()
+    deps.onHeld?.()
+    void ping(
+      db,
+      {
+        ticketId: ticket.id,
+        runId,
+        title: `"${ticket.title}" is stopped on you`,
+        body: holdPingText(hold),
+      },
+      deps.fetchImpl,
+    )
+    if (repingMs > 0) {
+      const timer = setTimeout(() => {
+        const now = currentRun()
+        if (now?.status === 'held' && now.heldAt?.getTime() === heldAt.getTime()) {
+          void ping(
+            db,
+            {
+              ticketId: ticket.id,
+              runId,
+              title: `"${ticket.title}" is still waiting on you`,
+              body: holdPingText(hold),
+            },
+            deps.fetchImpl,
+          )
+        }
+      }, repingMs)
+      timer.unref?.()
+    }
+  }
+
+  const leaveHold = (): void => {
+    setRunStatus('running', { heldReason: null, hold: null, heldAt: null })
+    moveCard('running')
+    journal.write({ type: 'gate', payload: { kind: 'resume' } })
+    hub.boardChanged()
+  }
+
+  /** Holds the run until a human resolves it (or the run is aborted). */
+  const holdFor = (hold: Hold): Promise<HoldResolution | { kind: 'abort' }> => {
+    if (externalSignal.aborted) return Promise.resolve({ kind: 'abort' })
+    enterHold(hold)
+    return new Promise((resolve) => {
+      pending = {
+        hold,
+        resolve: (r) => {
+          pending = undefined
+          if (r.kind !== 'abort') leaveHold()
+          resolve(r)
+        },
+      }
+    })
+  }
+  externalSignal.addEventListener('abort', () => pending?.resolve({ kind: 'abort' }), {
+    once: true,
+  })
+
+  const armDeadline = (ms: number): void => {
+    if (deadline) clearTimeout(deadline)
+    deadline = setTimeout(() => {
+      timeExhausted = true
+      journal.write({ type: 'gate', payload: { kind: 'time_up', budgetMs: ms } })
+      // An adapter that can be suspended in place (a CLI subprocess) is held right now; the
+      // Claude adapter can't, so its next tool call is where the gate holds it.
+      if (!pending && session?.pause()) {
+        void holdFor({ reason: 'time', budgetMs: currentRun()?.budgetMs ?? ms }).then((r) => {
+          if (r.kind === 'continue') {
+            grantMoreTime(r.extraMs)
+            session?.resume()
+          }
+        })
+      }
+    }, ms)
+    deadline.unref?.()
+  }
+
+  const grantMoreTime = (extraMs: number): void => {
+    timeExhausted = false
+    const now = currentRun()
     db.drizzle
       .update(agentRuns)
-      .set({ status: 'cancelled', finishedAt: new Date() })
+      .set({ budgetMs: (now?.budgetMs ?? 0) + extraMs })
       .where(eq(agentRuns.id, runId))
       .run()
+    journal.write({ type: 'gate', payload: { kind: 'continued', extraMs } })
+    armDeadline(extraMs)
+  }
 
-    // Parked as `held`, like a failure: it stays visibly "needs you" (Control's triage list, the
-    // board's retry meta) instead of looking like an ordinary queued card that never runs.
-    assertCardMove('in_progress', 'ready')
-    db.drizzle
-      .update(tickets)
-      .set({ columnId: readyColumn.id, queueState: 'held' })
-      .where(eq(tickets.id, ticket.id))
-      .run()
+  const holdIfOutOfTime = async (): Promise<boolean> => {
+    if (!timeExhausted) return true
+    const r = await holdFor({ reason: 'time', budgetMs: currentRun()?.budgetMs ?? 0 })
+    if (r.kind === 'continue') {
+      grantMoreTime(r.extraMs)
+      return true
+    }
+    return false
+  }
+
+  const gate = async (req: GateRequest): Promise<GateDecision> => {
+    if (!(await holdIfOutOfTime())) return { behavior: 'deny', reason: 'the run was stopped' }
+
+    if (req.tool === ASK_USER_TOOL) {
+      const question = typeof req.input.question === 'string' ? req.input.question : ''
+      const options = Array.isArray(req.input.options)
+        ? req.input.options.filter((o): o is string => typeof o === 'string')
+        : []
+      const r = await holdFor({ reason: 'question', question, options })
+      if (r.kind !== 'answer') return { behavior: 'deny', reason: 'the run was stopped' }
+      storeAnswer(runId, r.answer)
+      return { behavior: 'allow', updatedInput: { ...req.input, answer: r.answer } }
+    }
+
+    const summary = callSummary(req.tool, req.input)
+    const rule = matchRule(db, req.tool, summary)
+    if (!rule || rule.decision === 'allow') return { behavior: 'allow' }
+    if (rule.decision === 'never') {
+      journal.write({
+        type: 'gate',
+        payload: { kind: 'never', tool: req.tool, summary, ruleId: rule.id, ruleTitle: rule.title },
+      })
+      return {
+        behavior: 'deny',
+        reason: `Your rules forbid this (${rule.title}). Do not retry it.`,
+      }
+    }
+
+    const r = await holdFor({
+      reason: 'permission',
+      tool: req.tool,
+      summary,
+      ruleId: rule.id,
+      ruleTitle: rule.title,
+      publishes: rule.publishes,
+    })
+    if (r.kind === 'approve') return { behavior: 'allow' }
+    if (r.kind === 'deny') {
+      return {
+        behavior: 'deny',
+        reason: `The human denied this and says: ${r.note}. Everything you have done stays — take the note as your next instruction.`,
+      }
+    }
+    return { behavior: 'deny', reason: 'the run was stopped' }
+  }
+
+  const live: LiveRun = {
+    resolve: (res) => {
+      if (!pending) return false
+      const reason = pending.hold.reason
+      const fits =
+        (reason === 'permission' && (res.kind === 'approve' || res.kind === 'deny')) ||
+        (reason === 'question' && res.kind === 'answer') ||
+        (reason === 'time' && res.kind === 'continue')
+      if (!fits) return false
+      pending.resolve(res)
+      return true
+    },
+    inject: (note) => session?.inject(note) ?? false,
+    currentHold: () => pending?.hold,
   }
 
   try {
@@ -210,153 +395,123 @@ export async function executeRun(
       .all()
       .filter((r) => r.id !== runId)
 
-    // 2. build the run directory (git worktrees per repo) and compose the prompt.
-    //
-    // Earlier attempts' run dirs are torn down first: a finished attempt leaves its worktree in
-    // place (the on-Done cleanup only fires when the ticket is accepted), and that worktree still
-    // has `ticket/<id>` checked out, so `git worktree add` for this attempt would fail with
-    // "branch already used by worktree" and insta-fail every send-back re-run. Safe to do here
-    // rather than at enqueue: runs are per-ticket serial (a ticket has one card, and the
-    // scheduler only starts a run for a queued card), so no other run of this ticket is live.
+    // 2. build the run directory and compose the prompt. Earlier attempts' run dirs are torn down
+    // first: their worktrees still hold `ticket/<id>` checked out, and git refuses to check the
+    // same branch out twice. Safe here: runs are per-ticket serial.
     await cleanupRunDirs(
-      wm,
-      ticket.workspaceId,
+      store,
       priorRuns.map((r) => r.id),
     )
+    const dir: RunDir = buildRunDir(store, runId)
 
-    const runDir = await buildRunDir(wm, ticket.workspaceId, ticket.id, runId)
-    // A cancel that arrived while the worktrees were being built (a slow clone/checkout) must
-    // not start the agent — the abort signal is only wired up around adapter.start below.
-    if (externalSignal?.aborted) {
+    const adapter = deps.adapters.get(run.adapter)
+    const repos = store.repos()
+    if (adapter && !adapter.supportsGates) {
+      // No tada tools, so no `use_repo`: check everything out up front. Tags are stamped at the
+      // end for the repos whose branch actually moved.
+      for (const repo of repos) {
+        await addWorktree(store, dir, ticket.id, repo)
+        journal.write({
+          type: 'text',
+          payload: { text: `made a worktree for ${repo.name} — off ${repo.defaultBranch}` },
+        })
+      }
+    }
+    if (externalSignal.aborted) {
       markCancelled()
       return
     }
 
-    const ticketComments = db.drizzle
+    const thread = db.drizzle
       .select()
       .from(comments)
       .where(eq(comments.ticketId, ticket.id))
       .orderBy(asc(comments.createdAt), asc(comments.id))
       .all()
-
-    const memoryDir = wm.memoryDir(ticket.workspaceId)
-    const agentsMd = readFileSync(join(memoryDir, 'AGENTS.md'), 'utf-8')
-    const noteFiles = readdirSync(join(memoryDir, 'notes'))
-
-    const globalMemoryDir = ensureGlobalMemoryDir()
-    const globalAgentsMd = readFileSync(join(globalMemoryDir, 'AGENTS.md'), 'utf-8')
-    const globalNoteFiles = readdirSync(join(globalMemoryDir, 'notes'))
+    const globalNotes = db.drizzle
+      .select()
+      .from(memoryNotes)
+      .where(and(eq(memoryNotes.state, 'kept'), sql`json_array_length(${memoryNotes.tags}) = 0`))
+      .orderBy(asc(memoryNotes.id))
+      .all()
 
     const prompt = composePrompt({
       ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
-      comments: ticketComments.map((c) => ({
-        author: c.author,
-        kind: c.kind,
-        body: c.body,
-        createdAt: c.createdAt,
+      comments: thread.map((c) => ({ author: c.author, body: c.body, createdAt: c.createdAt })),
+      notes: globalNotes.map((n) => ({ title: n.title, body: n.body })),
+      repos: repos.map((r) => ({
+        name: r.name,
+        defaultBranch: r.defaultBranch,
+        checkedOut: r.name in dir.repoDirs,
       })),
-      agentsMd,
-      noteFiles,
-      globalAgentsMd,
-      globalNoteFiles,
+      folders: store
+        .manifest()
+        .sources.filter((s) => s.type === 'folder')
+        .map((s) => s.name),
+      tools: adapter?.supportsGates ?? true,
       priorRuns: priorRuns.map((r) => ({
         attemptNumber: r.attemptNumber,
+        status: r.status,
         summary: r.summary,
-        startedAt: r.startedAt,
-        finishedAt: r.finishedAt,
       })),
     })
-    // Kept next to the transcript for debugging (what exactly did attempt N see — was the send-
-    // back feedback in there?). Best-effort: a write failure must not fail the run.
+    // Kept next to the transcript for debugging (what exactly did this attempt see?). Best-effort.
     try {
-      writeFileSync(join(runDir.path, 'prompt.md'), prompt)
+      writeFileSync(join(dir.path, 'prompt.md'), prompt)
     } catch (err) {
       journal.write({
         type: 'error',
         payload: { message: `could not save prompt.md: ${String(err)}` },
       })
     }
+    journal.write({
+      type: 'text',
+      payload: { text: `read the brief and ${globalNotes.length} memory notes` },
+    })
 
-    // 3. run the adapter with a timeout
-    const adapter = deps.adapters.get(run.adapter)
-
-    let exitCode: number | undefined
-    let adapterError: unknown
-    let timedOut = false
-
+    // 3. run the adapter under the time budget
     if (!adapter) {
-      adapterError = new Error(`unknown adapter: ${run.adapter}`)
-    } else if (!(await isAvailable(adapter))) {
-      const message = 'adapter not available on this server'
-      markFailed(message)
+      markFailed(`unknown adapter: ${run.adapter}`)
       return
-    } else {
-      const manualController = new AbortController()
-      const signal = AbortSignal.any(
-        [AbortSignal.timeout(workspace.timeoutMs), manualController.signal, externalSignal].filter(
-          (s): s is AbortSignal => s !== undefined,
-        ),
-      )
-
-      const session = adapter.start({
-        runDir: runDir.path,
-        prompt,
-        model: run.model,
-        effort: run.effort,
-        mcpUrl: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp',
-        runToken: run.runToken,
-        journal,
-        signal,
-      })
-      onSession?.(session)
-
-      const runPromise = session.done.then(
-        (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
-        (error: unknown) => ({ kind: 'error' as const, error }),
-      )
-
-      const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
-        if (signal.aborted) {
-          resolve({ kind: 'timeout' })
-          return
-        }
-        signal.addEventListener('abort', () => resolve({ kind: 'timeout' }), { once: true })
-      })
-
-      const result = await Promise.race([runPromise, timeoutPromise])
-      manualController.abort()
-
-      if (result.kind === 'exit') {
-        exitCode = result.exitCode
-      } else if (result.kind === 'error') {
-        adapterError = result.error
-      } else {
-        timedOut = true
-      }
     }
+    if (!(await isAvailable(adapter))) {
+      markFailed('adapter not available on this server')
+      return
+    }
+
+    armDeadline(run.budgetMs)
+    session = adapter.start({
+      runDir: dir.path,
+      prompt,
+      model: run.model,
+      effort: run.effort,
+      mcpUrl: deps.mcpUrl ?? 'http://127.0.0.1:0/mcp',
+      runToken: run.runToken,
+      journal,
+      signal: externalSignal,
+      gate,
+    })
+    // A suspended process never sees SIGTERM; wake it before the abort reaches it.
+    externalSignal.addEventListener('abort', () => session?.resume(), { once: true })
+    onLive?.(live)
+
+    const result = await session.done.then(
+      (r) => ({ kind: 'exit' as const, exitCode: r.exitCode }),
+      (error: unknown) => ({ kind: 'error' as const, error }),
+    )
+    if (deadline) clearTimeout(deadline)
 
     // 4. decide the outcome
-    if (adapterError !== undefined) {
-      const message = adapterError instanceof Error ? adapterError.message : String(adapterError)
-      markFailed(message)
+    if (externalSignal.aborted) {
+      markCancelled()
       return
     }
-
-    if (timedOut) {
-      if (externalSignal?.aborted) {
-        markCancelled()
-        return
-      }
-      journal.write({
-        type: 'error',
-        payload: { message: `run timed out after ${workspace.timeoutMs}ms` },
-      })
-      markFailed(`timed out at ${humanizeMs(workspace.timeoutMs)}`)
+    if (result.kind === 'error') {
+      markFailed(result.error instanceof Error ? result.error.message : String(result.error))
       return
     }
-
-    if (exitCode !== undefined && exitCode !== 0) {
-      markFailed(`exited with code ${exitCode}`)
+    if (result.exitCode !== 0) {
+      markFailed(`exited with code ${result.exitCode}`)
       return
     }
 
@@ -364,14 +519,13 @@ export async function executeRun(
     // can't call tools (codex/gemini), so it is only consulted when nothing arrived over MCP.
     let reported = pendingOutcome(db, runId)
     if (!reported) {
-      const fromFile = readOutcomeFile(runDir.path)
+      const fromFile = readOutcomeFile(dir.path)
       if (fromFile.kind === 'invalid') {
         markFailed(fromFile.reason)
         return
       }
       if (fromFile.kind === 'outcome') reported = fromFile.outcome
     }
-
     if (!reported) {
       markFailed('agent did not report an outcome')
       return
@@ -381,55 +535,72 @@ export async function executeRun(
       return
     }
 
-    // success
-    const completion = await completeRun(wm, ticket.workspaceId, ticket.id, {
-      pr: deps.pr ?? true,
-      title: ticket.title,
+    // 5. done — the run files itself. Diff totals are the run's own branches vs default; agents
+    // without tada tools earn their repo tags here (the ones with `use_repo` were tagged as they
+    // checked repos out).
+    let diffAdditions: number | null = null
+    let diffDeletions: number | null = null
+    try {
+      // Re-read the layout from disk: worktrees made by `use_repo` mid-run aren't in `dir`.
+      const finalDir = runDirFor(store, runId)
+      const diffs = await runDiff(store, finalDir, ticket.id, { patch: false })
+      if (diffs.length > 0) {
+        diffAdditions = diffs.reduce((n, d) => n + d.additions, 0)
+        diffDeletions = diffs.reduce((n, d) => n + d.deletions, 0)
+      }
+      if (!adapter.supportsGates) {
+        for (const name of await reposAhead(store, finalDir, ticket.id))
+          stampRepoTag(db, ticket.id, name)
+      }
+    } catch (err) {
+      journal.write({ type: 'error', payload: { message: `diffstat failed: ${String(err)}` } })
+    }
+
+    setRunStatus('done', {
       summary: reported.summary,
-      onError: (message) => journal.write({ type: 'error', payload: { message } }),
+      diffAdditions,
+      diffDeletions,
+      testsPassed: reported.testsPassed ?? null,
+      finishedAt: new Date(),
     })
-
-    journal.write({ type: 'status', payload: { kind: 'run_status', status: 'needs_review' } })
-    assertRunTransition('running', 'needs_review')
-    db.drizzle
-      .update(agentRuns)
-      .set({
-        status: 'needs_review',
-        summary: reported.summary,
-        branch: branchFor(ticket.id),
-        prUrl: completion.prUrls[0] ?? null,
-        diffAdditions: completion.diffAdditions,
-        diffDeletions: completion.diffDeletions,
-        testsPassed: reported.testsPassed ?? null,
-        finishedAt: new Date(),
-      })
-      .where(eq(agentRuns.id, runId))
-      .run()
-
-    const inReviewColumn = columnFor(db, ticket.workspaceId, 'in_review')
-    assertCardMove('in_progress', 'in_review')
-    db.drizzle
-      .update(tickets)
-      .set({ columnId: inReviewColumn.id, queueState: null })
-      .where(eq(tickets.id, ticket.id))
-      .run()
-
+    moveCard('done', { doneAt: new Date() })
     recordActivity(db, hub, {
-      workspaceId: ticket.workspaceId,
       ticketId: ticket.id,
       runId,
-      type: 'needs_review',
-      message: `"${ticket.title}" is ready for review: ${reported.summary}`,
+      type: 'run_done',
+      message: `"${ticket.title}" finished and moved itself to done — ${reported.summary}`,
     })
-
-    notifyRunFinished(
-      db,
-      { id: runId, status: 'needs_review', summary: reported.summary },
-      ticket,
-      deps.fetchImpl,
-    ).catch((err) => console.error('notifyRunFinished failed:', err))
+    hub.boardChanged()
+    await cleanupRunDirs(store, [runId])
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    markFailed(message)
+    markFailed(err instanceof Error ? err.message : String(err))
+  } finally {
+    if (deadline) clearTimeout(deadline)
   }
+}
+
+function currentSettingsRepingMs(db: TadaDb): number {
+  return db.drizzle.select().from(settings).get()?.repingMs ?? 0
+}
+
+export function holdActivityMessage(title: string, hold: Hold): string {
+  switch (hold.reason) {
+    case 'permission':
+      return `"${title}" is holding at ${hold.summary.split('\n')[0]?.slice(0, 80) ?? hold.tool} — your rule asks first`
+    case 'question':
+      return `"${title}" has a question for you`
+    case 'time':
+      return `"${title}" hit the ${humanizeMs(hold.budgetMs)} limit — stopped on you`
+  }
+}
+
+/** Runs of `ticketId` that own the card right now: queued, running or held. */
+export function liveRunFor(db: TadaDb, ticketId: number) {
+  return db.drizzle
+    .select()
+    .from(agentRuns)
+    .where(and(eq(agentRuns.ticketId, ticketId), isNull(agentRuns.finishedAt)))
+    .orderBy(asc(agentRuns.id))
+    .all()
+    .find((r) => r.status === 'queued' || r.status === 'running' || r.status === 'held')
 }

@@ -19,6 +19,7 @@ export class GeminiAdapter implements Adapter {
   readonly models = ['gemini-3-pro', 'gemini-3-flash']
   readonly efforts = ['default']
   readonly supportsInjection = false
+  readonly supportsGates = false
 
   available(): Promise<boolean> {
     return probeCli(CLI)

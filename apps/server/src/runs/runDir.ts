@@ -1,98 +1,93 @@
-import { mkdirSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { git } from '../git.js'
-import { ensureGlobalMemoryDir, stateDir } from '../paths.js'
-import type { WorkspaceManager } from '../workspaces/manager.js'
+import { stateDir } from '../paths.js'
+import type { RepoSource, SourceStore } from '../sources/store.js'
 
 export interface RunDir {
   path: string
+  /** repo name -> worktree path, for every repo this run has checked out so far. */
   repoDirs: Record<string, string>
 }
 
 export const branchFor = (ticketId: number): string => `ticket/${ticketId}`
 
-export async function buildRunDir(
-  wm: WorkspaceManager,
-  wsId: number,
-  ticketId: number,
-  runId: number,
-): Promise<RunDir> {
-  const path = join(stateDir(), 'runs', String(runId))
+export const runDirPath = (runId: number): string => join(stateDir(), 'runs', String(runId))
+
+/**
+ * The agent works out of one folder: `<stateDir>/runs/<runId>/` with `scratch/` and every folder
+ * source symlinked in. Repo worktrees are *not* created here — they appear lazily via
+ * `addWorktree` (the MCP `use_repo` tool), which is the moment a ticket earns its repo tag.
+ */
+export function buildRunDir(store: SourceStore, runId: number): RunDir {
+  const path = runDirPath(runId)
   mkdirSync(join(path, 'scratch'), { recursive: true })
-  symlinkSync(wm.memoryDir(wsId), join(path, 'memory'))
-  symlinkSync(ensureGlobalMemoryDir(), join(path, 'memory-global'))
-
-  const branch = branchFor(ticketId)
-  const repoDirs: Record<string, string> = {}
-  for (const source of wm.manifest(wsId).sources) {
-    if (source.type === 'folder') {
-      symlinkSync(source.path, join(path, source.name))
-      continue
-    }
-
-    const canonical = join(wm.reposDir(wsId), source.name)
-    const wt = join(path, source.name)
-    const exists = (await git(canonical, 'branch', '--list', branch)) !== ''
-    await (exists
-      ? git(canonical, 'worktree', 'add', wt, branch)
-      : git(canonical, 'worktree', 'add', '-b', branch, wt, source.defaultBranch))
-    repoDirs[source.name] = wt
+  for (const source of store.manifest().sources) {
+    if (source.type === 'folder') symlinkSync(source.path, join(path, source.name))
   }
-
-  return { path, repoDirs }
+  return { path, repoDirs: {} }
 }
 
-/** The RunDir layout a given run id would have had: `<stateDir>/runs/<runId>`, with one worktree
- * per repo source beneath it, named after the source. Lets callers that only know a run id (the
- * on-Done cleanup, the pre-build cleanup of earlier attempts) reconstruct what to remove without
- * having kept the RunDir that `buildRunDir` returned. */
-export function runDirFor(wm: WorkspaceManager, wsId: number, runId: number): RunDir {
-  const path = join(stateDir(), 'runs', String(runId))
-  const repoDirs = Object.fromEntries(
-    wm
-      .manifest(wsId)
-      .sources.filter((s) => s.type === 'repo')
-      .map((s) => [s.name, join(path, s.name)]),
-  )
+/** Checks `repo` out into the run dir on branch `ticket/<id>` (created off the default branch if
+ * it doesn't exist yet — a re-run reuses the branch, so earlier commits are kept). Idempotent for
+ * a repo this run already has. */
+export async function addWorktree(
+  store: SourceStore,
+  runDir: RunDir,
+  ticketId: number,
+  repo: RepoSource,
+): Promise<string> {
+  const existing = runDir.repoDirs[repo.name]
+  if (existing) return existing
+
+  const canonical = store.cloneDir(repo.name)
+  const wt = join(runDir.path, repo.name)
+  const branch = branchFor(ticketId)
+  const branchExists = (await git(canonical, 'branch', '--list', branch)) !== ''
+  await (branchExists
+    ? git(canonical, 'worktree', 'add', wt, branch)
+    : git(canonical, 'worktree', 'add', '-b', branch, wt, repo.defaultBranch))
+  runDir.repoDirs[repo.name] = wt
+  return wt
+}
+
+/** The RunDir a given run id has (or had) on disk: `<stateDir>/runs/<runId>`, with a worktree per
+ * repo source that actually exists beneath it. Lets callers that only know a run id (cleanup, the
+ * diff endpoint) reconstruct the layout without having kept the RunDir `buildRunDir` returned. */
+export function runDirFor(store: SourceStore, runId: number): RunDir {
+  const path = runDirPath(runId)
+  const repoDirs: Record<string, string> = {}
+  for (const repo of store.repos()) {
+    const wt = join(path, repo.name)
+    if (existsSync(wt)) repoDirs[repo.name] = wt
+  }
   return { path, repoDirs }
 }
 
 /**
- * Tears down the run dirs of the given (earlier) runs, keeping their branches. Called before
- * building attempt N+1's run dir: a finished attempt's worktree still holds the `ticket/<id>`
- * branch checked out, and git refuses to check the same branch out twice ("branch already used
- * by worktree"), so without this every re-run of a repo-backed ticket would fail at setup.
- * Each run is cleaned independently and failures are swallowed — a run dir that was already
- * removed (or never built) is exactly the state we want.
+ * Tears down the run dirs of the given runs, keeping their branches. Called before building a
+ * re-run's run dir: a finished attempt's worktree still holds the `ticket/<id>` branch checked
+ * out, and git refuses to check the same branch out twice ("branch already used by worktree"),
+ * so without this every re-run of a repo-backed ticket would fail at setup. Each run is cleaned
+ * independently and failures are swallowed — a run dir that was already removed (or never built)
+ * is exactly the state we want.
  */
-export async function cleanupRunDirs(
-  wm: WorkspaceManager,
-  wsId: number,
-  runIds: number[],
-): Promise<void> {
+export async function cleanupRunDirs(store: SourceStore, runIds: number[]): Promise<void> {
   for (const runId of runIds) {
     try {
-      await cleanupRunDir(wm, wsId, runDirFor(wm, wsId, runId))
+      await cleanupRunDir(store, runDirFor(store, runId))
     } catch {
       // already cleaned up (or never built) - ignore
     }
   }
 }
 
-export async function cleanupRunDir(
-  wm: WorkspaceManager,
-  wsId: number,
-  runDir: RunDir,
-): Promise<void> {
-  for (const source of wm.manifest(wsId).sources) {
-    if (source.type === 'folder') continue
-
-    const canonical = join(wm.reposDir(wsId), source.name)
-    const wt = runDir.repoDirs[source.name]
-    if (wt) {
-      await git(canonical, 'worktree', 'remove', '--force', wt).catch(() => {})
-    }
-    await git(canonical, 'worktree', 'prune')
+export async function cleanupRunDir(store: SourceStore, runDir: RunDir): Promise<void> {
+  for (const [name, wt] of Object.entries(runDir.repoDirs)) {
+    const canonical = store.cloneDir(name)
+    if (!existsSync(canonical)) continue
+    await git(canonical, 'worktree', 'remove', '--force', wt).catch(() => {})
+    await git(canonical, 'worktree', 'prune').catch(() => {})
   }
   rmSync(runDir.path, { recursive: true, force: true })
 }

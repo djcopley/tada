@@ -1,155 +1,66 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { openDb } from '../src/db/index.js'
 import { git } from '../src/git.js'
-import { globalMemoryDir } from '../src/paths.js'
-import { branchFor, buildRunDir, cleanupRunDir } from '../src/runs/runDir.js'
-import { WorkspaceManager } from '../src/workspaces/manager.js'
+import { runDiff } from '../src/runs/diff.js'
+import {
+  addWorktree,
+  buildRunDir,
+  cleanupRunDirs,
+  runDirFor,
+  runDirPath,
+} from '../src/runs/runDir.js'
+import { SourceStore } from '../src/sources/store.js'
 import { isolateXdg, makeOrigin } from './helpers/gitFixtures.js'
 
-function testDb() {
-  return openDb(join(mkdtempSync(join(tmpdir(), 'tada-db-')), 'test.db'))
-}
+let store: SourceStore
 
-async function setup() {
+beforeEach(async () => {
   isolateXdg()
-  const db = testDb()
-  const manager = new WorkspaceManager(db)
-  const wsId = await manager.create('demo')
-  const origin = await makeOrigin('proj')
-  await manager.addRepoSource(wsId, origin)
-  return { manager, wsId }
-}
+  store = new SourceStore()
+  await store.addRepo(await makeOrigin('proj'))
+})
 
-describe('buildRunDir / cleanupRunDir', () => {
-  beforeEach(() => {
-    isolateXdg()
+describe('run dir', () => {
+  test('starts with scratch and folder symlinks only — no worktrees until use_repo', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'tada-f-'))
+    store.addFolder(folder)
+    const dir = buildRunDir(store, 1)
+    expect(dir.path).toBe(runDirPath(1))
+    expect(existsSync(join(dir.path, 'scratch'))).toBe(true)
+    expect(existsSync(join(dir.path, folder.split('/').pop() ?? ''))).toBe(true)
+    expect(dir.repoDirs).toEqual({})
+    expect(existsSync(join(dir.path, 'proj'))).toBe(false)
   })
 
-  test('creates a worktree per repo on branch ticket/<id>, a memory symlink, and an empty scratch dir', async () => {
-    const { manager, wsId } = await setup()
+  test('addWorktree checks out ticket/<id> off the default branch, reuses the branch on a re-run', async () => {
+    const repo = store.repo('proj')
+    if (!repo) throw new Error('no repo')
+    const dir1 = buildRunDir(store, 1)
+    const wt1 = await addWorktree(store, dir1, 9, repo)
+    expect(await git(wt1, 'branch', '--show-current')).toBe('ticket/9')
+    writeFileSync(join(wt1, 'a.txt'), 'a\n')
+    await git(wt1, 'add', '.')
+    await git(wt1, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'a')
+    // idempotent for the same run
+    expect(await addWorktree(store, dir1, 9, repo)).toBe(wt1)
+    expect(runDirFor(store, 1).repoDirs).toEqual({ proj: wt1 })
 
-    const runDir = await buildRunDir(manager, wsId, 42, 1)
+    const diffs = await runDiff(store, dir1, 9, { patch: true })
+    expect(diffs).toHaveLength(1)
+    expect(diffs[0]).toMatchObject({ repo: 'proj', branch: 'ticket/9', additions: 1, deletions: 0 })
+    expect(diffs[0]?.files[0]?.patch).toContain('+a')
 
-    const repoWt = runDir.repoDirs.proj
-    expect(repoWt).toBeDefined()
-    expect(existsSync(join(repoWt ?? '', 'README.md'))).toBe(true)
-    expect(await git(repoWt ?? '', 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(branchFor(42))
-
-    expect(existsSync(join(runDir.path, 'scratch'))).toBe(true)
-
-    const memoryLink = join(runDir.path, 'memory')
-    expect(realpathSync(memoryLink)).toBe(realpathSync(manager.memoryDir(wsId)))
-    expect(readlinkSync(memoryLink)).toBe(manager.memoryDir(wsId))
-
-    const globalMemoryLink = join(runDir.path, 'memory-global')
-    expect(realpathSync(globalMemoryLink)).toBe(realpathSync(globalMemoryDir()))
-    expect(readlinkSync(globalMemoryLink)).toBe(globalMemoryDir())
+    // re-run: earlier run dir torn down, branch (and its commit) kept
+    await cleanupRunDirs(store, [1])
+    expect(existsSync(dir1.path)).toBe(false)
+    const dir2 = buildRunDir(store, 2)
+    const wt2 = await addWorktree(store, dir2, 9, repo)
+    expect(existsSync(join(wt2, 'a.txt'))).toBe(true)
   })
 
-  test('symlinks a folder source into the run dir by name', async () => {
-    const { manager, wsId } = await setup()
-    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
-    mkdirSync(join(folder, 'sub'))
-    writeFileSync(join(folder, 'notes.txt'), 'hello\n')
-    await manager.addFolderSource(wsId, folder)
-
-    const runDir = await buildRunDir(manager, wsId, 5, 1)
-
-    const link = join(runDir.path, basename(folder))
-    expect(realpathSync(link)).toBe(realpathSync(folder))
-    expect(readlinkSync(link)).toBe(folder)
-    expect(existsSync(join(link, 'notes.txt'))).toBe(true)
-  })
-
-  test('a commit made in the worktree is visible from the canonical clone (shared object store)', async () => {
-    const { manager, wsId } = await setup()
-    const runDir = await buildRunDir(manager, wsId, 7, 1)
-    const repoWt = runDir.repoDirs.proj
-    if (!repoWt) throw new Error('missing repo worktree')
-
-    writeFileSync(join(repoWt, 'new-file.txt'), 'hello\n')
-    await git(repoWt, 'add', '.')
-    await git(repoWt, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'add new file')
-
-    const canonical = join(manager.reposDir(wsId), 'proj')
-    const log = await git(canonical, 'log', branchFor(7), '--oneline')
-    expect(log).toContain('add new file')
-  })
-
-  test('a second buildRunDir for the same ticket reuses the existing branch, including its commit', async () => {
-    const { manager, wsId } = await setup()
-    const first = await buildRunDir(manager, wsId, 9, 1)
-    const firstWt = first.repoDirs.proj
-    if (!firstWt) throw new Error('missing repo worktree')
-
-    writeFileSync(join(firstWt, 'send-back.txt'), 'again\n')
-    await git(firstWt, 'add', '.')
-    await git(
-      firstWt,
-      '-c',
-      'user.email=t@t',
-      '-c',
-      'user.name=t',
-      'commit',
-      '-m',
-      'send-back commit',
-    )
-    await cleanupRunDir(manager, wsId, first)
-
-    const second = await buildRunDir(manager, wsId, 9, 2)
-    const secondWt = second.repoDirs.proj
-    if (!secondWt) throw new Error('missing repo worktree')
-
-    expect(existsSync(join(secondWt, 'send-back.txt'))).toBe(true)
-    expect(await git(secondWt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(branchFor(9))
-  })
-
-  test('cleanupRunDir removes worktrees but the branch survives', async () => {
-    const { manager, wsId } = await setup()
-    const runDir = await buildRunDir(manager, wsId, 3, 1)
-    const canonical = join(manager.reposDir(wsId), 'proj')
-
-    await cleanupRunDir(manager, wsId, runDir)
-
-    const worktreeList = await git(canonical, 'worktree', 'list')
-    expect(worktreeList).not.toContain(runDir.repoDirs.proj ?? '<<missing>>')
-
-    const branches = await git(canonical, 'branch', '--list', branchFor(3))
-    expect(branches).toContain(branchFor(3))
-
-    expect(existsSync(runDir.path)).toBe(false)
-  })
-
-  // Regression guard: a folder source is symlinked (not copied) into the run dir. If
-  // cleanupRunDir (or the rmSync it ultimately relies on) ever started following that symlink
-  // instead of just unlinking it, this would delete the user's real folder and its contents -
-  // a data-loss bug. Assert the source folder and its contents survive cleanup untouched.
-  test('cleanupRunDir removes the run dir but leaves a folder source and its contents untouched', async () => {
-    const { manager, wsId } = await setup()
-    const folder = mkdtempSync(join(tmpdir(), 'tada-folder-'))
-    writeFileSync(join(folder, 'keep.txt'), 'important\n')
-    await manager.addFolderSource(wsId, folder)
-
-    const runDir = await buildRunDir(manager, wsId, 11, 1)
-    const link = join(runDir.path, basename(folder))
-    expect(existsSync(link)).toBe(true)
-
-    await cleanupRunDir(manager, wsId, runDir)
-
-    expect(existsSync(runDir.path)).toBe(false)
-    expect(existsSync(folder)).toBe(true)
-    expect(existsSync(join(folder, 'keep.txt'))).toBe(true)
-    expect(readFileSync(join(folder, 'keep.txt'), 'utf-8')).toBe('important\n')
+  test('cleanupRunDirs tolerates never-built runs', async () => {
+    await expect(cleanupRunDirs(store, [123])).resolves.toBeUndefined()
   })
 })

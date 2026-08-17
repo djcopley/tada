@@ -1,176 +1,162 @@
 import { randomBytes } from 'node:crypto'
 import { canTransitionRun } from '@tada/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
-import type { AdapterSession } from '../adapters/types.js'
-import type { TadaDb } from '../db/index.js'
-import { agentRuns, columns, tickets, workspaces } from '../db/schema.js'
-import { executeRun, type RunnerDeps } from './runner.js'
+import { agentRuns, settings, tickets } from '../db/schema.js'
+import { executeRun, type LiveRun, type RunnerDeps } from './runner.js'
 
 interface ActiveEntry {
   controller: AbortController
-  workspaceId: number
   /** Set once the adapter actually starts; absent while the run dir is still being built. */
-  session?: AdapterSession
-}
-
-function readyColumnFor(db: TadaDb, workspaceId: number) {
-  return db.drizzle
-    .select()
-    .from(columns)
-    .where(and(eq(columns.workspaceId, workspaceId), eq(columns.kind, 'ready')))
-    .get()
+  live?: LiveRun
 }
 
 /**
  * Single-process, in-memory scheduler: bookkeeping of active runs lives in `active`, everything
  * else (queue state, ordering) is read fresh from the db on every tick. No timers — every run
- * completion re-ticks via `.finally`, and `enqueue`/`cancel` re-tick synchronously.
+ * completion re-ticks via `.finally`, and `enqueue`/`cancel`/hold changes re-tick synchronously.
+ *
+ * Concurrency counts only runs whose status is `running`. A held run keeps its entry here (its
+ * process is alive, waiting) but does not occupy a slot — that is what lets the overnight queue
+ * keep moving past a gate. Resuming a held run never waits for a slot: it may briefly push the
+ * running count over the cap, and new starts simply wait until it is back under. That is the
+ * whole of "an approved run resumes at the front".
  */
 export class Scheduler {
   private readonly active = new Map<number, ActiveEntry>()
 
   constructor(private readonly deps: RunnerDeps) {}
 
-  /** Called on boot: any run stuck in 'queued'/'running' -> terminal, card back to ready (held). */
+  /** Called on boot. Runs that were `running` or `held` belong to a process that no longer
+   * exists — they fail (the card lands in stopped, with re-run on offer). Runs still `queued`
+   * are left alone: the queue survives a restart. */
   recover(): void {
     const { db } = this.deps
-    const stuck = db.drizzle
+    const orphaned = db.drizzle
       .select()
       .from(agentRuns)
-      .where(inArray(agentRuns.status, ['queued', 'running']))
+      .where(inArray(agentRuns.status, ['running', 'held']))
       .all()
 
-    for (const run of stuck) {
-      // 'queued' has no legal 'failed' transition in the state machine; route it through
-      // 'cancelled' instead. 'running' -> 'failed' is legal and matches "the process died".
-      const toStatus = run.status === 'queued' ? 'cancelled' : 'failed'
-      if (!canTransitionRun(run.status, toStatus)) {
-        throw new Error(`illegal recovery transition: ${run.status} -> ${toStatus}`)
+    for (const run of orphaned) {
+      if (!canTransitionRun(run.status, 'failed')) {
+        throw new Error(`illegal recovery transition: ${run.status} -> failed`)
       }
-
       db.drizzle
         .update(agentRuns)
-        .set({ status: toStatus, finishedAt: new Date() })
+        .set({
+          status: 'failed',
+          finishedAt: new Date(),
+          hold: null,
+          heldReason: null,
+          summary: run.summary ?? 'the server restarted while this run was live',
+        })
         .where(eq(agentRuns.id, run.id))
         .run()
-
-      const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, run.ticketId)).get()
-      if (!ticket) continue
-      const readyCol = readyColumnFor(db, ticket.workspaceId)
-      if (!readyCol) continue
-
       db.drizzle
         .update(tickets)
-        .set({ columnId: readyCol.id, queueState: 'held' })
-        .where(eq(tickets.id, ticket.id))
+        .set({ column: 'stopped' })
+        .where(eq(tickets.id, run.ticketId))
         .run()
     }
+    this.tick()
   }
 
-  /** Create an AgentRun (status 'queued') and mark the ticket queued, then kick the loop. */
-  enqueue(ticketId: number, opts?: { adapter?: string; model?: string; effort?: string }): number {
+  /** Create an AgentRun (status 'queued') for the ticket — resolving adapter/model/effort and the
+   * time budget from settings — then kick the loop. The caller has already put the card in the
+   * queued column. */
+  enqueue(ticketId: number): number {
     const { db } = this.deps
     const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticketId)).get()
     if (!ticket) throw new Error(`ticket ${ticketId} not found`)
 
-    const workspace = db.drizzle
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, ticket.workspaceId))
-      .get()
-    if (!workspace) throw new Error(`workspace ${ticket.workspaceId} not found`)
-
-    const adapter = opts?.adapter ?? ticket.adapterOverride ?? workspace.defaultAdapter
-    const model = opts?.model ?? ticket.modelOverride ?? workspace.defaultModel
-    const effort = opts?.effort ?? ticket.effortOverride ?? workspace.defaultEffort
-
-    if (!this.deps.adapters.has(adapter)) {
-      throw new Error(`unknown adapter: ${adapter}`)
-    }
+    const prefs = db.drizzle.select().from(settings).get()
+    if (!prefs) throw new Error('settings row missing')
+    if (!this.deps.adapters.has(prefs.adapter)) throw new Error(`unknown adapter: ${prefs.adapter}`)
 
     const priorRunCount = db.drizzle
-      .select()
+      .select({ id: agentRuns.id })
       .from(agentRuns)
       .where(eq(agentRuns.ticketId, ticketId))
       .all().length
 
-    const runToken = randomBytes(24).toString('hex')
     const [run] = db.drizzle
       .insert(agentRuns)
       .values({
         ticketId,
-        adapter,
-        model,
-        effort,
+        adapter: prefs.adapter,
+        model: prefs.model,
+        effort: prefs.effort,
         attemptNumber: priorRunCount + 1,
         status: 'queued',
-        runToken,
+        budgetMs: prefs.timeoutMs,
+        runToken: randomBytes(24).toString('hex'),
       })
       .returning()
       .all()
     if (!run) throw new Error('failed to insert agent run')
 
-    db.drizzle.update(tickets).set({ queueState: 'queued' }).where(eq(tickets.id, ticketId)).run()
-
     this.tick()
     return run.id
   }
 
-  /** For each workspace, while active runs < concurrency, start the lowest-position queued run. */
+  /** How many runs are actually working right now (held runs don't count). */
+  runningCount(): number {
+    if (this.active.size === 0) return 0
+    return this.deps.db.drizzle
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(and(inArray(agentRuns.id, [...this.active.keys()]), eq(agentRuns.status, 'running')))
+      .all().length
+  }
+
+  /** While running runs < concurrency, start the lowest-position queued run. */
   tick(): void {
     const { db } = this.deps
-    const allWorkspaces = db.drizzle.select().from(workspaces).all()
+    const prefs = db.drizzle.select().from(settings).get()
+    if (!prefs) return
 
-    for (const ws of allWorkspaces) {
-      let capacity =
-        ws.concurrency - [...this.active.values()].filter((e) => e.workspaceId === ws.id).length
-      if (capacity <= 0) continue
+    let capacity = prefs.concurrency - this.runningCount()
+    if (capacity <= 0) return
 
-      const readyCol = readyColumnFor(db, ws.id)
-      if (!readyCol) continue
+    const candidates = db.drizzle
+      .select({ run: agentRuns, ticket: tickets })
+      .from(agentRuns)
+      .innerJoin(tickets, eq(agentRuns.ticketId, tickets.id))
+      .where(
+        and(
+          eq(tickets.column, 'queued'),
+          eq(agentRuns.status, 'queued'),
+          isNull(tickets.proposalState),
+        ),
+      )
+      .orderBy(asc(tickets.position), asc(agentRuns.id))
+      .all()
+      .filter((row) => !this.active.has(row.run.id))
 
-      const candidates = db.drizzle
-        .select({ run: agentRuns, ticket: tickets })
-        .from(agentRuns)
-        .innerJoin(tickets, eq(agentRuns.ticketId, tickets.id))
-        .where(
-          and(
-            eq(tickets.workspaceId, ws.id),
-            eq(tickets.columnId, readyCol.id),
-            eq(tickets.queueState, 'queued'),
-            eq(agentRuns.status, 'queued'),
-            isNull(tickets.proposalState),
-          ),
-        )
-        .orderBy(asc(tickets.position))
-        .all()
-        .filter((row) => !this.active.has(row.run.id))
-
-      for (const { run } of candidates) {
-        if (capacity <= 0) break
-        this.start(run.id, ws.id)
-        capacity--
-      }
+    for (const { run } of candidates) {
+      if (capacity <= 0) break
+      this.start(run.id)
+      capacity--
     }
   }
 
-  /** Abort signal -> executeRun marks the run 'cancelled' and unholds the card. */
+  /** Abort signal -> executeRun marks the run 'cancelled' and parks the card in backlog. */
   cancel(runId: number): void {
     this.active.get(runId)?.controller.abort()
   }
 
-  /** The live adapter session for a run, if one is in flight here. Undefined for runs that are
-   * queued, finished, or (after a restart) were started by a previous process. */
-  sessionFor(runId: number): AdapterSession | undefined {
-    return this.active.get(runId)?.session
+  /** The control surface for a run in flight here. Undefined for runs that are queued, finished,
+   * or (after a restart) were started by a previous process. */
+  liveRun(runId: number): LiveRun | undefined {
+    return this.active.get(runId)?.live
   }
 
-  private start(runId: number, workspaceId: number): void {
+  private start(runId: number): void {
     const controller = new AbortController()
-    const entry: ActiveEntry = { controller, workspaceId }
+    const entry: ActiveEntry = { controller }
     this.active.set(runId, entry)
-    executeRun(this.deps, runId, controller.signal, (session) => {
-      entry.session = session
+    executeRun({ ...this.deps, onHeld: () => this.tick() }, runId, controller.signal, (live) => {
+      entry.live = live
     })
       .catch(() => {
         // executeRun routes every failure through markFailed/markCancelled internally; this is
