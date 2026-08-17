@@ -1,10 +1,5 @@
-import { Text } from 'react-native'
-import { Screen } from '../../src/components/ui'
+import { MemoryListScreen } from '../../src/components/memory/MemoryListScreen'
 
-export default function PlaceholderScreen() {
-  return (
-    <Screen>
-      <Text>memory</Text>
-    </Screen>
-  )
+export default function MemoryScreen() {
+  return <MemoryListScreen />
 }

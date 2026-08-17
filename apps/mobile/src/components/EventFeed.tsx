@@ -1,6 +1,6 @@
 import type { ApiRunEvent } from '@tada/shared'
 import { useEffect } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -12,89 +12,10 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useTheme } from '../design/ThemeContext'
 import { space, type } from '../design/tokens'
+import { lineTone, narrationText, timeStamp } from '../runActivity'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function stringField(payload: unknown, field: string): string | undefined {
-  return isRecord(payload) && typeof payload[field] === 'string' ? (payload[field] as string) : undefined
-}
-
-/** "09:41" clock stamp for a narration line. */
-function timeStamp(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return '--:--'
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mm = String(date.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
-
-/** Pulls a file path out of a tool call's JSON `inputPreview` — the common shapes across tools
- * (`file_path`, `path`, `filePath`, `notebook_path`). `inputPreview` can be truncated mid-JSON
- * (the server caps its length), so a parse failure just means no path, not an error. */
-function pathFromInputPreview(inputPreview: string | undefined): string | undefined {
-  if (!inputPreview) return undefined
-  try {
-    const parsed: unknown = JSON.parse(inputPreview)
-    if (!isRecord(parsed)) return undefined
-    const candidate = parsed.file_path ?? parsed.path ?? parsed.filePath ?? parsed.notebook_path
-    return typeof candidate === 'string' ? candidate : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/** Concise narration for a tool call — "editing src/auth/session.ts" when the input names a
- * path, otherwise just the tool's name lowercased, or `null` (skip the line entirely) when
- * there's nothing worth narrating. */
-function toolNarration(payload: unknown): string | null {
-  const name = stringField(payload, 'name')
-  const path = pathFromInputPreview(stringField(payload, 'inputPreview'))
-  if (path) {
-    const verb = name && /read/i.test(name) ? 'reading' : name && /bash|run|exec/i.test(name) ? 'running' : 'editing'
-    return `${verb} ${path}`
-  }
-  return name ? name.toLowerCase() : null
-}
-
-/** The narration text for one run event, or `null` to skip it (an event type this feed doesn't
- * narrate, or a tool call with nothing concise to say). */
-/** Status events narrated as prose rather than raw enum values. Run-status transitions and the
- * agent's own outcome report both arrive as `status` events (payload.kind tells them apart). */
-function statusNarration(payload: unknown): string | null {
-  const status = stringField(payload, 'status')
-  if (!status) return null
-  const kind = stringField(payload, 'kind')
-  if (kind === 'outcome') {
-    const summary = stringField(payload, 'summary')?.trim()
-    const head = status === 'success' ? 'reported success' : `reported ${status}`
-    return summary ? `${head} — ${summary}` : head
-  }
-  const words: Record<string, string> = {
-    queued: 'queued',
-    running: 'running',
-    needs_review: 'finished — your turn',
-    failed: 'failed',
-    cancelled: 'stopped',
-  }
-  return words[status] ?? status.replace(/_/g, ' ')
-}
-
-export function narrationText(event: ApiRunEvent): string | null {
-  switch (event.type) {
-    case 'status':
-      return statusNarration(event.payload)
-    case 'text':
-      return stringField(event.payload, 'text') ?? null
-    case 'error':
-      return stringField(event.payload, 'message') ?? 'error'
-    case 'tool_use':
-      return toolNarration(event.payload)
-    default:
-      return null
-  }
-}
+// Other screens' "latest agent line" hooks import narrationText from here; keep the export.
+export { narrationText }
 
 function testIdFor(event: ApiRunEvent): string {
   const kind = event.type === 'tool_use' ? 'tool' : event.type
@@ -121,36 +42,85 @@ function LiveGlyph({ color }: { color: string }) {
   return <Animated.Text style={[{ color }, style]}>{'▮ '}</Animated.Text>
 }
 
+export type EventFeedLine = { event: ApiRunEvent; text: string }
+
+/** A line's context-menu request: right-click on web, long press elsewhere. `anchor` is the
+ * pointer position on web (a 1×1 frame) or undefined for a long press. */
+export type LineContextRequest = {
+  line: EventFeedLine
+  anchor?: { x: number; y: number; width: number; height: number }
+}
+
 /**
  * The agent's narration, meant to sit directly inside an `<AgentPanel>`: one stamped mono line
- * per event, oldest first. The latest line pulses in live-text while the run is still going;
- * error lines render in fail-text. Raw output lives in the panel's own `rawOutput` prop, not here.
+ * per event, oldest first. The latest line pulses in live-text while the run is running; hold
+ * lines are live-text (the run is alive, waiting on you); errors and never-rules render in
+ * fail-text; the done line in sage. Raw output lives in the panel's own `rawOutput` prop, not
+ * here. `onLineContext` (right-click / long press) selects the line while a menu is open —
+ * `selectedId` draws the live-colour outline the design shows.
  */
-export function EventFeed({ events, live, testID }: { events: ApiRunEvent[]; live: boolean; testID?: string }) {
+export function EventFeed({
+  events,
+  live,
+  onLineContext,
+  selectedId,
+  testID,
+}: {
+  events: ApiRunEvent[]
+  live: boolean
+  onLineContext?: (req: LineContextRequest) => void
+  selectedId?: number
+  testID?: string
+}) {
   const { colors } = useTheme()
-  const entries = events
+  const entries: EventFeedLine[] = events
     .map((event) => ({ event, text: narrationText(event) }))
-    .filter((entry): entry is { event: ApiRunEvent; text: string } => entry.text !== null)
+    .filter((entry): entry is EventFeedLine => entry.text !== null)
   const lastIndex = entries.length - 1
 
   return (
     <View testID={testID} style={styles.list}>
-      {entries.map(({ event, text }, index) => {
-        const isError = event.type === 'error'
-        const isLatestLive = live && !isError && index === lastIndex
-        const color = isError
-          ? colors.failText
-          : isLatestLive
-            ? colors.liveText
-            : event.type === 'text'
-              ? colors.agentText
-              : colors.agentTextMuted
+      {entries.map((entry, index) => {
+        const { event, text } = entry
+        const tone = lineTone(event)
+        const isLatestLive = live && tone !== 'error' && tone !== 'hold' && index === lastIndex
+        const color =
+          tone === 'error'
+            ? colors.failText
+            : tone === 'hold' || isLatestLive
+              ? colors.liveText
+              : tone === 'ok'
+                ? colors.okText
+                : tone === 'text'
+                  ? colors.agentText
+                  : colors.agentTextMuted
+        const selected = selectedId === event.id
+        const webProps =
+          Platform.OS === 'web' && onLineContext
+            ? {
+                onContextMenu: (e: { preventDefault: () => void; nativeEvent?: { pageX?: number; pageY?: number } }) => {
+                  e.preventDefault()
+                  const x = e.nativeEvent?.pageX ?? 0
+                  const y = e.nativeEvent?.pageY ?? 0
+                  onLineContext({ line: entry, anchor: { x, y, width: 1, height: 1 } })
+                },
+              }
+            : {}
         return (
-          <Text key={event.id} testID={testIdFor(event)} style={[type.mono, styles.line, { color }]}>
-            <Text style={{ color: colors.agentTextMuted }}>{`${timeStamp(event.createdAt)}  `}</Text>
-            {isLatestLive ? <LiveGlyph color={colors.liveText} /> : null}
-            {isError ? `✕ ${text}` : text}
-          </Text>
+          <Pressable
+            key={event.id}
+            testID={testIdFor(event)}
+            onLongPress={onLineContext ? () => onLineContext({ line: entry }) : undefined}
+            delayLongPress={400}
+            style={[styles.lineWrap, selected && { borderColor: colors.live }]}
+            {...(webProps as object)}
+          >
+            <Text style={[type.mono, styles.line, { color }]}>
+              <Text style={{ color: colors.agentTextMuted }}>{`${timeStamp(event.createdAt)}  `}</Text>
+              {isLatestLive ? <LiveGlyph color={colors.liveText} /> : null}
+              {tone === 'error' && !text.startsWith('✕') ? `✕ ${text}` : text}
+            </Text>
+          </Pressable>
         )
       })}
     </View>
@@ -160,6 +130,13 @@ export function EventFeed({ events, live, testID }: { events: ApiRunEvent[]; liv
 const styles = StyleSheet.create({
   list: {
     gap: space.xs,
+  },
+  lineWrap: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: 4,
+    marginHorizontal: -5,
+    paddingHorizontal: 4,
   },
   line: {
     lineHeight: 22,

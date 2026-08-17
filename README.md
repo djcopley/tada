@@ -1,49 +1,19 @@
 # tada
 
-A personal kanban app (web + mobile) where tickets are tasks for coding agents. You organize
-tickets on boards, drag them to a Ready queue, and agents on your self-hosted server pick them
-up, do the work against a workspace of git repos (or no repos at all — some tasks are purely
-operational), report back on the ticket, and notify your phone. Single-user tool.
+A personal kanban app (web + mobile) where tickets are tasks for coding agents. You write a
+ticket, drop it in the queue, and an agent on your self-hosted server picks it up, works out of
+one folder (a git worktree per repo it touches — or no repo at all; some tasks are purely
+operational), pushes and opens the pull request itself, and moves the ticket to done. Approval
+sits in the *middle* of the run: a rule table decides which tool calls halt the agent (by default,
+opening or merging a PR); a held run keeps its context and its place, frees its slot for the next
+ticket, and continues from that step when you approve, deny with a note, answer its question, or
+give it more time. Red is reserved for real failure, and nothing ever auto-retries. Single-user tool.
 
-`tada-server` is the Node/TypeScript daemon: a REST + WebSocket API, SQLite database, workspace
-manager, and scheduler that dispatches tickets to agent adapters (Claude via the Claude Agent SDK
-under your Max subscription, plus a pluggable adapter interface for other CLIs). It runs as a
-systemd service on a box you own — reachable over your Tailscale tailnet — and every agent run
-gets its own git worktree so canonical repo clones stay pristine. This repository also contains
-the client, `tada-app` (`apps/mobile`) — one Expo codebase for iOS, Android, and web.
-
-## Screenshots
-
-<p align="center">
-  <img src="docs/screenshots/board.png" alt="Board view: tickets moving through Backlog, Queued, Running, In review, and Done" width="900">
-</p>
-
-<p align="center">
-  <em>Tickets move left to right as agents pick them up, work, and hand them back for review.</em>
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/ticket.png" alt="Ticket detail: a finished run awaiting review, with diff stats and an Accept run / Send back choice" width="820">
-</p>
-
-<p align="center">
-  <em>Every run lands here — read the summary and diff stats, then accept it or send it back with feedback.</em>
-</p>
-
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/control-mobile.png" alt="Mobile Control screen: what needs your review and what's currently running" width="280">
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/board-mobile.png" alt="Mobile board: the same columns, paged one at a time" width="280">
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><em>Control — what needs you, what's running</em></td>
-    <td align="center"><em>Board — same columns, paged for a phone</em></td>
-  </tr>
-</table>
+`tada-server` is the Node/TypeScript daemon: a REST + WebSocket API, SQLite database, and a
+scheduler that dispatches tickets to agent adapters (Claude via the Claude Agent SDK under your
+Max subscription — the only harness that supports gates — plus codex/gemini CLIs). It runs as a
+systemd service on a box you own, reachable over your Tailscale tailnet. This repository also
+contains the client, `tada-app` (`apps/mobile`) — one Expo codebase for iOS, Android, and web.
 
 ## Install
 
@@ -64,7 +34,7 @@ Steps:
 4. As the `tada` user, authenticate the tools the server shells out to:
    - `claude login` — one-time login; the Claude adapter drives Claude Code under this session,
      billed to your Max subscription (no API key involved).
-   - `gh auth login` — scope the token to just the repos your workspaces use (see
+   - `gh auth login` — scope the token to just the repos you connect (see
      [Security posture](#security-posture)).
 5. Install and enable the systemd unit:
 
@@ -88,22 +58,20 @@ and local dev:
 
 | Purpose | XDG variable | Default | Override |
 |---|---|---|---|
-| Workspaces (repo clones, memory) | `$XDG_DATA_HOME/tada` | `~/.local/share/tada` | `TADA_DATA_DIR` |
+| Database, repo clones, sources manifest | `$XDG_DATA_HOME/tada` | `~/.local/share/tada` | `TADA_DATA_DIR` |
 | Server config (`config.json`) | `$XDG_CONFIG_HOME/tada` | `~/.config/tada` | `TADA_CONFIG_DIR` |
 | Transcripts, logs, run journals | `$XDG_STATE_HOME/tada` | `~/.local/state/tada` | `TADA_STATE_DIR` |
 
-Under the data dir, each workspace looks like:
+The data dir looks like:
 
 ```
-workspaces/<ws>/
-  manifest.json          # repos, settings, default agent/model
-  repos/<repo>/          # canonical clones
-  memory/
-    AGENTS.md            # workspace charter: conventions, goals, gotchas
-    notes/*.md           # durable learnings agents accumulate
+tada.db                # settings, rules, tickets, runs, memory notes, activity
+manifest.json          # connected sources: repo clones and attached folders
+repos/<repo>/          # canonical clones (each run gets a worktree under the state dir)
 ```
 
-The SQLite database lives at `$XDG_DATA_HOME/tada/tada.db`.
+Under the state dir, each run has `runs/<runId>/` (scratch, folder symlinks, worktrees) and
+`transcripts/<runId>.jsonl`. Memory notes live in the database.
 
 `config.json` holds:
 
@@ -174,16 +142,16 @@ the same connection screen as mobile.
 |---|---|---|
 | iOS/Android | `expo-secure-store` (native secure enclave) | Credentials only (server URL + token) |
 | Web | `localStorage` | All settings including credentials |
-| All platforms | In-memory React Query cache | Fetched data (workspace list, board state); cleared on app close |
+| All platforms | In-memory React Query cache | Fetched data (board, memory, rules); cleared on app close |
 
 ### Features & limitations
 
-- **Board interactions:** tap a ticket to open details; long-press to see available actions (move to
-  Ready, reorder priority, mark complete). v1 uses tap-driven actions, not free drag-and-drop.
-- **Push notifications:** native only. Web builds skip registration; completion/failure events are
-  visible in the app's activity feed regardless.
-- **Live updates:** board changes and ticket runs stream via WebSocket when connected. Falls back to
-  polling if the connection drops.
+- **Board interactions:** drag cards between Backlog, Queued and Done (Running and Stopped are the
+  runner's lanes); right-click on web / long-press on mobile for the action set (open, approve /
+  deny / view diff for a held card, move to, duplicate, copy link, delete).
+- **Push notifications:** native only, and only when a run stops on you (permission, question, out
+  of time, failure) plus one optional re-ping. Finished runs are quiet — they filed themselves.
+- **Live updates:** board, thread and run events stream over one WebSocket.
 
 ## Running tests
 
@@ -209,6 +177,7 @@ TADA_IT=1 pnpm --filter @tada/server exec vitest run test/claudeAdapter.it.test.
 Agents run unattended with permissions bypassed, as the server's user. Ticket text is trusted
 (you wrote it), but repo/web content makes prompt injection a real if modest risk. v1 mitigations:
 dedicated user on a dedicated VM; only the credentials this system needs (fine-grained GitHub
-token scoped to workspace repos, per-workspace SSH key); nothing else of yours on the box.
+token scoped to the connected repos); nothing else of yours on the box. The rule table is a
+safety net for *your* review moment (the PR), not a sandbox — an unmatched tool call is allowed.
 Container-per-run is the known future hardening step and slots into the adapter interface without
 redesign.

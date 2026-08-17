@@ -1,10 +1,7 @@
-import { Text } from 'react-native'
-import { Screen } from '../../src/components/ui'
+import { useLocalSearchParams } from 'expo-router'
+import { NoteEditorScreen } from '../../src/components/memory/NoteEditorScreen'
 
 export default function NoteScreen() {
-  return (
-    <Screen>
-      <Text>note</Text>
-    </Screen>
-  )
+  const { id } = useLocalSearchParams<{ id: string }>()
+  return <NoteEditorScreen id={id} />
 }

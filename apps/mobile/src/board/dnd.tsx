@@ -18,8 +18,8 @@ export function measureInWindow(view: View): Promise<Rect> {
 
 export type DragTicket = {
   ticket: ApiTicket
-  fromColumnId: number
-  fromColumnKind: ColumnKind
+  /** The lane the card was lifted from. */
+  from: ColumnKind
   width: number
   height: number
 }
@@ -32,8 +32,8 @@ export type BoardDnD = {
   cancelDrag: () => void
   /** Ticket id currently lifted (source card dims itself). */
   draggingId: number | null
-  registerColumn: (columnId: number, kind: ColumnKind, view: View) => () => void
-  registerCard: (columnId: number, ticketId: number, view: View) => () => void
+  registerLane: (kind: ColumnKind, view: View) => () => void
+  registerCard: (kind: ColumnKind, ticketId: number, view: View) => () => void
 }
 
 const BoardDnDContext = createContext<BoardDnD | null>(null)
