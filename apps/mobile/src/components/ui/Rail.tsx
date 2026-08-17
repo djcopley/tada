@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router'
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
 import { goToSection, type SectionKey } from '../../nav'
+import { ThemeToggle } from './ThemeToggle'
 
 export type RailNavKey = SectionKey
 
@@ -22,10 +23,10 @@ type Props = {
 }
 
 /** 188px web sidebar: wordmark, nav (Control's stopped-on-you count in live-text), a spacer, the
- * repos line, and the day-mode switch. Matches the mobile BottomStrip's routes. */
+ * repos line, and the night/day theme toggle. Matches the mobile BottomStrip's routes. */
 export function Rail({ active, stoppedCount, repoCount, testID }: Props) {
   const router = useRouter()
-  const { colors, scheme, setScheme } = useTheme()
+  const { colors } = useTheme()
 
   const items: NavItem[] = [
     { key: 'control', label: 'Control', count: stoppedCount },
@@ -83,18 +84,7 @@ export function Rail({ active, stoppedCount, repoCount, testID }: Props) {
             {`${repoCount} ${repoCount === 1 ? 'repo' : 'repos'} connected`}
           </Text>
         ) : null}
-        <View style={styles.switchRow}>
-          <Text style={[type.body, { color: colors.text }]}>Day mode</Text>
-          <Switch
-            testID="rail-theme-switch"
-            accessibilityLabel="Day mode"
-            value={scheme === 'day'}
-            onValueChange={(on) => setScheme(on ? 'day' : 'night')}
-            trackColor={{ true: colors.live, false: colors.controlBorder }}
-            // Muted ink so the off state reads as a control, not a dead dark-on-dark pill.
-            thumbColor={colors.textMuted}
-          />
-        </View>
+        <ThemeToggle testID="rail-theme-toggle" />
       </View>
     </View>
   )
@@ -131,10 +121,5 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: space.sm,
     gap: space.md,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
 })
