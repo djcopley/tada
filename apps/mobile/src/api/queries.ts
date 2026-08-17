@@ -1,85 +1,50 @@
-import type { ApiBoard, ApiTicket, ApiWorkspace } from '@tada/shared'
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import type { AddSourceBody } from './client'
+import type { ApiBoard, ApiMemoryNote, ApiTicket, ColumnKind } from '@tada/shared'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { AddSourceBody, RuleBody, SettingsPatch } from './client'
 import { useClient } from './ClientContext'
-import { loadActiveWorkspaceId, saveActiveWorkspaceId } from '../settings'
-
-const CHECK_NAME_DEBOUNCE_MS = 300
 
 /**
- * Applies a move/reorder to a cached board snapshot so the card lands
- * instantly; the server round-trip then reconciles via invalidation.
+ * Applies a move/reorder to a cached board snapshot so the card lands instantly; the server
+ * round-trip then reconciles via invalidation.
  */
-function moveInBoard(
+export function moveInBoard(
   board: ApiBoard,
   ticketId: number,
-  to: { columnId?: number; position: number },
+  to: { column?: ColumnKind; position?: number },
 ): ApiBoard {
   let moved: ApiTicket | undefined
-  const stripped = board.columns.map((column) => {
-    const ticket = column.tickets.find((t) => t.id === ticketId)
-    if (!ticket) return column
-    moved = ticket
-    return { ...column, tickets: column.tickets.filter((t) => t.id !== ticketId) }
-  })
-  if (!moved) return board
-  const targetId = to.columnId ?? moved.columnId
-  return {
-    ...board,
-    columns: stripped.map((column) =>
-      column.id === targetId
-        ? {
-            ...column,
-            tickets: [...column.tickets, { ...moved!, columnId: targetId, position: to.position }],
-          }
-        : column,
-    ),
+  const next = { ...board }
+  for (const key of Object.keys(board) as ColumnKind[]) {
+    const found = board[key].find((t) => t.id === ticketId)
+    if (found) {
+      moved = found
+      next[key] = board[key].filter((t) => t.id !== ticketId)
+    }
   }
+  if (!moved) return board
+  const target = to.column ?? moved.column
+  const placed: ApiTicket = { ...moved, column: target, position: to.position ?? moved.position }
+  next[target] = [...next[target], placed].sort((a, b) => a.position - b.position)
+  return next
 }
 
 export const keys = {
-  workspaces: ['workspaces'] as const,
-  board: (id: number) => ['board', id] as const,
+  board: ['board'] as const,
   ticket: (id: number) => ['ticket', id] as const,
-  memory: (id: number) => ['memory', id] as const,
-  globalMemory: ['memory', 'global'] as const,
-  workspace: (id: number) => ['workspace', id] as const,
+  memory: ['memory'] as const,
   run: (id: number) => ['run', id] as const,
-  /** Bare `['activity']` is a prefix of every `activity(wsId)` key, so
-   * invalidating it (as useWorkspaceSocket does) refreshes every activity
-   * view — per-workspace and the cross-workspace "all" feed alike. */
-  activity: (workspaceId?: number) =>
-    workspaceId === undefined ? (['activity'] as const) : (['activity', workspaceId] as const),
+  runDiff: (id: number) => ['runDiff', id] as const,
+  activity: ['activity'] as const,
   adapters: ['adapters'] as const,
   status: ['status'] as const,
-  knownRepos: ['knownRepos'] as const,
-  checkName: (name: string) => ['checkName', name] as const,
+  settings: ['settings'] as const,
+  sources: ['sources'] as const,
+  rules: ['rules'] as const,
 }
 
-export function useWorkspaces() {
+export function useBoard() {
   const client = useClient()
-  return useQuery({ queryKey: keys.workspaces, queryFn: () => client.listWorkspaces() })
-}
-
-export function useBoard(wsId: number) {
-  const client = useClient()
-  return useQuery({ queryKey: keys.board(wsId), queryFn: () => client.board(wsId), enabled: Number.isFinite(wsId) })
-}
-
-/**
- * Boards for several workspaces at once — the Control screen's triage view
- * spans every workspace. Shares cache keys with useBoard so per-workspace
- * screens reuse the same data.
- */
-export function useBoards(workspaceIds: number[]) {
-  const client = useClient()
-  return useQueries({
-    queries: workspaceIds.map((id) => ({
-      queryKey: keys.board(id),
-      queryFn: () => client.board(id),
-    })),
-  })
+  return useQuery({ queryKey: keys.board, queryFn: () => client.board() })
 }
 
 export function useTicket(id: number) {
@@ -87,46 +52,9 @@ export function useTicket(id: number) {
   return useQuery({ queryKey: keys.ticket(id), queryFn: () => client.ticket(id), enabled: Number.isFinite(id) })
 }
 
-/**
- * Ticket detail (comments + runs) for several tickets at once — the Control screen's
- * triage cards need each needs-you/live ticket's latest run and agent comment, which
- * the bare board DTO doesn't carry. Shares cache keys with useTicket.
- */
-export function useTicketDetails(ticketIds: number[]) {
+export function useMemory() {
   const client = useClient()
-  return useQueries({
-    queries: ticketIds.map((id) => ({
-      queryKey: keys.ticket(id),
-      queryFn: () => client.ticket(id),
-    })),
-  })
-}
-
-/** `wsId` may be `undefined` (e.g. the Control screen before an active workspace has loaded) —
- * in that case the query simply stays disabled rather than fetching a bogus id. */
-export function useMemory(wsId: number | undefined) {
-  const client = useClient()
-  return useQuery({
-    queryKey: keys.memory(wsId ?? -1),
-    queryFn: () => client.memory(wsId as number),
-    enabled: wsId !== undefined && Number.isFinite(wsId),
-  })
-}
-
-export function useGlobalMemory() {
-  const client = useClient()
-  return useQuery({ queryKey: keys.globalMemory, queryFn: () => client.globalMemory() })
-}
-
-/** `wsId` may be `undefined` (e.g. the run screen before `useRun` has resolved a `workspaceId`
- * to fetch) — in that case the query simply stays disabled rather than fetching a bogus id. */
-export function useWorkspace(wsId: number | undefined) {
-  const client = useClient()
-  return useQuery({
-    queryKey: keys.workspace(wsId ?? -1),
-    queryFn: () => client.getWorkspace(wsId as number),
-    enabled: wsId !== undefined && Number.isFinite(wsId),
-  })
+  return useQuery({ queryKey: keys.memory, queryFn: () => client.memory() })
 }
 
 export function useRun(runId: number) {
@@ -134,12 +62,16 @@ export function useRun(runId: number) {
   return useQuery({ queryKey: keys.run(runId), queryFn: () => client.run(runId), enabled: Number.isFinite(runId) })
 }
 
-export function useActivity(workspaceId?: number) {
+/** The diff at a publish gate. Disabled unless the caller says the run is at one — the server
+ * 409s otherwise, and there is no reason to ask. */
+export function useRunDiff(runId: number, enabled: boolean) {
   const client = useClient()
-  return useQuery({
-    queryKey: keys.activity(workspaceId),
-    queryFn: () => client.activity(workspaceId),
-  })
+  return useQuery({ queryKey: keys.runDiff(runId), queryFn: () => client.runDiff(runId), enabled: enabled && Number.isFinite(runId) })
+}
+
+export function useActivity(limit?: number) {
+  const client = useClient()
+  return useQuery({ queryKey: [...keys.activity, limit ?? 'default'], queryFn: () => client.activity(limit) })
 }
 
 export function useAdapters() {
@@ -152,50 +84,45 @@ export function useStatus() {
   return useQuery({ queryKey: keys.status, queryFn: () => client.status() })
 }
 
-export function useKnownRepos() {
+export function useSettings() {
   const client = useClient()
-  return useQuery({ queryKey: keys.knownRepos, queryFn: () => client.knownRepos() })
+  return useQuery({ queryKey: keys.settings, queryFn: () => client.settings() })
 }
 
-/** Debounces `name` before hitting GET /workspaces/check-name so a fast typist doesn't fire a
- * request per keystroke. */
-export function useCheckName(name: string) {
+export function useSources() {
   const client = useClient()
-  const [debounced, setDebounced] = useState(name)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(name), CHECK_NAME_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [name])
-
-  return useQuery({
-    queryKey: keys.checkName(debounced),
-    queryFn: () => client.checkName(debounced),
-    enabled: debounced.trim().length > 0,
-  })
+  return useQuery({ queryKey: keys.sources, queryFn: () => client.sources() })
 }
 
-export function useMoveTicket(wsId: number) {
+export function useRules() {
+  const client = useClient()
+  return useQuery({ queryKey: keys.rules, queryFn: () => client.rules() })
+}
+
+// --- mutations ----------------------------------------------------------------------------------
+
+function invalidateTicket(qc: ReturnType<typeof useQueryClient>, ticketId?: number) {
+  void qc.invalidateQueries({ queryKey: keys.board })
+  if (ticketId !== undefined) void qc.invalidateQueries({ queryKey: keys.ticket(ticketId) })
+  void qc.invalidateQueries({ queryKey: keys.activity })
+}
+
+export function useMoveTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { id: number; to: { columnId: number; position: number } }) =>
+    mutationFn: (vars: { id: number; to: { column: 'backlog' | 'queued' | 'done'; position?: number } }) =>
       client.moveTicket(vars.id, vars.to),
     onMutate: async (vars) => {
-      await qc.cancelQueries({ queryKey: keys.board(wsId) })
-      const previous = qc.getQueryData<ApiBoard>(keys.board(wsId))
-      if (previous) {
-        qc.setQueryData(keys.board(wsId), moveInBoard(previous, vars.id, vars.to))
-      }
+      await qc.cancelQueries({ queryKey: keys.board })
+      const previous = qc.getQueryData<ApiBoard>(keys.board)
+      if (previous) qc.setQueryData(keys.board, moveInBoard(previous, vars.id, vars.to))
       return { previous }
     },
     onError: (_err, _vars, context) => {
-      if (context?.previous) qc.setQueryData(keys.board(wsId), context.previous)
+      if (context?.previous) qc.setQueryData(keys.board, context.previous)
     },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: keys.board(wsId) })
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
-    },
+    onSettled: (_data, _err, vars) => invalidateTicket(qc, vars.id),
   })
 }
 
@@ -203,81 +130,42 @@ export function useCreateTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (t: { workspaceId: number; title: string; description?: string }) =>
-      client.createTicket(t),
-    onSuccess: (ticket) => {
-      void qc.invalidateQueries({ queryKey: keys.board(ticket.workspaceId) })
-    },
+    mutationFn: (t: { title: string; description?: string; column?: 'backlog' | 'queued' }) => client.createTicket(t),
+    onSuccess: () => invalidateTicket(qc),
   })
 }
 
-export function useComment(ticketId: number) {
+export function usePatchTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: string) => client.comment(ticketId, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.ticket(ticketId) })
-    },
+    mutationFn: (vars: { id: number; patch: Partial<Pick<ApiTicket, 'title' | 'description'>> }) =>
+      client.patchTicket(vars.id, vars.patch),
+    onSuccess: (_t, vars) => invalidateTicket(qc, vars.id),
   })
 }
 
-export function usePatchTicket(wsId: number) {
+export function useRerun() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => client.rerun(id), onSuccess: (_t, id) => invalidateTicket(qc, id) })
+}
+
+export function useDuplicateTicket() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => client.duplicateTicket(id), onSuccess: () => invalidateTicket(qc) })
+}
+
+export function useDeleteTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: {
-      id: number
-      patch: Partial<
-        Pick<ApiTicket, 'title' | 'description' | 'position' | 'adapterOverride' | 'modelOverride'>
-      >
-    }) => client.patchTicket(vars.id, vars.patch),
-    onMutate: async (vars) => {
-      // Only position changes (reorders) get an optimistic board update;
-      // other patches are edited in place on the detail screen.
-      if (vars.patch.position === undefined) return {}
-      await qc.cancelQueries({ queryKey: keys.board(wsId) })
-      const previous = qc.getQueryData<ApiBoard>(keys.board(wsId))
-      if (previous) {
-        qc.setQueryData(keys.board(wsId), moveInBoard(previous, vars.id, { position: vars.patch.position }))
-      }
-      return { previous }
+    mutationFn: (id: number) => client.deleteTicket(id),
+    onSuccess: (_v, id) => {
+      qc.removeQueries({ queryKey: keys.ticket(id) })
+      invalidateTicket(qc)
     },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) qc.setQueryData(keys.board(wsId), context.previous)
-    },
-    onSettled: (_data, _err, vars) => {
-      void qc.invalidateQueries({ queryKey: keys.ticket(vars.id) })
-      void qc.invalidateQueries({ queryKey: keys.board(wsId) })
-    },
-  })
-}
-
-/** Shared onSuccess for the review-decision mutations (accept/send-back): the ticket leaves
- * in_review for a different column, so its own detail, its workspace's board, and the
- * workspaces list (queued/needs-review counts live there) all go stale together. */
-function invalidateAfterReviewDecision(qc: ReturnType<typeof useQueryClient>, ticket: ApiTicket) {
-  void qc.invalidateQueries({ queryKey: keys.ticket(ticket.id) })
-  void qc.invalidateQueries({ queryKey: keys.board(ticket.workspaceId) })
-  void qc.invalidateQueries({ queryKey: keys.workspaces })
-}
-
-export function useAccept() {
-  const client = useClient()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (ticketId: number) => client.accept(ticketId),
-    onSuccess: (ticket) => invalidateAfterReviewDecision(qc, ticket),
-  })
-}
-
-export function useSendBack() {
-  const client = useClient()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (vars: { ticketId: number; feedback: string }) =>
-      client.sendBack(vars.ticketId, vars.feedback),
-    onSuccess: (ticket) => invalidateAfterReviewDecision(qc, ticket),
   })
 }
 
@@ -285,195 +173,185 @@ export function useProposal() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { ticketId: number; action: 'keep' | 'dismiss' }) =>
-      client.proposal(vars.ticketId, vars.action),
+    mutationFn: (vars: { ticketId: number; action: 'keep' | 'dismiss' }) => client.proposal(vars.ticketId, vars.action),
     onSuccess: (ticket, vars) => {
-      if (ticket) {
-        void qc.invalidateQueries({ queryKey: keys.ticket(vars.ticketId) })
-      } else {
-        // Dismissed: the ticket is gone, so drop it rather than refetch a 404.
-        qc.removeQueries({ queryKey: keys.ticket(vars.ticketId) })
-      }
-      // Dismiss returns no body, so refresh every board rather than only the kept ticket's.
-      void qc.invalidateQueries({ queryKey: ['board'] })
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
+      if (!ticket) qc.removeQueries({ queryKey: keys.ticket(vars.ticketId) })
+      invalidateTicket(qc, ticket ? vars.ticketId : undefined)
     },
   })
 }
 
-export function useNudge(runId: number) {
+/** Send a note to the agent. Resolves with whether it was delivered to a live session. */
+export function useNote(ticketId: number) {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (note: string) => client.nudge(runId, note),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.run(runId) })
-      // The nudge lands in the ticket thread as a comment too.
-      void qc.invalidateQueries({ queryKey: ['ticket'] })
-    },
+    mutationFn: (body: string) => client.note(ticketId, body),
+    onSuccess: () => invalidateTicket(qc, ticketId),
   })
 }
 
-export function useCreateWorkspace() {
+function invalidateRun(qc: ReturnType<typeof useQueryClient>, runId: number) {
+  void qc.invalidateQueries({ queryKey: keys.run(runId) })
+  void qc.invalidateQueries({ queryKey: keys.board })
+  void qc.invalidateQueries({ queryKey: ['ticket'] })
+  void qc.invalidateQueries({ queryKey: keys.activity })
+}
+
+export function useCancelRun() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (runId: number) => client.cancelRun(runId), onSuccess: (_v, runId) => invalidateRun(qc, runId) })
+}
+
+/** Approve the held call. `alwaysAllow` edits the rule table too (and Settings' list refreshes). */
+export function useApprove() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => client.createWorkspace(name),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
+    mutationFn: (vars: { runId: number; alwaysAllow?: boolean }) => client.approve(vars.runId, { alwaysAllow: vars.alwaysAllow }),
+    onSuccess: (_v, vars) => {
+      invalidateRun(qc, vars.runId)
+      if (vars.alwaysAllow) void qc.invalidateQueries({ queryKey: keys.rules })
     },
   })
 }
 
-export function usePutMemory(wsId: number) {
+export function useDeny() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { file: string; body: string }) =>
-      client.putMemory(wsId, vars.file, vars.body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.memory(wsId) })
+    mutationFn: (vars: { runId: number; note: string; saveToMemory?: boolean }) =>
+      client.deny(vars.runId, vars.note, { saveToMemory: vars.saveToMemory }),
+    onSuccess: (_v, vars) => {
+      invalidateRun(qc, vars.runId)
+      if (vars.saveToMemory) void qc.invalidateQueries({ queryKey: keys.memory })
     },
   })
 }
 
-export function useGlobalPutMemory() {
+export function useAnswer() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { file: string; body: string }) => client.putGlobalMemory(vars.file, vars.body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.globalMemory })
+    mutationFn: (vars: { runId: number; answer: string; saveToMemory?: boolean }) =>
+      client.answer(vars.runId, vars.answer, { saveToMemory: vars.saveToMemory }),
+    onSuccess: (_v, vars) => {
+      invalidateRun(qc, vars.runId)
+      if (vars.saveToMemory) void qc.invalidateQueries({ queryKey: keys.memory })
     },
   })
 }
 
-/** Deletes a note file (never AGENTS.md); `wsId` undefined = the global scope. */
-export function useDeleteMemory(wsId?: number) {
+export function useContinueRun() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (file: string) => (wsId !== undefined ? client.deleteMemory(wsId, file) : client.deleteGlobalMemory(file)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: wsId !== undefined ? keys.memory(wsId) : keys.globalMemory })
-    },
+    mutationFn: (vars: { runId: number; extraMs?: number }) => client.continueRun(vars.runId, vars.extraMs),
+    onSuccess: (_v, vars) => invalidateRun(qc, vars.runId),
   })
 }
 
-export function useKeepNote(wsId?: number) {
+// memory
+function invalidateMemory(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: keys.memory })
+  void qc.invalidateQueries({ queryKey: keys.activity })
+}
+
+export function useCreateNote() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (noteId: number) => client.keepNote(noteId),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: wsId !== undefined ? keys.memory(wsId) : keys.globalMemory })
-    },
+    mutationFn: (note: { title: string; body: string; tags?: string[] }) => client.createNote(note),
+    onSuccess: () => invalidateMemory(qc),
   })
 }
 
-export function useDiscardNote(wsId?: number) {
+export function usePatchNote() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (noteId: number) => client.discardNote(noteId),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: wsId !== undefined ? keys.memory(wsId) : keys.globalMemory })
-    },
+    mutationFn: (vars: { id: number; patch: Partial<Pick<ApiMemoryNote, 'title' | 'body' | 'tags'>> }) =>
+      client.patchNote(vars.id, vars.patch),
+    onSuccess: () => invalidateMemory(qc),
   })
 }
 
-export function usePatchWorkspace(wsId: number) {
+export function useDeleteNote() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => client.deleteNote(id), onSuccess: () => invalidateMemory(qc) })
+}
+
+export function useKeepNote() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => client.keepNote(id), onSuccess: () => invalidateMemory(qc) })
+}
+
+export function useDismissNote() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => client.dismissNote(id), onSuccess: () => invalidateMemory(qc) })
+}
+
+// settings, sources, rules
+export function usePatchSettings() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (
-      patch: Partial<
-        Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'defaultEffort' | 'concurrency' | 'timeoutMs'>
-      >,
-    ) => client.patchWorkspace(wsId, patch),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.workspace(wsId) })
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
-    },
+    mutationFn: (patch: SettingsPatch) => client.patchSettings(patch),
+    onSuccess: (data) => qc.setQueryData(keys.settings, data),
   })
 }
 
-export function useAddSource(wsId: number) {
+export function useAddSource() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: AddSourceBody) => client.addSource(wsId, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.workspace(wsId) })
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
+    mutationFn: (body: AddSourceBody) => client.addSource(body),
+    onSuccess: (data) => {
+      qc.setQueryData(keys.sources, data)
+      void qc.invalidateQueries({ queryKey: keys.status })
     },
   })
 }
 
-export function useRemoveSource(wsId: number) {
+export function useRemoveSource() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => client.removeSource(wsId, name),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: keys.workspace(wsId) })
-      void qc.invalidateQueries({ queryKey: keys.workspaces })
+    mutationFn: (name: string) => client.removeSource(name),
+    onSuccess: (data) => {
+      qc.setQueryData(keys.sources, data)
+      void qc.invalidateQueries({ queryKey: keys.status })
     },
   })
 }
 
-/**
- * The workspace scoping every screen's Rail/BottomStrip/switcher operates in
- * — persisted on-device and defaulting to the first workspace once the list
- * loads. `activeWorkspaceId` is `undefined` while the stored id is still
- * loading and there's no workspace list yet to fall back to.
- */
-// One shared value for every mounted screen (Control, Board, Memory, Settings all stay mounted
-// as tabs), rather than per-hook-instance state: a Board picking its workspace has to be seen
-// by Control's strip immediately, not on Control's next mount.
-let activeIdValue: number | null = null
-let activeIdLoaded = false
-const activeIdListeners = new Set<() => void>()
-function readActiveId(): number | null {
-  return activeIdValue
-}
-function writeActiveId(id: number | null): void {
-  activeIdValue = id
-  for (const l of activeIdListeners) l()
-}
-function subscribeActiveId(l: () => void): () => void {
-  activeIdListeners.add(l)
-  if (!activeIdLoaded) {
-    activeIdLoaded = true
-    void loadActiveWorkspaceId().then((id) => {
-      if (activeIdValue === null) writeActiveId(id)
-    })
-  }
-  return () => {
-    activeIdListeners.delete(l)
-  }
-}
-/** Test hook: forget the shared active-workspace value between cases. */
-export function resetActiveWorkspaceForTests(): void {
-  activeIdValue = null
-  activeIdLoaded = false
+export function useCreateRule() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Partial<RuleBody> & Pick<RuleBody, 'title' | 'decision'>) => client.createRule(body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.rules }),
+  })
 }
 
-export function useActiveWorkspace(): {
-  activeWorkspaceId: number | undefined
-  setActiveWorkspaceId: (id: number) => void
-} {
-  const { data: workspaces } = useWorkspaces()
-  const storedId = useSyncExternalStore(subscribeActiveId, readActiveId, readActiveId)
+export function usePatchRule() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { id: number; patch: Partial<RuleBody> }) => client.patchRule(vars.id, vars.patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.rules }),
+  })
+}
 
-  const setActiveWorkspaceId = useCallback((id: number) => {
-    if (id === activeIdValue) return
-    writeActiveId(id)
-    void saveActiveWorkspaceId(id)
-  }, [])
-
-  const storedIsValid = storedId !== null && (workspaces ?? []).some((w) => w.id === storedId)
-  const activeWorkspaceId = storedIsValid ? (storedId as number) : workspaces?.[0]?.id
-
-  return { activeWorkspaceId, setActiveWorkspaceId }
+export function useDeleteRule() {
+  const client = useClient()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => client.deleteRule(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.rules }),
+  })
 }

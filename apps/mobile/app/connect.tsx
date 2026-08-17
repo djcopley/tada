@@ -53,11 +53,12 @@ export default function Connect() {
       setChecks([{ text: `✓ server reachable · v${health.version}`, muted: false }])
 
       const status = await client.status()
-      const names = status.workspaces
-      const workspacesLine =
-        names.length > 0
-          ? `✓ ${names.length} workspace${names.length === 1 ? '' : 's'} found — ${names.join(', ')}`
-          : '✓ connected — no workspaces yet'
+      const repos = status.sources.filter((s) => s.type === 'repo').map((s) => s.name)
+      const reposLine =
+        repos.length > 0
+          ? `✓ ${repos.length} repo${repos.length === 1 ? '' : 's'} connected — ${repos.join(', ')}`
+          : '— no repos connected yet'
+      const boardLine = `✓ board found — ${status.ticketCount} ticket${status.ticketCount === 1 ? '' : 's'}, ${status.noteCount} memory note${status.noteCount === 1 ? '' : 's'}`
       const hasAgentKeys = status.agents.some((a) => a.available)
       const agentsLine = hasAgentKeys
         ? '✓ agent keys present on the server'
@@ -65,14 +66,15 @@ export default function Connect() {
 
       setChecks([
         { text: `✓ server reachable · v${health.version}`, muted: false },
-        { text: workspacesLine, muted: false },
+        { text: reposLine, muted: repos.length === 0 },
+        { text: boardLine, muted: false },
         { text: agentsLine, muted: !hasAgentKeys },
       ])
 
       // Missing agent keys don't block the connection — the server is reachable and the
       // token is valid; the user can add keys later.
       await connect({ baseUrl: trimmedUrl, token: trimmedToken })
-      router.replace('/workspaces')
+      router.replace('/')
     } catch (err) {
       setError(err instanceof ApiError && err.status === 401 ? 'Invalid token' : 'Could not reach server')
     } finally {

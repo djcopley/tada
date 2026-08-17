@@ -18,8 +18,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
-import { NewWorkspaceDialog } from '../src/components/NewWorkspaceDialog'
-import { WorkspaceSwitcher } from '../src/components/WorkspaceSwitcher'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { showToast, ToastHost } from '../src/toast'
@@ -147,25 +145,6 @@ function ThemedStatusBar() {
 }
 
 /**
- * WorkspaceSwitcher needs a TadaClient (via useClient), which only exists
- * once ConnectionProvider has a saved connection — guard its mount so the
- * connect screen (no connection yet) never renders it.
- */
-function ConnectedWorkspaceSwitcher() {
-  const { connection } = useConnection()
-  if (!connection) return null
-  return <WorkspaceSwitcher />
-}
-
-/** Same connection guard as {@link ConnectedWorkspaceSwitcher} — the New workspace dialog needs
- * a TadaClient (via useClient), which only exists once a connection is saved. */
-function ConnectedNewWorkspaceDialog() {
-  const { connection } = useConnection()
-  if (!connection) return null
-  return <NewWorkspaceDialog />
-}
-
-/**
  * Hands the navigators our palette. Without this they fall back to React Navigation's default
  * light theme, and the tabs' 'shift' animation (which slides scenes apart) exposes that
  * background as a light band/flash on the dark ground during every section switch.
@@ -211,15 +190,13 @@ export default function RootLayout() {
             <PushSetup />
             <AppQueryProvider>
               {/*
-                Every group under here (/workspaces, /tickets, /runs) has its own
-                Stack. Headers are drawn by the shared AppHeader component inside
-                each screen, so every native header stays hidden.
+                Every group under here ((tabs), /tickets, /runs, /notes) has its own Stack.
+                Headers are drawn by the shared AppHeader component inside each screen, so every
+                native header stays hidden.
               */}
               <NavigationTheme>
                 <Stack screenOptions={{ headerShown: false }} />
               </NavigationTheme>
-              <ConnectedWorkspaceSwitcher />
-              <ConnectedNewWorkspaceDialog />
               <ToastHost />
             </AppQueryProvider>
           </ConnectionProvider>

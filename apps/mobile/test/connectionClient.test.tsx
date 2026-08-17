@@ -3,7 +3,7 @@ import { makeTestQueryClient } from './helpers/queryClient'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { useState } from 'react'
 import { Pressable, Text } from 'react-native'
-import { useWorkspaceSocket } from '../src/api/useWorkspaceSocket'
+import { useAppSocket } from '../src/api/useAppSocket'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 
 jest.mock('../src/settings', () => ({
@@ -37,7 +37,7 @@ class FakeWebSocket {
  * the two things whose interaction this file is about. */
 function SocketHost() {
   const { connect } = useConnection()
-  useWorkspaceSocket(1, undefined, FakeWebSocket as unknown as typeof WebSocket)
+  useAppSocket(undefined, FakeWebSocket as unknown as typeof WebSocket)
   return (
     <Pressable
       testID="swap-connection"
@@ -95,12 +95,12 @@ describe('ConnectionProvider client identity', () => {
     await render(<Root />)
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
     const first = FakeWebSocket.instances[0]
-    expect(first?.url).toContain('wss://tada.test/ws?workspaceId=1')
+    expect(first?.url).toContain('wss://tada.test/ws?token=')
 
     await fireEvent.press(screen.getByTestId('swap-connection'))
 
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
     expect(first?.closed).toBe(true)
-    expect(FakeWebSocket.instances[1]?.url).toContain('wss://other.test/ws?workspaceId=1')
+    expect(FakeWebSocket.instances[1]?.url).toContain('wss://other.test/ws?token=')
   })
 })

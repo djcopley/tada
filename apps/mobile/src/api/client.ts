@@ -4,20 +4,16 @@ import type {
   ApiBoard,
   ApiComment,
   ApiHealth,
-  ApiKnownRepo,
-  ApiMemory,
-  ApiNameCheck,
-  ApiRun,
+  ApiMemoryNote,
+  ApiRule,
   ApiRunDetail,
+  ApiRunDiff,
   ApiRunEvent,
+  ApiSettings,
   ApiSource,
   ApiStatus,
   ApiTicket,
   ApiTicketDetail,
-  ApiWorkspace,
-  ApiWorkspaceDetail,
-  ApiWorkspaceListItem,
-  ProposalState,
 } from '@tada/shared'
 import type { Connection } from '../settings'
 
@@ -31,8 +27,12 @@ export class ApiError extends Error {
   }
 }
 
-/** POST /workspaces/:id/sources body — a repo clone or a bare local folder. */
+/** POST /sources body — a repo clone or a bare local folder. */
 export type AddSourceBody = { type: 'repo'; url: string } | { type: 'folder'; path: string }
+
+export type RuleBody = Pick<ApiRule, 'title' | 'description' | 'tool' | 'patterns' | 'decision' | 'publishes'>
+
+export type SettingsPatch = Partial<ApiSettings>
 
 export class TadaClient {
   private readonly fetchImpl: typeof fetch
@@ -80,6 +80,8 @@ export class TadaClient {
     return parsed as T
   }
 
+  // --- system -------------------------------------------------------------------------------
+
   health(): Promise<ApiHealth> {
     return this.req('GET', '/health')
   }
@@ -92,121 +94,88 @@ export class TadaClient {
     return this.req('GET', '/adapters')
   }
 
-  listWorkspaces(): Promise<ApiWorkspaceListItem[]> {
-    return this.req('GET', '/workspaces')
+  // --- settings, sources, rules ---------------------------------------------------------------
+
+  settings(): Promise<ApiSettings> {
+    return this.req('GET', '/settings')
   }
 
-  createWorkspace(name: string): Promise<ApiWorkspace> {
-    return this.req('POST', '/workspaces', { name })
+  patchSettings(patch: SettingsPatch): Promise<ApiSettings> {
+    return this.req('PATCH', '/settings', patch)
   }
 
-  getWorkspace(id: number): Promise<ApiWorkspaceDetail> {
-    return this.req('GET', `/workspaces/${id}`)
+  sources(): Promise<ApiSource[]> {
+    return this.req('GET', '/sources')
   }
 
-  checkName(name: string): Promise<ApiNameCheck> {
-    return this.req('GET', `/workspaces/check-name?name=${encodeURIComponent(name)}`)
+  addSource(body: AddSourceBody): Promise<ApiSource[]> {
+    return this.req('POST', '/sources', body)
   }
 
-  knownRepos(): Promise<ApiKnownRepo[]> {
-    return this.req('GET', '/repos/known')
+  removeSource(name: string): Promise<ApiSource[]> {
+    return this.req('DELETE', `/sources/${encodeURIComponent(name)}`)
   }
 
-  patchWorkspace(
-    id: number,
-    patch: Partial<
-      Pick<ApiWorkspace, 'defaultAdapter' | 'defaultModel' | 'defaultEffort' | 'concurrency' | 'timeoutMs'>
-    >,
-  ): Promise<ApiWorkspace> {
-    return this.req('PATCH', `/workspaces/${id}`, patch)
+  rules(): Promise<ApiRule[]> {
+    return this.req('GET', '/rules')
   }
 
-  addSource(wsId: number, body: AddSourceBody): Promise<ApiSource[]> {
-    return this.req('POST', `/workspaces/${wsId}/sources`, body)
+  createRule(body: Partial<RuleBody> & Pick<RuleBody, 'title' | 'decision'>): Promise<ApiRule> {
+    return this.req('POST', '/rules', body)
   }
 
-  removeSource(wsId: number, name: string): Promise<ApiSource[]> {
-    return this.req('DELETE', `/workspaces/${wsId}/sources/${encodeURIComponent(name)}`)
+  patchRule(id: number, patch: Partial<RuleBody>): Promise<ApiRule> {
+    return this.req('PATCH', `/rules/${id}`, patch)
   }
 
-  board(wsId: number): Promise<ApiBoard> {
-    return this.req('GET', `/workspaces/${wsId}/board`)
+  async deleteRule(id: number): Promise<void> {
+    await this.req('DELETE', `/rules/${id}`)
   }
 
-  memory(wsId: number): Promise<ApiMemory> {
-    return this.req('GET', `/workspaces/${wsId}/memory`)
+  // --- board & tickets ------------------------------------------------------------------------
+
+  board(): Promise<ApiBoard> {
+    return this.req('GET', '/board')
   }
 
-  async putMemory(wsId: number, file: string, body: string): Promise<void> {
-    await this.req('PUT', `/workspaces/${wsId}/memory/${encodeURIComponent(file)}`, { body })
-  }
-
-  async deleteMemory(wsId: number, file: string): Promise<void> {
-    await this.req('DELETE', `/workspaces/${wsId}/memory/${encodeURIComponent(file)}`)
-  }
-
-  globalMemory(): Promise<ApiMemory> {
-    return this.req('GET', '/memory')
-  }
-
-  async putGlobalMemory(file: string, body: string): Promise<void> {
-    await this.req('PUT', `/memory/${encodeURIComponent(file)}`, { body })
-  }
-
-  async deleteGlobalMemory(file: string): Promise<void> {
-    await this.req('DELETE', `/memory/${encodeURIComponent(file)}`)
-  }
-
-  async keepNote(id: number): Promise<void> {
-    await this.req('POST', `/memory-notes/${id}/keep`)
-  }
-
-  async discardNote(id: number): Promise<void> {
-    await this.req('POST', `/memory-notes/${id}/discard`)
-  }
-
-  createTicket(t: { workspaceId: number; title: string; description?: string }): Promise<ApiTicket> {
+  createTicket(t: { title: string; description?: string; column?: 'backlog' | 'queued' }): Promise<ApiTicket> {
     return this.req('POST', '/tickets', t)
   }
 
-  async ticket(id: number): Promise<{
-    ticket: ApiTicket
-    comments: ApiComment[]
-    runs: ApiRun[]
-    followUps: ApiTicketDetail['followUps']
-  }> {
-    const { comments, runs, followUps, ...ticket } = await this.req<
-      ApiTicket & { comments: ApiComment[]; runs: ApiRun[]; followUps: ApiTicketDetail['followUps'] }
-    >('GET', `/tickets/${id}`)
-    return { ticket, comments, runs, followUps }
+  ticket(id: number): Promise<ApiTicketDetail> {
+    return this.req('GET', `/tickets/${id}`)
   }
 
-  patchTicket(
-    id: number,
-    patch: Partial<Pick<ApiTicket, 'title' | 'description' | 'position' | 'adapterOverride' | 'modelOverride'>>,
-  ): Promise<ApiTicket> {
+  patchTicket(id: number, patch: Partial<Pick<ApiTicket, 'title' | 'description'>>): Promise<ApiTicket> {
     return this.req('PATCH', `/tickets/${id}`, patch)
   }
 
-  async moveTicket(id: number, to: { columnId: number; position: number }): Promise<void> {
-    await this.req('POST', `/tickets/${id}/move`, to)
+  moveTicket(id: number, to: { column: 'backlog' | 'queued' | 'done'; position?: number }): Promise<ApiTicket> {
+    return this.req('POST', `/tickets/${id}/move`, to)
   }
 
-  accept(ticketId: number): Promise<ApiTicket> {
-    return this.req('POST', `/tickets/${ticketId}/accept`)
+  rerun(id: number): Promise<ApiTicket> {
+    return this.req('POST', `/tickets/${id}/rerun`)
   }
 
-  sendBack(ticketId: number, feedback: string): Promise<ApiTicket> {
-    return this.req('POST', `/tickets/${ticketId}/send-back`, { feedback })
+  duplicateTicket(id: number): Promise<ApiTicket> {
+    return this.req('POST', `/tickets/${id}/duplicate`)
   }
 
-  proposal(ticketId: number, action: Exclude<ProposalState, null> | 'keep' | 'dismiss'): Promise<ApiTicket | undefined> {
+  async deleteTicket(id: number): Promise<void> {
+    await this.req('DELETE', `/tickets/${id}`)
+  }
+
+  proposal(ticketId: number, action: 'keep' | 'dismiss'): Promise<ApiTicket | undefined> {
     return this.req('POST', `/tickets/${ticketId}/proposal`, { action })
   }
 
-  comment(ticketId: number, body: string): Promise<ApiComment> {
-    return this.req('POST', `/tickets/${ticketId}/comments`, { body })
+  /** A note to the agent — injected live when the run is going, read at start otherwise. */
+  note(ticketId: number, body: string): Promise<{ comment: ApiComment; delivered: boolean }> {
+    return this.req('POST', `/tickets/${ticketId}/notes`, { body })
   }
+
+  // --- runs ---------------------------------------------------------------------------------
 
   run(runId: number): Promise<ApiRunDetail> {
     return this.req('GET', `/runs/${runId}`)
@@ -227,30 +196,71 @@ export class TadaClient {
     return text
   }
 
+  /** Only answers while the run is held at a publish gate; 409 otherwise. */
+  runDiff(runId: number): Promise<ApiRunDiff> {
+    return this.req('GET', `/runs/${runId}/diff`)
+  }
+
   async cancelRun(runId: number): Promise<void> {
     await this.req('POST', `/runs/${runId}/cancel`)
   }
 
-  nudge(runId: number, note: string): Promise<{ delivered: boolean }> {
-    return this.req('POST', `/runs/${runId}/nudge`, { note })
+  async approve(runId: number, opts: { alwaysAllow?: boolean } = {}): Promise<void> {
+    await this.req('POST', `/runs/${runId}/approve`, { alwaysAllow: opts.alwaysAllow ?? false })
   }
 
-  activity(workspaceId?: number | 'all', limit?: number): Promise<ApiActivity[]> {
-    const params = new URLSearchParams()
-    if (typeof workspaceId === 'number') params.set('workspaceId', String(workspaceId))
-    if (limit !== undefined) params.set('limit', String(limit))
-    const query = params.toString()
-    return this.req('GET', `/activity${query ? `?${query}` : ''}`)
+  async deny(runId: number, note: string, opts: { saveToMemory?: boolean } = {}): Promise<void> {
+    await this.req('POST', `/runs/${runId}/deny`, { note, saveToMemory: opts.saveToMemory ?? false })
+  }
+
+  async answer(runId: number, answer: string, opts: { saveToMemory?: boolean } = {}): Promise<void> {
+    await this.req('POST', `/runs/${runId}/answer`, { answer, saveToMemory: opts.saveToMemory ?? false })
+  }
+
+  async continueRun(runId: number, extraMs?: number): Promise<void> {
+    await this.req('POST', `/runs/${runId}/continue`, extraMs === undefined ? {} : { extraMs })
+  }
+
+  // --- memory -------------------------------------------------------------------------------
+
+  memory(): Promise<ApiMemoryNote[]> {
+    return this.req('GET', '/memory')
+  }
+
+  createNote(note: { title: string; body: string; tags?: string[] }): Promise<ApiMemoryNote> {
+    return this.req('POST', '/memory', note)
+  }
+
+  patchNote(id: number, patch: Partial<Pick<ApiMemoryNote, 'title' | 'body' | 'tags'>>): Promise<ApiMemoryNote> {
+    return this.req('PATCH', `/memory/${id}`, patch)
+  }
+
+  async deleteNote(id: number): Promise<void> {
+    await this.req('DELETE', `/memory/${id}`)
+  }
+
+  async keepNote(id: number): Promise<void> {
+    await this.req('POST', `/memory/${id}/keep`)
+  }
+
+  async dismissNote(id: number): Promise<void> {
+    await this.req('POST', `/memory/${id}/dismiss`)
+  }
+
+  // --- activity, push, ws ---------------------------------------------------------------------
+
+  activity(limit?: number): Promise<ApiActivity[]> {
+    return this.req('GET', `/activity${limit !== undefined ? `?limit=${limit}` : ''}`)
   }
 
   async registerPushToken(token: string): Promise<void> {
     await this.req('POST', '/push-tokens', { token })
   }
 
-  wsUrl(workspaceId: number): string {
+  wsUrl(): string {
     const wsBase = this.baseUrl()
       .replace(/^https:/, 'wss:')
       .replace(/^http:/, 'ws:')
-    return `${wsBase}/ws?workspaceId=${workspaceId}&token=${encodeURIComponent(this.conn.token)}`
+    return `${wsBase}/ws?token=${encodeURIComponent(this.conn.token)}`
   }
 }

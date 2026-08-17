@@ -4,7 +4,7 @@ import { Screen } from '../../src/components/ui'
 export default function PlaceholderScreen() {
   return (
     <Screen>
-      <Text>ticket</Text>
+      <Text>memory</Text>
     </Screen>
   )
 }

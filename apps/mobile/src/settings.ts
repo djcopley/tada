@@ -83,31 +83,3 @@ export async function saveThemeScheme(scheme: ThemeScheme): Promise<void> {
   }
   await SecureStore.setItemAsync(THEME_KEY, scheme)
 }
-
-const ACTIVE_WORKSPACE_KEY = 'tada.activeWorkspaceId'
-
-/** The workspace the Rail/BottomStrip/switcher scope to; persisted so the app reopens where the
- * user left it instead of always defaulting back to the first workspace. */
-export async function loadActiveWorkspaceId(): Promise<number | null> {
-  try {
-    const raw = isWeb()
-      ? typeof window === 'undefined'
-        ? null
-        : window.localStorage.getItem(ACTIVE_WORKSPACE_KEY)
-      : await SecureStore.getItemAsync(ACTIVE_WORKSPACE_KEY)
-    if (raw == null) return null
-    const id = Number(raw)
-    return Number.isInteger(id) ? id : null
-  } catch {
-    return null
-  }
-}
-
-export async function saveActiveWorkspaceId(id: number): Promise<void> {
-  if (isWeb()) {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, String(id))
-    return
-  }
-  await SecureStore.setItemAsync(ACTIVE_WORKSPACE_KEY, String(id))
-}

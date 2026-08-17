@@ -9,19 +9,19 @@ describe('goToControl', () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
-  test('falls back to /workspaces when there is no history to unwind', () => {
+  test('falls back to / when there is no history to unwind', () => {
     const back = jest.fn()
     const replace = jest.fn()
     goToControl({ back, replace, canGoBack: () => false })
-    expect(replace).toHaveBeenCalledWith('/workspaces')
+    expect(replace).toHaveBeenCalledWith('/')
     expect(back).not.toHaveBeenCalled()
   })
 
-  test('falls back to /workspaces when canGoBack is not provided', () => {
+  test('falls back to / when canGoBack is not provided', () => {
     const back = jest.fn()
     const replace = jest.fn()
     goToControl({ back, replace })
-    expect(replace).toHaveBeenCalledWith('/workspaces')
+    expect(replace).toHaveBeenCalledWith('/')
   })
 })
 
@@ -29,8 +29,8 @@ describe('goBackOr', () => {
   test('replaces with the given fallback when there is no history', () => {
     const back = jest.fn()
     const replace = jest.fn()
-    goBackOr({ back, replace, canGoBack: () => false }, '/workspaces/3/memory')
-    expect(replace).toHaveBeenCalledWith('/workspaces/3/memory')
+    goBackOr({ back, replace, canGoBack: () => false }, '/memory')
+    expect(replace).toHaveBeenCalledWith('/memory')
     expect(back).not.toHaveBeenCalled()
   })
 })
@@ -40,14 +40,14 @@ describe('goToSection', () => {
 
   test('tapping the active section is a no-op', () => {
     const r = router()
-    goToSection(r, { key: 'board', active: 'board', href: '/workspaces/1/board' })
+    goToSection(r, { key: 'board', active: 'board' })
     expect(r.navigate).not.toHaveBeenCalled()
   })
 
   test('any other section is a tab jump (navigate), never a push', () => {
     const r = router()
-    goToSection(r, { key: 'board', active: 'control', href: '/workspaces/1/board' })
-    goToSection(r, { key: 'control', active: 'memory', href: '/workspaces' })
-    expect(r.navigate.mock.calls).toEqual([['/workspaces/1/board'], ['/workspaces']])
+    goToSection(r, { key: 'board', active: 'control' })
+    goToSection(r, { key: 'control', active: 'memory' })
+    expect(r.navigate.mock.calls).toEqual([['/board'], ['/']])
   })
 })

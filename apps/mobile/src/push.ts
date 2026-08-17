@@ -88,7 +88,7 @@ function ticketIdFromNotificationData(data: unknown): number | null {
  * Note: if the device is disconnected (no stored connection), the
  * tickets/_layout route guard redirects to /connect regardless of this
  * push, so a tap while disconnected lands on the connect screen rather
- * than the ticket — acceptable per the task 4 ledger note.
+ * than the ticket.
  */
 export function useNotificationDeepLinks(): void {
   const router = useRouter()

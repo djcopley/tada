@@ -36,7 +36,7 @@ export function AppHeader({
   title,
   wordmark = false,
   back = false,
-  backHref = '/workspaces',
+  backHref = '/',
   actions = [],
   children,
 }: Props) {

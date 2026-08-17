@@ -68,7 +68,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   // Always wrap in ClientProvider (even with a null client pre-connect) so the app subtree
   // below never remounts when `connection` flips from null to a real value — an unmount here
   // would reset every screen's local state (and drop the Connect screen's just-rendered
-  // checklist) right as the app navigates to /workspaces.
+  // checklist) right as the app navigates to /.
   return (
     <ConnectionContext.Provider value={value}>
       <ClientProvider client={client}>{children}</ClientProvider>

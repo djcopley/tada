@@ -1,9 +1,9 @@
-import type { QueueState, RunStatus } from '@tada/shared'
+import type { ApiRun, HeldReason, RunStatus } from '@tada/shared'
 import type { Palette } from './tokens'
 
 /**
- * Instrument Ink has exactly three signal colors: orange = an agent is live,
- * sage = accepted / your turn, red = failure only. Everything else is
+ * Instrument Ink has exactly three signal colors: orange = an agent is live (running *or* held —
+ * a held run is alive, waiting on you), sage = done / ok, red = failure only. Everything else is
  * neutral ink.
  */
 export type Signal = 'live' | 'ok' | 'fail' | 'neutral'
@@ -15,31 +15,43 @@ export type StatusVisual = {
   live?: boolean
 }
 
-export function runStatusVisual(status: RunStatus): StatusVisual {
-  switch (status) {
-    case 'queued':
-      return { label: 'Queued', signal: 'neutral' }
-    case 'running':
-      return { label: 'Live', signal: 'live', live: true }
-    case 'needs_review':
-      return { label: 'Your turn', signal: 'ok' }
-    case 'failed':
-      return { label: 'Failed', signal: 'fail' }
-    case 'cancelled':
-      return { label: 'Cancelled', signal: 'neutral' }
+/** The badge word for why a run is held: "permission" / "question" / "out of time". */
+export function heldReasonLabel(reason: HeldReason): string {
+  switch (reason) {
+    case 'permission':
+      return 'permission'
+    case 'question':
+      return 'question'
+    case 'time':
+      return 'out of time'
   }
 }
 
-export function queueStateVisual(state: QueueState): StatusVisual | null {
-  switch (state) {
+export function runStatusVisual(status: RunStatus, heldReason?: HeldReason | null): StatusVisual {
+  switch (status) {
     case 'queued':
-      return { label: 'Queued', signal: 'neutral' }
+      return { label: 'queued', signal: 'neutral' }
+    case 'running':
+      return { label: 'live', signal: 'live', live: true }
     case 'held':
-      // A held ticket is a failed (or stopped) run waiting on a human re-queue.
-      return { label: 'Held', signal: 'fail' }
-    default:
-      return null
+      return { label: heldReason ? heldReasonLabel(heldReason) : 'held', signal: 'live' }
+    case 'done':
+      return { label: 'done', signal: 'ok' }
+    case 'failed':
+      return { label: 'failed', signal: 'fail' }
+    case 'cancelled':
+      return { label: 'stopped', signal: 'neutral' }
   }
+}
+
+/** Convenience over a run row (or none — a ticket that has never run). */
+export function runVisual(run: ApiRun | null | undefined): StatusVisual | null {
+  return run ? runStatusVisual(run.status, run.heldReason) : null
+}
+
+/** A run that is stopped on you: held (any reason) or failed. */
+export function isStoppedOnYou(run: ApiRun | null | undefined): boolean {
+  return run?.status === 'held' || run?.status === 'failed'
 }
 
 export function signalColors(signal: Signal, colors: Palette): { fg: string; bg: string } {
@@ -55,7 +67,7 @@ export function signalColors(signal: Signal, colors: Palette): { fg: string; bg:
   }
 }
 
-const ADAPTER_NAMES: Record<string, string> = { claude: 'Claude' }
+const ADAPTER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' }
 
 /** "claude" → "Claude", "sonnet" → "Sonnet" — humanize raw adapter/model ids. */
 export function humanize(id: string): string {
