@@ -212,10 +212,17 @@ export async function executeRun(
   let pending: { hold: Hold; resolve: (r: HoldResolution | { kind: 'abort' }) => void } | undefined
   let timeExhausted = false
   let deadline: ReturnType<typeof setTimeout> | undefined
+  // The budget counts the agent's working time, not the human's thinking time, so the deadline is
+  // suspended for the length of every hold. `armedAt`/`armedMs` are what's needed to work out how
+  // much of it was left when the hold started; `pausedMs` carries that across the hold.
+  let armedAt = 0
+  let armedMs = 0
+  let pausedMs: number | undefined
   const repingMs = deps.repingMs ?? currentSettingsRepingMs(db)
 
   const enterHold = (hold: Hold): void => {
     const heldAt = new Date()
+    pauseDeadline()
     setRunStatus('held', { heldReason: hold.reason, hold, heldAt })
     moveCard('stopped')
     journal.write({ type: 'gate', payload: { kind: 'hold', hold } })
@@ -258,6 +265,7 @@ export async function executeRun(
   }
 
   const leaveHold = (): void => {
+    resumeDeadline()
     setRunStatus('running', { heldReason: null, hold: null, heldAt: null })
     moveCard('running')
     journal.write({ type: 'gate', payload: { kind: 'resume' } })
@@ -285,9 +293,16 @@ export async function executeRun(
 
   const armDeadline = (ms: number): void => {
     if (deadline) clearTimeout(deadline)
+    armedAt = Date.now()
+    armedMs = ms
+    pausedMs = undefined
     deadline = setTimeout(() => {
+      deadline = undefined
       timeExhausted = true
-      journal.write({ type: 'gate', payload: { kind: 'time_up', budgetMs: ms } })
+      journal.write({
+        type: 'gate',
+        payload: { kind: 'time_up', budgetMs: currentRun()?.budgetMs ?? ms },
+      })
       // An adapter that can be suspended in place (a CLI subprocess) is held right now; the
       // Claude adapter can't, so its next tool call is where the gate holds it.
       if (!pending && session?.pause()) {
@@ -300,6 +315,21 @@ export async function executeRun(
       }
     }, ms)
     deadline.unref?.()
+  }
+
+  /** Stops the clock for the length of a hold. No-op once the budget is already spent — there is
+   * nothing left to count down, and `grantMoreTime` is what re-arms in that case. */
+  const pauseDeadline = (): void => {
+    if (!deadline) return
+    clearTimeout(deadline)
+    deadline = undefined
+    pausedMs = Math.max(0, armedMs - (Date.now() - armedAt))
+  }
+
+  /** Restarts the clock with whatever was left when the hold began. */
+  const resumeDeadline = (): void => {
+    if (pausedMs === undefined) return
+    armDeadline(pausedMs)
   }
 
   const grantMoreTime = (extraMs: number): void => {

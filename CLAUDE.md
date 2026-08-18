@@ -91,7 +91,9 @@ This is the core of the system; changing it means touching all of these:
    `mcp__tada__ask_user` tool holds with reason `question`; an exhausted budget holds with reason
    `time` at the next tool call (CLI adapters, which have no gate, are SIGSTOPped instead). A hold
    is a pending promise: status `held` + `heldReason` + `hold` payload, card → `stopped`, slot
-   released, ping sent. Routes resolve it through `Scheduler.liveRun(id).resolve(...)`:
+   released, ping sent. **The time budget is suspended for the length of every hold** — it counts
+   the agent's working time, not the human's thinking time, so a question left overnight doesn't
+   come back to a spent budget the moment it's answered. Routes resolve it through `Scheduler.liveRun(id).resolve(...)`:
    approve (optionally **always allow**, which rewrites the matched rule with provenance and a
    Today receipt in the same synchronous block), deny with a note (fed back to the agent as the
    tool error), answer, continue (+time). Timeout and deny are resumes; only failure and re-run are
