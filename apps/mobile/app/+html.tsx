@@ -48,6 +48,13 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="theme-color" content="#1B1613" />
 
+        {/* Registers the push service worker. Web-only and harmless where unsupported; the
+            registration is also re-run by enableWebPush() so a user who opts in before this
+            script lands still gets a worker. */}
+        {/* The HTML is a static literal defined at the bottom of this file — no input reaches it,
+            and inlining is the only way to get a script into the exported document. */}
+        <script dangerouslySetInnerHTML={{ __html: swBootstrap }} />
+
         {/* Required by expo-router: without it ScrollView on web scrolls the body instead of the
             container, which breaks every scrollable screen. */}
         <ScrollViewStyleReset />
@@ -56,3 +63,16 @@ export default function Root({ children }: PropsWithChildren) {
     </html>
   )
 }
+
+// Deferred to `load` so registration never competes with the app's own boot requests, and guarded
+// by feature detection because iOS Safari below 16.4 (and any non-secure origin) has no
+// serviceWorker at all — the app must still run there, just without pings.
+const swBootstrap = `
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function (err) {
+      console.error('Service worker registration failed', err)
+    })
+  })
+}
+`
