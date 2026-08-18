@@ -14,6 +14,7 @@ import { registerSystemRoutes } from './routes/system.js'
 import { registerTicketRoutes } from './routes/tickets.js'
 import type { Scheduler } from './runs/scheduler.js'
 import type { SourceStore } from './sources/store.js'
+import type { WebPushSender } from './webPush.js'
 import { type BroadcastHub, registerWsRoute } from './ws.js'
 
 declare module 'fastify' {
@@ -29,6 +30,8 @@ export interface AppDeps {
   scheduler: Scheduler
   broadcastHub: BroadcastHub
   adapters: Map<string, Adapter>
+  /** Sender for the web push channel; absent in tests that do not exercise it. */
+  webPush?: WebPushSender
 }
 
 export function buildApp({
@@ -38,6 +41,7 @@ export function buildApp({
   scheduler,
   broadcastHub,
   adapters,
+  webPush,
 }: AppDeps): FastifyInstance {
   // Warn-level logging (off under vitest) so 500s and other server-side failures leave a trace
   // in the daemon's journal instead of vanishing.
@@ -90,7 +94,7 @@ export function buildApp({
     registerWsRoute(app, broadcastHub, config)
   })
 
-  const routeDeps = { db, store, scheduler, hub: broadcastHub, adapters }
+  const routeDeps = { db, store, scheduler, hub: broadcastHub, adapters, config, webPush }
   registerSettingsRoutes(app, routeDeps)
   registerTicketRoutes(app, routeDeps)
   registerRunRoutes(app, routeDeps)

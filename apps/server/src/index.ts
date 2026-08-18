@@ -7,10 +7,15 @@ import { openDb } from './db/index.js'
 import { dataDir } from './paths.js'
 import { Scheduler } from './runs/scheduler.js'
 import { SourceStore } from './sources/store.js'
+import { createWebPushSender } from './webPush.js'
 import { BroadcastHub } from './ws.js'
 
 async function main(): Promise<void> {
   const config = loadConfig()
+  // One sender, shared by both consumers: runs ping through the scheduler's RunnerDeps, and the
+  // /web-push/* routes ping through RouteDeps. Miss either and that half of the web channel is
+  // silently dead while the other half looks fine.
+  const webPush = createWebPushSender(config)
 
   mkdirSync(dataDir(), { recursive: true })
   const db = openDb(join(dataDir(), 'tada.db'))
@@ -24,10 +29,11 @@ async function main(): Promise<void> {
     broadcast: hub.runEvent,
     hub,
     mcpUrl: `http://127.0.0.1:${config.port}/mcp`,
+    webPush,
   })
   scheduler.recover()
 
-  const app = buildApp({ db, config, store, scheduler, broadcastHub: hub, adapters })
+  const app = buildApp({ db, config, store, scheduler, broadcastHub: hub, adapters, webPush })
   const address = await app.listen({ port: config.port, host: config.host })
   app.log.info(`tada server listening on ${address}`)
 }
