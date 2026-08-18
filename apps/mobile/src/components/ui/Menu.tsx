@@ -15,6 +15,9 @@ type Props = {
    * Without an anchor the menu sits at the top-left of the screen (the ⌘K switcher). */
   anchor?: MenuAnchor | null
   style?: ViewStyle
+  /** Web: a panel that floats free of the menu card — a submenu flying out to the side.
+   * Positioned by the caller in window coordinates; drawn over the card. */
+  flyout?: ReactNode
   testID?: string
 }
 
@@ -27,7 +30,7 @@ type Props = {
  * the card's otherwise-opaque `overlay` surface at fractional alpha over whatever is underneath
  * (nav rail, board cards, …), reading as a see-through panel. Rendering instantly keeps the
  * surface opaque from the first frame, matching the artboard's snap-open menus. */
-export function Menu({ visible, onClose, children, anchor, style, testID }: Props) {
+export function Menu({ visible, onClose, children, anchor, style, flyout, testID }: Props) {
   const { colors, shadow } = useTheme()
   const insets = useSafeAreaInsets()
   const { height, width } = useWindowDimensions()
@@ -75,6 +78,7 @@ export function Menu({ visible, onClose, children, anchor, style, testID }: Prop
           {children}
         </ScrollView>
       </View>
+      {flyout}
     </Modal>
   )
 }

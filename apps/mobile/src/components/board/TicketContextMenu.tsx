@@ -1,7 +1,7 @@
 import type { ApiTicket } from '@tada/shared'
 import { useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import {
   useApprove,
   useCancelRun,
@@ -98,6 +98,43 @@ function SheetRow({
   )
 }
 
+/** Window-coordinate frame of the row a flyout hangs off. */
+type MenuFrame = { x: number; y: number; width: number; height: number }
+
+/** Width of the menu card itself (`styles.menu`), used to place the flyout before the trigger
+ * row has been measured. */
+const MENU_WIDTH = 250
+const MOVE_FLYOUT_WIDTH = 230
+/** How long the flyout survives after the pointer leaves the row or the panel. */
+const MOVE_CLOSE_DELAY = 160
+/** A flyout row's height (label + padding), used to keep the panel on screen. */
+const FLYOUT_ROW_HEIGHT = 39
+
+/**
+ * Where the "Move to" flyout sits: just outside the menu card, top-aligned with the trigger row
+ * flipping to the card's left edge when there's no room on the right. Falls back to the
+ * right-click point when the row hasn't reported a frame yet.
+ */
+function flyoutPosition(
+  frame: MenuFrame | null,
+  anchor: ContextMenuAnchor | null,
+  rows: number,
+  window: { width: number; height: number },
+) {
+  const gap = space.xs
+  const rowLeft = frame ? frame.x : (anchor?.x ?? 0) + space.sm
+  const rowRight = frame ? frame.x + frame.width : (anchor?.x ?? 0) + MENU_WIDTH
+  const right = rowRight + gap
+  const fitsRight = right + MOVE_FLYOUT_WIDTH <= window.width - space.sm
+  const left = fitsRight ? right : Math.max(space.sm, rowLeft - gap - MOVE_FLYOUT_WIDTH)
+  // Top-aligned with the trigger row, minus the card's padding so the first flyout row lines up
+  // with it; lifted when the panel would otherwise run off the bottom.
+  const height = rows * FLYOUT_ROW_HEIGHT + 12
+  const wanted = (frame ? frame.y : (anchor?.y ?? 0)) - 6
+  const top = Math.max(space.sm, Math.min(wanted, window.height - space.sm - height))
+  return { top, left }
+}
+
 type Props = {
   ticket: ApiTicket
   visible: boolean
@@ -133,7 +170,8 @@ async function copyLink(ticketId: number): Promise<void> {
  */
 export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = 'ticket-context-menu' }: Props) {
   const router = useRouter()
-  const { colors } = useTheme()
+  const { colors, shadow } = useTheme()
+  const windowSize = useWindowDimensions()
   const move = useMoveTicket()
   const duplicate = useDuplicateTicket()
   const del = useDeleteTicket()
@@ -142,6 +180,11 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [denying, setDenying] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
+  // Web: the "Move to" flyout follows the pointer's dwell, so it needs the trigger row's frame in
+  // window coordinates (the panel floats outside the menu card, clear of its scroller).
+  const moveRowRef = useRef<View>(null)
+  const [moveFrame, setMoveFrame] = useState<MenuFrame | null>(null)
+  const moveCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const run = ticket.run
   const held = run?.status === 'held' ? run : null
@@ -149,7 +192,27 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
   const targets = allowedMoveTargets(ticket)
   const live = hasLiveRun(ticket)
 
+  const cancelMoveClose = () => {
+    if (moveCloseTimer.current) clearTimeout(moveCloseTimer.current)
+    moveCloseTimer.current = null
+  }
+  // A grace period so the diagonal trip from the row to the panel doesn't drop the flyout.
+  const scheduleMoveClose = () => {
+    cancelMoveClose()
+    moveCloseTimer.current = setTimeout(() => setMoveOpen(false), MOVE_CLOSE_DELAY)
+  }
+  const measureMoveRow = () => {
+    moveRowRef.current?.measureInWindow?.((x, y, width, height) => setMoveFrame({ x, y, width, height }))
+  }
+  const openMove = () => {
+    cancelMoveClose()
+    setMoveOpen(true)
+    measureMoveRow()
+  }
+  useEffect(() => cancelMoveClose, [])
+
   const close = () => {
+    cancelMoveClose()
     setMoveOpen(false)
     onClose()
   }
@@ -240,6 +303,33 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
 
   // ---------------------------------------------------------------- web menu
   if (Platform.OS === 'web') {
+    const moveFlyout =
+      moveOpen && targets.length > 0 ? (
+        <View
+          testID="ctx-move-submenu"
+          accessibilityRole="menu"
+          onPointerEnter={cancelMoveClose}
+          onPointerLeave={scheduleMoveClose}
+          style={[
+            styles.flyout,
+            flyoutPosition(moveFrame, anchor ?? null, targets.length, windowSize),
+            { backgroundColor: colors.overlay, borderColor: colors.borderStrong },
+            shadow.lifted,
+          ]}
+        >
+          {targets.map((t) => (
+            <Row
+              colors={colors}
+              key={t}
+              label={LANE_TITLES[t]}
+              hint={t === 'queued' ? 'next' : t === 'backlog' && live ? 'stops the run' : undefined}
+              onPress={() => moveTo(t)}
+              testID={`ctx-move-${t}`}
+            />
+          ))}
+        </View>
+      ) : null
+
     return (
       <>
         <Menu
@@ -247,6 +337,7 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
           onClose={close}
           anchor={anchor ? { x: anchor.x, y: anchor.y, width: 0, height: 0 } : null}
           style={styles.menu}
+          flyout={moveFlyout}
           testID={testID}
         >
           <Row colors={colors} label="Open ticket" hint="⏎" onPress={open} testID="ctx-open" />
@@ -270,31 +361,19 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
           ) : null}
           <Divider colors={colors} />
           {targets.length > 0 ? (
-            <View>
-              <Pressable
-                testID="ctx-move"
-                accessibilityRole="menuitem"
-                onPress={() => setMoveOpen((v) => !v)}
-                style={[styles.row, moveOpen && { backgroundColor: colors.controlBgHover }]}
-              >
-                <Text style={[type.body, styles.rowLabel, { color: colors.text }]}>Move to</Text>
-                <Text style={[type.monoSmall, { color: colors.textMuted }]}>▸</Text>
-              </Pressable>
-              {moveOpen ? (
-                <View style={styles.submenu}>
-                  {targets.map((t) => (
-                    <Row
-                      colors={colors}
-                      key={t}
-                      label={LANE_TITLES[t]}
-                      hint={t === 'queued' ? 'next' : t === 'backlog' && live ? 'stops the run' : undefined}
-                      onPress={() => moveTo(t)}
-                      testID={`ctx-move-${t}`}
-                    />
-                  ))}
-                </View>
-              ) : null}
-            </View>
+            <Pressable
+              ref={moveRowRef}
+              testID="ctx-move"
+              accessibilityRole="menuitem"
+              onLayout={measureMoveRow}
+              onPointerEnter={openMove}
+              onPointerLeave={scheduleMoveClose}
+              onPress={() => (moveOpen ? setMoveOpen(false) : openMove())}
+              style={[styles.row, moveOpen && { backgroundColor: colors.controlBgHover }]}
+            >
+              <Text style={[type.body, styles.rowLabel, { color: colors.text }]}>Move to</Text>
+              <Text style={[type.monoSmall, { color: colors.textMuted }]}>▸</Text>
+            </Pressable>
           ) : null}
           <Row colors={colors} label="Duplicate as new ticket" onPress={doDuplicate} testID="ctx-duplicate" />
           <Row colors={colors} label="Copy link" hint="⌘C" onPress={doCopy} testID="ctx-copy" />
@@ -401,7 +480,14 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1 },
   divider: { height: 1, marginVertical: 6, marginHorizontal: 4 },
   caption: { textTransform: 'uppercase', paddingHorizontal: space.sm + 2, paddingVertical: space.xs },
-  submenu: { paddingLeft: space.md },
+  flyout: {
+    position: 'absolute',
+    width: MOVE_FLYOUT_WIDTH,
+    maxWidth: '92%',
+    borderWidth: 1,
+    borderRadius: radius.card,
+    padding: 6,
+  },
   inlineActions: { paddingHorizontal: space.sm + 2, paddingVertical: space.sm },
   sheetHead: { gap: 3, paddingHorizontal: space.sm, paddingBottom: space.sm },
   group: {
