@@ -52,6 +52,23 @@ describe('web push routes', () => {
     expect(t.db.drizzle.select().from(webPushSubscriptions).all()).toHaveLength(0)
   })
 
+  // Injected through the raw Fastify instance rather than `t.json`, which always attaches the
+  // bearer header — the point is to prove these paths were not added to the auth exemption list
+  // in app.ts alongside /mcp and /ws, where a subscription store would be world-writable.
+  test('rejects unauthenticated requests to every web-push route', async () => {
+    const t = await makeTestApp()
+    const requests = [
+      { method: 'GET' as const, url: '/web-push/public-key' },
+      { method: 'POST' as const, url: '/web-push/subscriptions', payload: body },
+      { method: 'DELETE' as const, url: '/web-push/subscriptions', payload: { endpoint: 'x' } },
+      { method: 'POST' as const, url: '/web-push/test', payload: {} },
+    ]
+    for (const req of requests) {
+      const res = await t.app.inject(req)
+      expect(res.statusCode, req.url).toBe(401)
+    }
+  })
+
   test('the test-ping route succeeds even with nothing subscribed', async () => {
     const t = await makeTestApp()
     const res = await t.json({ method: 'POST', url: '/web-push/test', payload: {} })

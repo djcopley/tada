@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -49,5 +49,33 @@ describe('loadConfig', () => {
 
     const onDisk = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'))
     expect(onDisk.vapidPublicKey).toBe(config.vapidPublicKey)
+  })
+
+  test('replaces BOTH keys when only one is on disk — a mixed pair signs nothing', () => {
+    const dir = isolateConfigDir()
+    const stalePrivate = 'a-stale-private-key'
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        port: 4242,
+        host: '0.0.0.0',
+        bearerToken: 'a'.repeat(64),
+        vapidPrivateKey: stalePrivate,
+      }),
+    )
+
+    const config = loadConfig()
+    expect(config.vapidPrivateKey).not.toBe(stalePrivate)
+    expect(config.vapidPublicKey.length).toBeGreaterThan(0)
+
+    const onDisk = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'))
+    expect(onDisk.vapidPrivateKey).toBe(config.vapidPrivateKey)
+    expect(onDisk.vapidPublicKey).toBe(config.vapidPublicKey)
+  })
+
+  test('writes config.json 0600 — it holds the bearer token and the VAPID private key', () => {
+    const dir = isolateConfigDir()
+    loadConfig()
+    expect(statSync(join(dir, 'config.json')).mode & 0o777).toBe(0o600)
   })
 })

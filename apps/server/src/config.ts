@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import webpush from 'web-push'
 import { z } from 'zod'
@@ -48,22 +48,33 @@ export function loadConfig(): Config {
     ? configFileSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
     : configFileSchema.parse({ bearerToken: randomBytes(32).toString('hex') })
 
+  // A VAPID keypair is exactly that — a pair. If either half is missing BOTH are replaced from
+  // one freshly generated pair: keeping a surviving half and generating its partner produces a
+  // mismatched pair whose every send fails signature verification at the push service, which
+  // looks like "notifications just stopped" with nothing wrong in the logs.
   const needsKeys = !parsed.vapidPublicKey || !parsed.vapidPrivateKey
-  const generated = needsKeys ? webpush.generateVAPIDKeys() : null
+  const keys = needsKeys
+    ? webpush.generateVAPIDKeys()
+    : { publicKey: parsed.vapidPublicKey ?? '', privateKey: parsed.vapidPrivateKey ?? '' }
 
   const config: Config = {
     port: parsed.port,
     host: parsed.host,
     bearerToken: parsed.bearerToken,
-    vapidPublicKey: parsed.vapidPublicKey ?? generated?.publicKey ?? '',
-    vapidPrivateKey: parsed.vapidPrivateKey ?? generated?.privateKey ?? '',
+    vapidPublicKey: keys.publicKey,
+    vapidPrivateKey: keys.privateKey,
     vapidSubject: parsed.vapidSubject ?? DEFAULT_VAPID_SUBJECT,
   }
 
   // Write back whenever the file is absent or was missing fields, so keys are stable from here on.
+  // Mode 0600: this file holds the bearer token and the VAPID private key, and the default 0644
+  // would leave both readable by every account on the box.
   if (!existsSync(path) || needsKeys || !parsed.vapidSubject) {
     mkdirSync(dir, { recursive: true })
-    writeFileSync(path, JSON.stringify(config, null, 2))
+    writeFileSync(path, JSON.stringify(config, null, 2), { mode: 0o600 })
+    // writeFileSync's mode only applies when it creates the file, so an already-existing 0644
+    // config (written before this, or before the VAPID keys existed) needs an explicit chmod.
+    chmodSync(path, 0o600)
   }
 
   return config

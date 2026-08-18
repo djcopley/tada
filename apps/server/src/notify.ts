@@ -97,7 +97,10 @@ async function sendWeb(db: TadaDb, input: PingInput, send: WebPushSender): Promi
       if (isGoneStatus(err)) {
         db.drizzle.delete(webPushSubscriptions).where(eq(webPushSubscriptions.id, row.id)).run()
       } else {
-        console.error('web push send failed:', err)
+        // Never log the error object itself: it carries the full subscription endpoint, which is
+        // a bearer-grade capability to push to that browser. The status code is all we can act on.
+        const status = (err as { statusCode?: unknown })?.statusCode
+        console.error(`web push send failed: ${status ?? 'unknown error'}`)
       }
     }
   }

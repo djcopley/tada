@@ -113,6 +113,30 @@ describe('ping', () => {
     expect(db.drizzle.select().from(webPushSubscriptions).all()).toHaveLength(1)
   })
 
+  test('never logs the subscription endpoint — it is a capability to push to that browser', async () => {
+    const db = testDb()
+    db.drizzle
+      .insert(webPushSubscriptions)
+      .values(sub('https://push.example/secret-endpoint'))
+      .run()
+    const webPush = vi.fn(async () => {
+      throw Object.assign(new Error('boom https://push.example/secret-endpoint'), {
+        statusCode: 500,
+        endpoint: 'https://push.example/secret-endpoint',
+      })
+    })
+    const errors: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map((a) => String(a)).join(' '))
+    })
+
+    await ping(db, { ticketId: 1, runId: 1, title: 't', body: 'b' }, { webPush })
+    spy.mockRestore()
+
+    expect(errors.join('\n')).not.toContain('secret-endpoint')
+    expect(errors.join('\n')).toContain('500')
+  })
+
   test('a failing Expo channel does not suppress the web channel', async () => {
     const db = testDb()
     db.drizzle.insert(pushTokens).values({ token: 't' }).run()
