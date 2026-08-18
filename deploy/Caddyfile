@@ -29,30 +29,57 @@
 	auto_https disable_redirects
 }
 
-# --- the tada web app -------------------------------------------------------
+# --- the tada web app, and the API under /api -------------------------------
 # Build the bundle first:
 #   pnpm --filter @tada/mobile exec expo export --platform web
+#
+# The API is proxied under /api on this SAME origin, which is the point of this
+# block. Serving the API from a second port made it a separate origin, and on a
+# host with no publicly trusted certificate that costs real usability: Safari
+# demands the certificate be accepted once per origin, so a phone that happily
+# loaded the app still refused every API call until the user manually visited
+# the API port and accepted it there too. Same origin means one acceptance, no
+# CORS preflights, and no second port to explain.
+#
+# Point the app's connection screen at https://<host>:8443/api
 https://{$TADA_HOST:192.168.1.91}:8443 {
 	tls internal
 
-	root * /Users/djcopley/Developer/tada/apps/mobile/dist
-	encode gzip
+	# handle_path strips the /api prefix before proxying, so the server keeps
+	# seeing the paths it actually registers (/health, /settings, /ws...) and
+	# needs no knowledge of where it is mounted. This must come before the
+	# static handler or the SPA fallback below would swallow every API call.
+	#
+	# Websockets ride the same door: the client derives wss:// from https:// and
+	# appends /ws to the same base URL, so it arrives here as /api/ws and is
+	# upgraded by reverse_proxy automatically.
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:4242
+	}
 
-	# expo-router exports with web.output "static": every route is prerendered to
-	# its own .html file (/settings -> settings.html). Try the literal path, then
-	# that .html file, then fall back to index.html so client-side-only routes
-	# and deep links still boot the app instead of 404ing.
-	try_files {path} {path}.html /index.html
-	file_server
+	handle {
+		root * /Users/djcopley/Developer/tada/apps/mobile/dist
+		encode gzip
 
-	# A service worker is scoped to the directory it is served from, so it has to
-	# sit at the site root to control the whole app. It must also never be cached
-	# by the edge, or a deploy can leave clients pinned to an old worker.
-	header /sw.js Cache-Control "no-store"
-	header /manifest.json Content-Type "application/manifest+json"
+		# expo-router exports with web.output "static": every route is prerendered
+		# to its own .html file (/settings -> settings.html). Try the literal path,
+		# then that .html file, then fall back to index.html so client-side-only
+		# routes and deep links still boot the app instead of 404ing.
+		try_files {path} {path}.html /index.html
+		file_server
+
+		# A service worker is scoped to the directory it is served from, so it has
+		# to sit at the site root to control the whole app. It must also never be
+		# cached, or a deploy can leave clients pinned to an old worker.
+		header /sw.js Cache-Control "no-store"
+		header /manifest.json Content-Type "application/manifest+json"
+	}
 }
 
-# --- the tada API -----------------------------------------------------------
+# --- the tada API on its own port (legacy) ----------------------------------
+# Superseded by /api on 8443 above, and kept only for clients that are not a
+# browser and so have neither the mixed-content rule nor the per-origin
+# certificate prompt to worry about. Browsers should use /api.
 # A TLS front door for the server, which itself speaks plain HTTP on 4242.
 #
 # This is not optional once the app is served over HTTPS: browsers block an

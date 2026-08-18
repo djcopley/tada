@@ -121,7 +121,9 @@ Use Expo Go to preview development builds, or build a dev build for a faster ite
    build a dev client.
 
 3. On the app's connection screen, enter:
-   - Server URL: your Tailscale tailnet address for the `tada` server (e.g., `http://tada.100.x.x.x:4242`)
+   - Server URL: your server's address (e.g., `http://tada.100.x.x.x:4242` over a tailnet, or
+     `https://<host>:8443/api` when fronted by the Caddy config in `deploy/` — see
+     [Serving the web build](#serving-the-web-build))
    - Bearer token: read from the server's `config.json` file (see [Configuration & data
      locations](#configuration--data-locations))
 
@@ -189,13 +191,27 @@ and trust it fully. Browsers then treat the origin as a **secure context**, whic
 service workers, PWA installation and web push possible at all — a plain-HTTP origin supports
 none of them.
 
-Caddy also fronts the API on 8444, proxying to the server's plain-HTTP port 4242. This is
-required rather than convenient: once the app is served over HTTPS, a browser refuses to let it
-call an `http://` origin (mixed content), and it blocks the request at the network layer with no
-useful error — the client reports "could not reach server", which is indistinguishable from the
-server being down. Point the app's connection screen at **`https://<host>:8444`**, not
-`http://<host>:4242`. Websockets ride the same door: the client derives `wss://` from `https://`,
-and Caddy upgrades them through `reverse_proxy` automatically.
+Caddy also fronts the API, under **`/api` on the same origin as the app**, proxying to the
+server's plain-HTTP port 4242. Point the app's connection screen at **`https://<host>:8443/api`**,
+not `http://<host>:4242`.
+
+Fronting the API is required rather than convenient: once the app is served over HTTPS, a browser
+refuses to let it call an `http://` origin (mixed content), and blocks the request at the network
+layer with no useful error — the client reports "could not reach server", which is
+indistinguishable from the server being down.
+
+Putting it on the *same origin* rather than a second port matters just as much, and for a reason
+specific to a host with no publicly trusted certificate: **Safari requires the certificate to be
+accepted once per origin**, and a different port is a different origin. An API on `:8444` means a
+phone that has happily loaded the app still refuses every API call until the user visits the API
+port directly in Safari and accepts it there too — which presents as "could not reach server"
+while `curl` from the server itself works perfectly. Same origin means one acceptance, no CORS
+preflights, and no second port to explain.
+
+`handle_path` strips the `/api` prefix before proxying, so the server keeps seeing the paths it
+registers and needs no knowledge of where it is mounted. Websockets ride the same door: the client
+derives `wss://` from `https://` and appends `/ws` to the same base URL, and Caddy upgrades the
+connection through `reverse_proxy` automatically.
 
 ### Installing as a home screen app
 
