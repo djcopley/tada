@@ -119,6 +119,18 @@ Use Expo Go to preview development builds, or build a dev build for a faster ite
 4. Tap "Connect". The app stores credentials securely using `expo-secure-store` (native secure
    enclave on iOS, Keystore on Android), so you won't need to re-enter them.
 
+#### Native push (Expo)
+
+The native path is code-complete but dormant until the app has an EAS project: without a
+`projectId`, `getExpoPushTokenAsync` throws and registration is skipped by design. To finish it:
+
+1. Create an Expo account and run `pnpm --filter @tada/mobile exec eas init`.
+2. Commit the resulting `extra.eas.projectId` in `apps/mobile/app.json`.
+3. Produce a dev or production build; Expo Go alone will not deliver notifications reliably.
+
+Once a device registers a token the server starts delivering to it with no code change — the Expo
+channel is always registered, it simply has no tokens until then.
+
 ### Running on web
 
 For development, start the web dev server:
@@ -184,6 +196,16 @@ night background.
 
 This is the only way to run tada on an MDM-managed iPhone that forbids installing the native app.
 
+### Enabling notifications
+
+Open Settings in the app and use **Notifications in this browser → Enable**, then **Send test** to
+confirm delivery. On iOS this only appears once the app has been added to the Home Screen and
+launched from that icon.
+
+Notifications need a **secure context**, so they only work over HTTPS with a certificate the
+device trusts. A device that has not installed the Caddy internal CA root will not be offered the
+option.
+
 ### Settings & storage
 
 | Platform | Storage method | Scope |
@@ -197,8 +219,11 @@ This is the only way to run tada on an MDM-managed iPhone that forbids installin
 - **Board interactions:** drag cards between Backlog, Queued and Done (Running and Stopped are the
   runner's lanes); right-click on web / long-press on mobile for the action set (open, approve /
   deny / view diff for a held card, move to, duplicate, copy link, delete).
-- **Push notifications:** native only, and only when a run stops on you (permission, question, out
-  of time, failure) plus one optional re-ping. Finished runs are quiet — they filed themselves.
+- **Push notifications:** native (Expo) and browser (Web Push), and only when a run stops on you
+  (permission, question, out of time, failure) plus one optional re-ping. Finished runs are quiet —
+  they filed themselves. In a browser, enable them from Settings; on iOS the site must be added to
+  the Home Screen first, because Safari grants notification permission only to an installed web
+  app. Desktop browsers need no install, but must be running to receive one.
 - **Live updates:** board, thread and run events stream over one WebSocket.
 
 ## Running tests
