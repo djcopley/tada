@@ -2,6 +2,7 @@ import type { ApiRunEvent } from '@tada/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useClient } from './ClientContext'
+import { keys } from './queries'
 
 /**
  * Polls `runEvents(runId, after)` every 2s while `live` is true, always
@@ -24,7 +25,7 @@ export function useRunEvents(runId: number, { live }: { live: boolean }) {
   const lastServerId = useRef<number | undefined>(undefined)
 
   const { refetch } = useQuery({
-    queryKey: ['runEvents', runId],
+    queryKey: keys.runEvents(runId),
     queryFn: async () => {
       const page = await client.runEvents(runId, lastServerId.current)
       const additions = page.filter((event) => !seenServerIds.current.has(event.id))

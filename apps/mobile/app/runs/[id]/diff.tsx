@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../../src/api/client'
 import { useRun, useRunDiff, useSources } from '../../../src/api/queries'
-import { useAppSocket } from '../../../src/api/useAppSocket'
 import { HoldActions } from '../../../src/components/gate/HoldActions'
 import { AgentPanel, AppHeader, Badge, Button, EmptyState, Screen, Skeleton, Tag } from '../../../src/components/ui'
 import { useTheme } from '../../../src/design/ThemeContext'
@@ -60,7 +59,6 @@ function DiffBody({ runId }: { runId: number }) {
   const gated = atPublishGate(run)
   const { data: diff, isLoading, error: diffError } = useRunDiff(runId, gated)
   const { data: sources } = useSources()
-  useAppSocket()
 
   const files = useMemo(
     () => (diff?.repos ?? []).flatMap((repo) => repo.files.map((file) => ({ repo, file }))),

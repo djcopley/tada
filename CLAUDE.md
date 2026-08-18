@@ -188,7 +188,9 @@ expo-router file-based routing under `app/`. Root `_layout.tsx` composes
   `expo-secure-store` on native and `localStorage` on web (`src/settings.ts`).
 - **Query cache.** All keys are defined in `src/api/queries.ts#keys`. `useAppSocket` opens one
   WebSocket and invalidates on `board_changed` / `activity` / `rules_changed`, forwarding
-  `run_event` to the caller. Changing the connection's identity `resetQueries()` (not `clear()`)
+  `run_event` to the caller. It is mounted **exactly once**, by `AppSocketProvider` in the root
+  layout — screens never call it; they subscribe to run events with `useRunEventListener`.
+  (Tabs stay mounted, so a per-screen socket meant five or six sockets to one room.) Changing the connection's identity `resetQueries()` (not `clear()`)
   — the comment in `app/_layout.tsx` explains why.
 - **Gates.** `src/components/gate/HoldActions.tsx` is the one implementation of the stopped-on-you
   actions (approve / always allow / deny with a note / view diff, question options, continue,
