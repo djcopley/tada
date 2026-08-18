@@ -26,9 +26,16 @@ export default function Root({ children }: PropsWithChildren) {
         <link rel="manifest" href="/manifest.json" />
 
         {/* iOS ignores the manifest's icons for the home screen and reads apple-touch-icon
-            instead. Without this the icon is a screenshot of the page. 180px is the size iOS
-            wants; it downscales for smaller slots itself. */}
+            instead; without it the tile is a generated letter. 180px is the size iOS wants, and
+            it downscales for smaller slots itself. Older iOS reads only the -precomposed form,
+            so both are emitted. Copies also sit at /apple-touch-icon.png, which iOS probes
+            directly when it cannot use a link tag.
+
+            Note: iOS will not fetch these at all when the certificate is not publicly trusted
+            (https://developer.apple.com/forums/thread/92304). That only affects deployments
+            behind a private CA; see the workaround/self-signed-cert-icon bookmark. */}
         <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
+        <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icon-180.png" />
         <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
 
         {/* Launches without Safari chrome when opened from the home screen. Safari also honours

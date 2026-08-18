@@ -21,7 +21,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png",
+      "favicon": "./assets/web-favicon.png",
       "bundler": "metro",
       "output": "static",
       "name": "tada",
