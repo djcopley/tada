@@ -92,7 +92,7 @@ export function PingsCard({ settings }: { settings: ApiSettings }) {
       {/* Hidden outright where the browser has no push at all (every native build, and any
           desktop browser without a PushManager) — an unusable control is worse than no control. */}
       {state !== 'unsupported' && (
-        <SettingsRow>
+        <SettingsRow testID="web-push-row">
           <View style={styles.text}>
             <Text style={[type.bodyStrong, { color: colors.text }]}>Notifications in this browser</Text>
             <Text style={[type.caption, { color: colors.textFaintSolid }]}>{PUSH_CAPTION[state]}</Text>

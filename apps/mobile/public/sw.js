@@ -44,10 +44,12 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((c) => 'focus' in c)
       if (existing) {
-        // navigate() is not available on every client (and rejects cross-origin); a failure to
-        // route should still leave the app focused rather than throwing out of waitUntil.
-        if ('navigate' in existing) existing.navigate(url).catch(() => {})
-        return existing.focus()
+        // Both legs are chained into the promise waitUntil holds — a bare navigate() alongside
+        // the returned focus() lets the browser kill the worker mid-navigation. navigate() is
+        // not on every client type (and rejects cross-origin), so a failure to route still
+        // falls through to focus rather than throwing out of waitUntil.
+        const routed = 'navigate' in existing ? existing.navigate(url).catch(() => {}) : Promise.resolve()
+        return routed.then(() => existing.focus())
       }
       return self.clients.openWindow(url)
     }),
