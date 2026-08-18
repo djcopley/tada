@@ -136,6 +136,22 @@ export const pushTokens = sqliteTable('push_tokens', {
   createdAt: createdAt(),
 })
 
+/**
+ * Browser push subscriptions (the web/PWA channel). Kept separate from push_tokens rather than
+ * discriminated in one table: an Expo token is a single string, a web subscription is an endpoint
+ * plus two keys, and merging them leaves half the columns permanently null.
+ *
+ * `endpoint` is unique so a re-subscribe is idempotent. Rows are deleted by the sender when the
+ * push service answers 404/410 — that is the only signal a subscription is dead.
+ */
+export const webPushSubscriptions = sqliteTable('web_push_subscriptions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  createdAt: createdAt(),
+})
+
 export const activity = sqliteTable('activity', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   ticketId: integer('ticket_id'),
