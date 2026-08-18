@@ -1,0 +1,53 @@
+# Caddy config for serving the tada web app (and, for now, the push probe) from
+# this Mac to other devices on the LAN.
+#
+# Start it as your own user, NOT with sudo:
+#
+#   nix run nixpkgs#caddy -- run --config deploy/Caddyfile
+#
+# Running as your user matters. Caddy's internal CA root lives in that user's
+# data dir (~/Library/Application Support/Caddy/pki/authorities/local). That is
+# the root already installed and trusted on the iPhone, so reusing it keeps
+# every cert below trusted. `sudo caddy` would use a different data dir, mint a
+# fresh root, and every device would show a certificate warning.
+#
+# Ports are 8443/8444 rather than 443 because macOS reserves ports below 1024
+# for root, and running Caddy as root would break the CA trust described above.
+#
+# The site addresses are a bare IP on purpose: this host has no DNS name. Caddy
+# issues an IP-SAN cert from the internal CA, which is enough for browsers to
+# treat the origin as a secure context — the prerequisite for service workers,
+# installable PWAs and web push.
+{
+	# Nothing here needs the admin API, and leaving it on a fixed port stops a
+	# second Caddy from starting for an unrelated reason.
+	admin off
+
+	# Without this Caddy also binds :80 to serve HTTP->HTTPS redirects, which
+	# needs root on macOS and would defeat the run-as-your-user requirement
+	# above. Every site here is reached over https on an explicit port anyway.
+	auto_https disable_redirects
+}
+
+# --- the tada web app -------------------------------------------------------
+# Build the bundle first:
+#   pnpm --filter @tada/mobile exec expo export --platform web
+https://{$TADA_HOST:192.168.1.91}:8443 {
+	tls internal
+
+	root * /Users/djcopley/Developer/tada/apps/mobile/dist
+	encode gzip
+
+	# expo-router exports with web.output "static": every route is prerendered to
+	# its own .html file (/settings -> settings.html). Try the literal path, then
+	# that .html file, then fall back to index.html so client-side-only routes
+	# and deep links still boot the app instead of 404ing.
+	try_files {path} {path}.html /index.html
+	file_server
+
+	# A service worker is scoped to the directory it is served from, so it has to
+	# sit at the site root to control the whole app. It must also never be cached
+	# by the edge, or a deploy can leave clients pinned to an old worker.
+	header /sw.js Cache-Control "no-store"
+	header /manifest.webmanifest Content-Type "application/manifest+json"
+}

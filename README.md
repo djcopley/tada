@@ -130,11 +130,51 @@ pnpm --filter @tada/mobile web
 For a production-ready static build, export to `dist/`:
 
 ```sh
-cd apps/mobile && npx expo export --platform web
+pnpm --filter @tada/mobile exec expo export --platform web
 ```
+
+The export uses `web.output: "static"`, so every route is prerendered to its own `.html` file.
+That setting is load-bearing rather than cosmetic: the PWA `<head>` is built by
+`apps/mobile/app/+html.tsx`, and expo-router only applies that file for static/server output. A
+single-page export silently ignores it, taking its shell from `public/index.html` instead — you
+get a build with no manifest link and no app icon.
 
 The web app uses `localStorage` for settings persistence instead of secure storage. Connect via
 the same connection screen as mobile.
+
+### Serving the web build
+
+`deploy/Caddyfile` serves `dist/` over HTTPS. Start it **as your own user, not with `sudo`**:
+
+```sh
+nix run nixpkgs#caddy -- run --config deploy/Caddyfile
+```
+
+Running as your user matters. Caddy's internal CA root lives in that user's data dir
+(`~/Library/Application Support/Caddy` on macOS), and that root is the one installed and trusted
+on your devices. `sudo caddy` uses a different data dir, mints a fresh root, and every device
+starts showing certificate warnings. For the same reason the site listens on 8443 rather than
+443: macOS reserves ports below 1024 for root.
+
+The site address defaults to `192.168.1.91` and is overridable without editing the file:
+
+```sh
+TADA_HOST=10.0.0.5 nix run nixpkgs#caddy -- run --config deploy/Caddyfile
+```
+
+The host has no DNS name, so Caddy issues an IP-SAN certificate from its internal CA. Install
+that root (`~/Library/Application Support/Caddy/pki/authorities/local/root.crt`) on each device
+and trust it fully. Browsers then treat the origin as a **secure context**, which is what makes
+service workers, PWA installation and web push possible at all — a plain-HTTP origin supports
+none of them.
+
+### Installing as a home screen app
+
+On iOS, open the site in **Safari** (Chrome on iOS cannot install PWAs), then **Share → Add to
+Home Screen**. It launches without browser chrome, using the app icon and the Instrument Ink
+night background.
+
+This is the only way to run tada on an MDM-managed iPhone that forbids installing the native app.
 
 ### Settings & storage
 
