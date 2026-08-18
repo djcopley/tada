@@ -262,6 +262,21 @@ export class TadaClient {
     await this.req('POST', '/push-tokens', { token })
   }
 
+  webPushPublicKey(): Promise<{ publicKey: string }> {
+    return this.req('GET', '/web-push/public-key')
+  }
+
+  async registerWebPushSubscription(sub: {
+    endpoint: string
+    keys: { p256dh: string; auth: string }
+  }): Promise<void> {
+    await this.req('POST', '/web-push/subscriptions', sub)
+  }
+
+  async sendTestPing(): Promise<void> {
+    await this.req('POST', '/web-push/test', {})
+  }
+
   wsUrl(): string {
     const wsBase = this.baseUrl()
       .replace(/^https:/, 'wss:')
