@@ -113,6 +113,9 @@ export function composePrompt(input: PromptInput): string {
     s.push(
       '- When finished, you MUST call `report_outcome` with status success or failed and a concise summary. A run that never reports is a failure.',
     )
+    s.push(
+      '- Your turn ending is the run ending — nothing wakes you up afterwards. Never stop a turn waiting on something: a background command, a timer, a check you meant to come back to. Wait for it here, in this turn, then report.',
+    )
   }
 
   return s.join('\n')

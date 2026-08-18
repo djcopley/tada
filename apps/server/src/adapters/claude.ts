@@ -190,8 +190,9 @@ export class ClaudeAdapter implements Adapter {
 
           // A `result` message closes a turn. In streaming-input mode the session would then sit
           // idle waiting for more input forever, so the queue ends it here - unless it is still
-          // owed a turn for a nudge it injected, in which case the agent keeps going.
-          if (msg.type === 'result') queue.onTurnEnd()
+          // owed a turn for a nudge it injected, or the runner has a last word (an agent that
+          // stopped without reporting an outcome), in which case the agent keeps going.
+          if (msg.type === 'result') queue.onTurnEnd(() => ctx.onIdle?.() ?? null)
         }
 
         // SDK errors reject this generator's iteration rather than reaching here, so the runner's

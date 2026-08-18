@@ -125,4 +125,38 @@ describe('UserMessageQueue', () => {
     queue.onTurnEnd()
     expect(queue.isClosed).toBe(true)
   })
+
+  test('8. a last-chance note keeps a session alive that would otherwise close', async () => {
+    const queue = new UserMessageQueue()
+    queue.push('the task')
+    const iterator = queue[Symbol.asyncIterator]()
+    await iterator.next()
+
+    // The turn ends with nothing owed, but the runner has something left to say.
+    queue.onTurnEnd(() => 'you did not report an outcome')
+    expect(queue.isClosed).toBe(false)
+
+    const next = await iterator.next()
+    expect(textOf(next.value as SDKUserMessage)).toBe('you did not report an outcome')
+
+    // The note got its own turn; with nothing more to say, the session ends.
+    queue.onTurnEnd(() => null)
+    expect(queue.isClosed).toBe(true)
+  })
+
+  test('9. an unanswered nudge is retired before the runner is asked for a note', () => {
+    const queue = new UserMessageQueue()
+    queue.push('the task')
+    queue.inject('the user says: hi')
+
+    let asked = 0
+    queue.onTurnEnd(() => {
+      asked++
+      return null
+    })
+
+    // The human's nudge is still owed a turn, so there was no idle moment to fill.
+    expect(asked).toBe(0)
+    expect(queue.isClosed).toBe(false)
+  })
 })
