@@ -262,4 +262,11 @@ describe('TicketDetail screen', () => {
     await renderScreen()
     expect(await screen.findByText("This ticket doesn't exist.")).toBeTruthy()
   })
+
+  test('a non-404 load error is not reported as a missing ticket', async () => {
+    mockTicket.mockRejectedValue(new Error('network down'))
+    await renderScreen()
+    expect(await screen.findByText(/Couldn't reach the server/)).toBeTruthy()
+    expect(screen.queryByText("This ticket doesn't exist.")).toBeNull()
+  })
 })

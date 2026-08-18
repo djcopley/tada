@@ -23,11 +23,17 @@ export default function TicketDetail() {
   const ticketId = Number(id)
   const { data, isLoading, error } = useTicket(ticketId)
 
-  if (Number.isNaN(ticketId) || (error instanceof ApiError && error.status === 404) || (error && !data)) {
+  // Only a real 404 says the ticket is gone. Any other first-load error (server restarting, no
+  // network) used to render the same "doesn't exist" — telling you a real ticket had vanished.
+  const missing = Number.isNaN(ticketId) || (error instanceof ApiError && error.status === 404)
+  if (missing || (error && !data)) {
     return (
       <Screen>
         <AppHeader title="Ticket" back />
-        <EmptyState icon="alert-circle" message="This ticket doesn't exist." />
+        <EmptyState
+          icon="alert-circle"
+          message={missing ? "This ticket doesn't exist." : "Couldn't reach the server — go back and try again."}
+        />
       </Screen>
     )
   }
@@ -202,7 +208,7 @@ function TicketDetailBody({ ticketId, ticket, startEditing = false }: { ticketId
         ) : null}
       </View>
     )
-  } else if (run.status === 'cancelled' && !stopped) {
+  } else if (run.status === 'cancelled') {
     stateStrip = (
       <View style={styles.row}>
         <Text style={[type.monoSmall, { color: colors.textFaintSolid }]}>stopped by you · in backlog</Text>

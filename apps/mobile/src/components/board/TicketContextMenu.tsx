@@ -186,9 +186,15 @@ export function TicketContextMenu({ ticket, visible, onClose, anchor, testID = '
 
   // Web keyboard shortcuts while the menu is open: ⏎ open · A approve · D deny · ⌘⏎ diff ·
   // ⌘C copy · ⌫ delete.
+  // The listener stays down while a dialog opened *from* the menu (deny note, delete confirm) is
+  // up — the menu is still `visible` underneath, and typing "a" into the deny note must not
+  // approve the very call being denied. Keys typed into any input are likewise left alone.
   useEffect(() => {
-    if (!visible || Platform.OS !== 'web' || typeof document === 'undefined') return
+    if (!visible || denying || confirmingDelete) return
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && /input|textarea/i.test(target.tagName)) return
       const meta = e.metaKey || e.ctrlKey
       if (e.key === 'Enter' && meta && permission?.publishes) doDiff()
       else if (e.key === 'Enter') open()
