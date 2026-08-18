@@ -168,6 +168,14 @@ and trust it fully. Browsers then treat the origin as a **secure context**, whic
 service workers, PWA installation and web push possible at all — a plain-HTTP origin supports
 none of them.
 
+Caddy also fronts the API on 8444, proxying to the server's plain-HTTP port 4242. This is
+required rather than convenient: once the app is served over HTTPS, a browser refuses to let it
+call an `http://` origin (mixed content), and it blocks the request at the network layer with no
+useful error — the client reports "could not reach server", which is indistinguishable from the
+server being down. Point the app's connection screen at **`https://<host>:8444`**, not
+`http://<host>:4242`. Websockets ride the same door: the client derives `wss://` from `https://`,
+and Caddy upgrades them through `reverse_proxy` automatically.
+
 ### Installing as a home screen app
 
 On iOS, open the site in **Safari** (Chrome on iOS cannot install PWAs), then **Share → Add to
