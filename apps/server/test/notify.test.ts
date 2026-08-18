@@ -95,6 +95,8 @@ describe('ping', () => {
 
     await ping(db, { ticketId: 1, runId: 1, title: 't', body: 'b' }, { webPush })
 
+    // Both endpoints must have been attempted: a dead subscription is skipped, not a stop signal.
+    expect(webPush).toHaveBeenCalledTimes(2)
     const left = db.drizzle.select().from(webPushSubscriptions).all()
     expect(left.map((r) => r.endpoint)).toEqual(['alive'])
   })
@@ -130,6 +132,17 @@ describe('ping', () => {
     )
 
     expect(webPush).toHaveBeenCalledTimes(1)
+  })
+
+  test('truncates the web payload body like the Expo one', async () => {
+    const db = testDb()
+    db.drizzle.insert(webPushSubscriptions).values(sub('e1')).run()
+    const webPush = vi.fn(async () => {})
+
+    await ping(db, { ticketId: 1, runId: 1, title: 't', body: 'y'.repeat(200) }, { webPush })
+
+    const [, payload] = webPush.mock.calls[0] as unknown as [unknown, string]
+    expect(JSON.parse(payload).body).toBe('y'.repeat(150))
   })
 
   test('the off switch silences the web channel too', async () => {

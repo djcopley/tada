@@ -3,5 +3,14 @@
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "linter": { "enabled": true, "rules": { "preset": "recommended" } },
   "javascript": { "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" } },
-  "files": { "includes": ["**", "!**/dist", "!**/node_modules", "!.claude", "!apps/mobile"] }
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!.claude",
+      "!apps/mobile",
+      "!apps/server/drizzle"
+    ]
+  }
 }
