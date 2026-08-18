@@ -134,7 +134,7 @@ export function attemptRows(runs: ApiRun[]): { runId: number; primary: string; d
     .sort((a, b) => b.attemptNumber - a.attemptNumber)
     .map((run) => ({
       runId: run.id,
-      primary: `attempt ${run.attemptNumber} · ${run.status === 'held' ? 'held' : run.status}`,
+      primary: `attempt ${run.attemptNumber} · ${run.status}`,
       detail: run.summary?.trim() || (run.finishedAt ? relativeTime(run.finishedAt) : run.startedAt ? `started ${relativeTime(run.startedAt)}` : 'not started'),
     }))
 }

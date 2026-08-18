@@ -232,6 +232,24 @@ describe('TicketDetail screen', () => {
     await waitFor(() => expect(mockMoveTicket).toHaveBeenCalledWith(1, { column: 'queued' }))
   })
 
+  test('a failed run dragged back to backlog is no longer stopped-on-you: no red card, Queue offered', async () => {
+    const failed = run({ status: 'failed', heldReason: null, hold: null, summary: 'agent did not report an outcome' })
+    mockTicket.mockResolvedValue(ticket({ column: 'backlog', run: failed, runs: [failed] }))
+    await renderScreen()
+    await screen.findByTestId('ticket-queue')
+    expect(screen.queryByTestId('stopped-card')).toBeNull()
+    expect(screen.getByText(/last run failed/)).toBeTruthy()
+  })
+
+  test('a done ticket undone to backlog offers Queue instead of the done chip', async () => {
+    const done = run({ status: 'done', heldReason: null, hold: null, finishedAt: NOW.toISOString() })
+    mockTicket.mockResolvedValue(ticket({ column: 'backlog', run: done, runs: [done] }))
+    await renderScreen()
+    await screen.findByTestId('ticket-queue')
+    expect(screen.queryByTestId('ticket-undo-done')).toBeNull()
+    expect(screen.getByText(/moved back from done/)).toBeTruthy()
+  })
+
   test('sending a note posts it and reports delivery', async () => {
     mockTicket.mockResolvedValue(ticket())
     mockNote.mockResolvedValue({ comment: { id: 3 }, delivered: true })
@@ -261,5 +279,12 @@ describe('TicketDetail screen', () => {
     mockTicket.mockRejectedValue(new ApiError(404, { error: 'ticket not found' }))
     await renderScreen()
     expect(await screen.findByText("This ticket doesn't exist.")).toBeTruthy()
+  })
+
+  test('a non-404 load error is not reported as a missing ticket', async () => {
+    mockTicket.mockRejectedValue(new Error('network down'))
+    await renderScreen()
+    expect(await screen.findByText(/Couldn't reach the server/)).toBeTruthy()
+    expect(screen.queryByText("This ticket doesn't exist.")).toBeNull()
   })
 })

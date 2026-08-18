@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useDismissNote, useKeepNote, useMemory } from '../../api/queries'
-import { useAppSocket } from '../../api/useAppSocket'
 import { hhmm } from '../../control'
 import { useTheme } from '../../design/ThemeContext'
 import { space, type } from '../../design/tokens'
@@ -40,7 +39,6 @@ export function MemoryListScreen() {
   const router = useRouter()
   const { colors } = useTheme()
   const { wide } = useLayout()
-  useAppSocket()
 
   const memory = useMemory()
   const keepNote = useKeepNote()

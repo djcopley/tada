@@ -65,7 +65,7 @@ export function HoldActions({ run, ticketId, compact = false, stretch = false, t
   const btn = stacked ? styles.full : stretch ? styles.grow : undefined
 
   const stopAndEdit = () => {
-    cancel.mutate(run.id, { onSuccess: () => router.push(`/tickets/${ticketId}`) })
+    cancel.mutate(run.id, { onSuccess: () => router.push(`/tickets/${ticketId}?edit=1`) })
   }
   const toBacklog = () => {
     if (run.status === 'failed') move.mutate({ id: ticketId, to: { column: 'backlog' } })

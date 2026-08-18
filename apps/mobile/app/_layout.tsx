@@ -16,6 +16,7 @@ import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { AppSocketProvider } from '../src/api/AppSocketContext'
 import { ApiError } from '../src/api/client'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
@@ -194,9 +195,11 @@ export default function RootLayout() {
                 Headers are drawn by the shared AppHeader component inside each screen, so every
                 native header stays hidden.
               */}
-              <NavigationTheme>
-                <Stack screenOptions={{ headerShown: false }} />
-              </NavigationTheme>
+              <AppSocketProvider>
+                <NavigationTheme>
+                  <Stack screenOptions={{ headerShown: false }} />
+                </NavigationTheme>
+              </AppSocketProvider>
               <ToastHost />
             </AppQueryProvider>
           </ConnectionProvider>

@@ -4,8 +4,8 @@ import { useCallback, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ApiError } from '../../../src/api/client'
 import { useClient } from '../../../src/api/ClientContext'
-import { useCancelRun, useNote, useRun } from '../../../src/api/queries'
-import { useAppSocket } from '../../../src/api/useAppSocket'
+import { keys, useCancelRun, useNote, useRun } from '../../../src/api/queries'
+import { useRunEventListener } from '../../../src/api/AppSocketContext'
 import { useRunEvents } from '../../../src/api/useRunEvents'
 import { EventFeed, type LineContextRequest } from '../../../src/components/EventFeed'
 import { copyText } from '../../../src/components/run/clipboard'
@@ -72,10 +72,10 @@ function RunBody({ runId }: { runId: number }) {
     },
     [runId, refetch],
   )
-  useAppSocket({ onRunEvent })
+  useRunEventListener(onRunEvent)
 
   const { data: transcript } = useQuery({
-    queryKey: ['transcript', runId],
+    queryKey: keys.transcript(runId),
     queryFn: async () => {
       try {
         return await client.transcript(runId)

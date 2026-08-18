@@ -1,6 +1,7 @@
-import type { ApiBoard, ApiMemoryNote, ApiTicket, ColumnKind } from '@tada/shared'
+import type { ApiBoard, ApiMemoryNote, ApiSettings, ApiTicket, ColumnKind } from '@tada/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { AddSourceBody, RuleBody, SettingsPatch } from './client'
+import { showToast } from '../toast'
+import { type AddSourceBody, ApiError, type RuleBody, type SettingsPatch } from './client'
 import { useClient } from './ClientContext'
 
 /**
@@ -30,10 +31,15 @@ export function moveInBoard(
 
 export const keys = {
   board: ['board'] as const,
+  /** Prefix for every ticket detail — what the socket invalidates on `board_changed`. */
+  tickets: ['ticket'] as const,
   ticket: (id: number) => ['ticket', id] as const,
   memory: ['memory'] as const,
   run: (id: number) => ['run', id] as const,
   runDiff: (id: number) => ['runDiff', id] as const,
+  runEvents: (id: number) => ['runEvents', id] as const,
+  latestRunEvent: (id: number | undefined) => ['latestRunEvent', id] as const,
+  transcript: (id: number) => ['transcript', id] as const,
   activity: ['activity'] as const,
   adapters: ['adapters'] as const,
   status: ['status'] as const,
@@ -196,17 +202,35 @@ export function useNote(ticketId: number) {
   })
 }
 
+/**
+ * A 409 on a gate action means the run is no longer waiting on that decision — it was resolved
+ * from another surface (Control card, context menu, second device), timed out, or moved on. The
+ * global mutation handler deliberately stays quiet on 409 (screens own their conflict copy), so
+ * without this the button just stopped spinning and the stale hold stayed on screen. Say so, and
+ * refetch so the hold disappears.
+ */
+function onGateConflict(qc: ReturnType<typeof useQueryClient>, err: unknown, runId: number) {
+  if (err instanceof ApiError && err.status === 409) {
+    showToast('That run is no longer waiting on this — refreshing')
+    invalidateRun(qc, runId)
+  }
+}
+
 function invalidateRun(qc: ReturnType<typeof useQueryClient>, runId: number) {
   void qc.invalidateQueries({ queryKey: keys.run(runId) })
   void qc.invalidateQueries({ queryKey: keys.board })
-  void qc.invalidateQueries({ queryKey: ['ticket'] })
+  void qc.invalidateQueries({ queryKey: keys.tickets })
   void qc.invalidateQueries({ queryKey: keys.activity })
 }
 
 export function useCancelRun() {
   const client = useClient()
   const qc = useQueryClient()
-  return useMutation({ mutationFn: (runId: number) => client.cancelRun(runId), onSuccess: (_v, runId) => invalidateRun(qc, runId) })
+  return useMutation({
+    mutationFn: (runId: number) => client.cancelRun(runId),
+    onSuccess: (_v, runId) => invalidateRun(qc, runId),
+    onError: (err, runId) => onGateConflict(qc, err, runId),
+  })
 }
 
 /** Approve the held call. `alwaysAllow` edits the rule table too (and Settings' list refreshes). */
@@ -219,6 +243,7 @@ export function useApprove() {
       invalidateRun(qc, vars.runId)
       if (vars.alwaysAllow) void qc.invalidateQueries({ queryKey: keys.rules })
     },
+    onError: (err, vars) => onGateConflict(qc, err, vars.runId),
   })
 }
 
@@ -232,6 +257,7 @@ export function useDeny() {
       invalidateRun(qc, vars.runId)
       if (vars.saveToMemory) void qc.invalidateQueries({ queryKey: keys.memory })
     },
+    onError: (err, vars) => onGateConflict(qc, err, vars.runId),
   })
 }
 
@@ -245,6 +271,7 @@ export function useAnswer() {
       invalidateRun(qc, vars.runId)
       if (vars.saveToMemory) void qc.invalidateQueries({ queryKey: keys.memory })
     },
+    onError: (err, vars) => onGateConflict(qc, err, vars.runId),
   })
 }
 
@@ -254,6 +281,7 @@ export function useContinueRun() {
   return useMutation({
     mutationFn: (vars: { runId: number; extraMs?: number }) => client.continueRun(vars.runId, vars.extraMs),
     onSuccess: (_v, vars) => invalidateRun(qc, vars.runId),
+    onError: (err, vars) => onGateConflict(qc, err, vars.runId),
   })
 }
 
@@ -301,13 +329,54 @@ export function useDismissNote() {
 }
 
 // settings, sources, rules
+const SETTINGS_PATCH_KEY = ['settings-patch'] as const
+
+/**
+ * Settings controls render straight from the cache and PATCH one field at a time, so two things
+ * have to hold for them to feel right: the cache must move the instant you tap (a stepper tapped
+ * twice must read the *already-bumped* value the second time, not send `n+1` twice), and two
+ * in-flight PATCHes must not stomp each other (a slow model PATCH's response landing after a fast
+ * effort PATCH's must not roll effort back). So: apply the patch optimistically; on error restore
+ * only the fields *this* patch touched; on success take only those same fields from the response;
+ * and once the last in-flight patch settles, refetch to reconcile with what the server truly has.
+ */
 export function usePatchSettings() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: SETTINGS_PATCH_KEY,
     mutationFn: (patch: SettingsPatch) => client.patchSettings(patch),
-    onSuccess: (data) => qc.setQueryData(keys.settings, data),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: keys.settings })
+      const previous = qc.getQueryData<ApiSettings>(keys.settings)
+      if (previous) qc.setQueryData<ApiSettings>(keys.settings, { ...previous, ...patch })
+      return { previous }
+    },
+    onError: (_err, patch, context) => {
+      if (!context?.previous) return
+      const restore = pickFields(context.previous, patch)
+      qc.setQueryData<ApiSettings>(keys.settings, (cur) => (cur ? { ...cur, ...restore } : cur))
+    },
+    onSuccess: (data, patch) => {
+      const settled = pickFields(data, patch)
+      qc.setQueryData<ApiSettings>(keys.settings, (cur) => (cur ? { ...cur, ...settled } : data))
+    },
+    onSettled: () => {
+      // This mutation still counts as pending inside its own onSettled, so 1 means "the last one".
+      if (qc.isMutating({ mutationKey: SETTINGS_PATCH_KEY }) <= 1) {
+        void qc.invalidateQueries({ queryKey: keys.settings })
+      }
+    },
   })
+}
+
+/** The subset of `from` at the keys `patch` names. */
+function pickFields(from: ApiSettings, patch: SettingsPatch): SettingsPatch {
+  const out: SettingsPatch = {}
+  for (const key of Object.keys(patch) as (keyof ApiSettings)[]) {
+    ;(out as Record<string, unknown>)[key] = from[key]
+  }
+  return out
 }
 
 export function useAddSource() {
