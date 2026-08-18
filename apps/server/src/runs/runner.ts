@@ -19,6 +19,7 @@ import { holdPingText, ping } from '../notify.js'
 import { stateDir } from '../paths.js'
 import { callSummary, matchRule } from '../rules.js'
 import type { SourceStore } from '../sources/store.js'
+import type { WebPushSender } from '../webPush.js'
 import { storeAnswer } from './answers.js'
 import { reposAhead, runDiff } from './diff.js'
 import { Journal } from './journal.js'
@@ -59,6 +60,8 @@ export interface RunnerDeps {
   mcpUrl?: string
   /** fetch implementation used for Expo push notifications. Defaults to global fetch; override in tests. */
   fetchImpl?: typeof fetch
+  /** Sender for the web push channel. Absent in tests and when no keys are configured. */
+  webPush?: WebPushSender
   /** Re-ping delay while held; read from settings when absent. Tests pass 0 (never). */
   repingMs?: number
   /** Called the moment a run enters a hold — its slot is free, so the scheduler should tick. */
@@ -201,7 +204,7 @@ export async function executeRun(
     void ping(
       db,
       { ticketId: ticket.id, runId, title: `"${ticket.title}" failed`, body: reason },
-      deps.fetchImpl,
+      { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
     )
   }
 
@@ -258,7 +261,7 @@ export async function executeRun(
         title: `"${ticket.title}" is stopped on you`,
         body: holdPingText(hold),
       },
-      deps.fetchImpl,
+      { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
     )
     if (repingMs > 0) {
       const timer = setTimeout(() => {
@@ -272,7 +275,7 @@ export async function executeRun(
               title: `"${ticket.title}" is still waiting on you`,
               body: holdPingText(hold),
             },
-            deps.fetchImpl,
+            { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
           )
         }
       }, repingMs)
