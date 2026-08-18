@@ -80,6 +80,15 @@ Under the state dir, each run has `runs/<runId>/` (scratch, folder symlinks, wor
 | `port` | `4242` | TCP port the server listens on |
 | `host` | `0.0.0.0` | Bind address; defaults to all interfaces so tailnet clients can connect. The MCP callback URL handed to agent adapters always stays `127.0.0.1` regardless of this setting - agents run on the same box. |
 | `bearerToken` | random 32-byte hex | See [Authentication](#authentication) |
+| `vapidPublicKey` | generated on first boot | VAPID application server key handed to browsers before they subscribe to Web Push |
+| `vapidPrivateKey` | generated on first boot | Signs every push. Keep it secret - the file is written `0600` |
+| `vapidSubject` | `mailto:daniel@copley.dev` | Contact a push service uses to reach the operator about a misbehaving application |
+
+The VAPID keypair lives here rather than in the database because it is server identity, not a
+preference: regenerating it invalidates **every existing push subscription**, and a browser
+holding a subscription made with the old key has to unsubscribe before it can re-subscribe. If
+either key goes missing the server regenerates both (a mismatched pair signs nothing), so back up
+`config.json` alongside the database.
 
 ## Authentication
 
@@ -201,6 +210,11 @@ This is the only way to run tada on an MDM-managed iPhone that forbids installin
 Open Settings in the app and use **Notifications in this browser → Enable**, then **Send test** to
 confirm delivery. On iOS this only appears once the app has been added to the Home Screen and
 launched from that icon.
+
+If you dismissed the browser's permission prompt, the row says **Blocked** and there is no in-app
+retry: Safari only re-asks a freshly installed web app, so delete the Home Screen icon, add it
+again, and enable from the fresh install (on desktop, clear the notification permission for the
+site in browser settings instead).
 
 Notifications need a **secure context**, so they only work over HTTPS with a certificate the
 device trusts. A device that has not installed the Caddy internal CA root will not be offered the

@@ -49,7 +49,7 @@ https://{$TADA_HOST:192.168.1.91}:8443 {
 	# sit at the site root to control the whole app. It must also never be cached
 	# by the edge, or a deploy can leave clients pinned to an old worker.
 	header /sw.js Cache-Control "no-store"
-	header /manifest.webmanifest Content-Type "application/manifest+json"
+	header /manifest.json Content-Type "application/manifest+json"
 }
 
 # --- the tada API -----------------------------------------------------------
