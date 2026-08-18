@@ -10,9 +10,22 @@ export interface PushEnv {
   isIos: boolean
   isStandalone: boolean
   permission: 'default' | 'granted' | 'denied'
+  /**
+   * Whether this browser still holds a live PushSubscription. Undefined means "not looked yet" —
+   * readPushEnv() cannot answer it synchronously (getSubscription() is async), so the value only
+   * ever arrives from reconcileWebPushSubscription(). `false` is the important case: permission
+   * is granted but nothing is subscribed, so the server can reach nobody.
+   */
+  hasSubscription?: boolean
 }
 
-export type PushUiState = 'unsupported' | 'needs-install' | 'can-enable' | 'enabled' | 'blocked'
+export type PushUiState =
+  | 'unsupported'
+  | 'needs-install'
+  | 'can-enable'
+  | 'enabled'
+  | 'lapsed'
+  | 'blocked'
 
 /**
  * The install requirement is iOS-only. Safari grants push exclusively to a home-screen-installed
@@ -25,7 +38,11 @@ export type PushUiState = 'unsupported' | 'needs-install' | 'can-enable' | 'enab
 export function pushUiState(env: PushEnv): PushUiState {
   if (!env.hasPushManager) return 'unsupported'
   if (env.permission === 'denied') return 'blocked'
-  if (env.permission === 'granted') return 'enabled'
+  // A granted permission is NOT proof of a live subscription: a server-side reset, a 410 prune or
+  // the browser rotating the endpoint all leave permission granted with nothing subscribed. That
+  // state must offer Enable again, otherwise the card claims to be on while every ping goes
+  // nowhere — the failure is completely silent from the user's side.
+  if (env.permission === 'granted') return env.hasSubscription === false ? 'lapsed' : 'enabled'
   if (env.isIos && !env.isStandalone) return 'needs-install'
   return 'can-enable'
 }
@@ -72,7 +89,13 @@ export async function enableWebPush(client: TadaClient): Promise<boolean> {
   const applicationServerKey = urlBase64ToUint8Array(publicKey)
 
   const existing = await registration.pushManager.getSubscription()
-  if (existing) await existing.unsubscribe()
+  if (existing) {
+    const staleEndpoint = existing.endpoint
+    await existing.unsubscribe()
+    // Tell the server too, or the now-dead row lingers until a send 410s it. Best-effort: the
+    // local unsubscribe already happened, and a failure here must not abort the opt-in.
+    await client.deleteWebPushSubscription(staleEndpoint).catch(() => {})
+  }
 
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
@@ -90,4 +113,34 @@ export async function enableWebPush(client: TadaClient): Promise<boolean> {
     subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } },
   )
   return true
+}
+
+/**
+ * Re-posts this browser's existing subscription to the server, and reports whether one exists.
+ *
+ * This is the only recovery from a silently dead channel. The browser keeps reporting `granted`
+ * forever, so nothing else in the UI would ever notice that the server's row went away (SQLite
+ * reset, a 410 prune, an endpoint rotation) — and POST /web-push/subscriptions is idempotent, so
+ * re-sending it on every mount costs one request and fixes all three.
+ *
+ * Never throws: it runs from an effect, and a rejected promise there is an unhandled rejection
+ * with no UI to show it. Returns true on failure as well — a transient network error is not
+ * evidence the subscription is gone, and downgrading the card on it would push the user through
+ * a pointless re-opt-in.
+ */
+export async function reconcileWebPushSubscription(client: TadaClient): Promise<boolean> {
+  try {
+    // getRegistration(), not `serviceWorker.ready`: ready never resolves when no worker has been
+    // registered for the scope, which would leave this promise pending for the life of the page.
+    const registration = await navigator.serviceWorker.getRegistration('/')
+    if (!registration) return false
+    const subscription = await registration.pushManager.getSubscription()
+    if (!subscription) return false
+    await client.registerWebPushSubscription(
+      subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } },
+    )
+    return true
+  } catch {
+    return true
+  }
 }

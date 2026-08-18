@@ -273,6 +273,10 @@ export class TadaClient {
     await this.req('POST', '/web-push/subscriptions', sub)
   }
 
+  async deleteWebPushSubscription(endpoint: string): Promise<void> {
+    await this.req('DELETE', '/web-push/subscriptions', { endpoint })
+  }
+
   async sendTestPing(): Promise<void> {
     await this.req('POST', '/web-push/test', {})
   }

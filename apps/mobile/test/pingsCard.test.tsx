@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native'
+import { render, screen, waitFor } from '@testing-library/react-native'
 import { PingsCard } from '../src/components/settings/PingsCard'
 import { ThemeProvider } from '../src/design/ThemeContext'
 
@@ -26,6 +26,17 @@ const settings = {
   pingChannel: 'push' as const,
   repingMs: 3_600_000,
 }
+
+/** Both module functions are stubbed per test: readPushEnv touches `window`, and the reconcile
+ * would reach for navigator.serviceWorker. */
+const stubWebPush = (env: Record<string, unknown>, live = true) => {
+  jest.spyOn(require('../src/webPush'), 'readPushEnv').mockReturnValue(env)
+  jest
+    .spyOn(require('../src/webPush'), 'reconcileWebPushSubscription')
+    .mockResolvedValue(live as never)
+}
+
+const granted = { hasPushManager: true, isIos: false, isStandalone: false, permission: 'granted' }
 
 describe('PingsCard', () => {
   it('offers the browser opt-in when push is available', async () => {
@@ -80,5 +91,40 @@ describe('PingsCard', () => {
     expect(screen.queryByTestId('web-push-action')).toBeNull()
     expect(screen.queryByTestId('web-push-row')).toBeNull()
     expect(screen.getByTestId('settings-pings')).toBeTruthy()
+  })
+
+  it('re-posts the subscription on mount — a granted permission is not proof of a live row', async () => {
+    stubWebPush(granted)
+    await render(
+      <ThemeProvider>
+        <PingsCard settings={settings as never} />
+      </ThemeProvider>,
+    )
+    await waitFor(() =>
+      expect(require('../src/webPush').reconcileWebPushSubscription).toHaveBeenCalled(),
+    )
+    expect(screen.getByText('Send test')).toBeTruthy()
+  })
+
+  it('falls back to Enable when the browser has no live subscription', async () => {
+    stubWebPush(granted, false)
+    await render(
+      <ThemeProvider>
+        <PingsCard settings={settings as never} />
+      </ThemeProvider>,
+    )
+    // Without this the card would sit on "Send test" forever while every ping went nowhere.
+    await waitFor(() => expect(screen.getByText('Enable')).toBeTruthy())
+    expect(screen.queryByText('Send test')).toBeNull()
+  })
+
+  it('disables Send test while the ping channel is off — the route would 200 and send nothing', async () => {
+    stubWebPush(granted)
+    await render(
+      <ThemeProvider>
+        <PingsCard settings={{ ...settings, pingChannel: 'off' } as never} />
+      </ThemeProvider>,
+    )
+    expect(screen.getByTestId('web-push-action').props.accessibilityState.disabled).toBe(true)
   })
 })
