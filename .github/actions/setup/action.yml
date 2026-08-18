@@ -1,0 +1,16 @@
+name: Setup
+description: Node 22 + pnpm with a warm store, and the workspace installed from the lockfile.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+      with:
+        # Matches the pnpm that wrote pnpm-lock.yaml (lockfileVersion 9.0).
+        version: 9
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

@@ -24,4 +24,8 @@ module.exports = {
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+  // Jest's 5s default is not enough for the render-heavy screen tests on a cold
+  // transform cache (CI is always cold), where the first `await` in a suite can
+  // sit behind several seconds of babel work.
+  testTimeout: 30000,
 }
