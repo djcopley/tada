@@ -14,6 +14,8 @@ type Props = {
   loading?: boolean
   /** Compact height for inline placement (rows, headers). */
   small?: boolean
+  /** Label lines before it ellipsises. >1 for agent-authored labels (question options). */
+  lines?: number
   testID?: string
   style?: ViewStyle
 }
@@ -26,6 +28,7 @@ export function Button({
   disabled = false,
   loading = false,
   small = false,
+  lines = 1,
   testID,
   style,
 }: Props) {
@@ -65,7 +68,7 @@ export function Button({
       ) : (
         <View style={styles.content}>
           {icon ? <Icon name={icon} size={small ? 14 : 16} color={palette.fg} /> : null}
-          <Text numberOfLines={1} style={[small ? type.caption : type.bodyStrong, styles.label, { color: palette.fg }]}>
+          <Text numberOfLines={lines} style={[small ? type.caption : type.bodyStrong, styles.label, { color: palette.fg }]}>
             {label}
           </Text>
         </View>
@@ -91,14 +94,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.xs,
   },
+  // Bounded by the button: without the shrink/maxWidth pair a label longer than the button
+  // (an agent-authored question option) lays itself out past the border instead of ellipsising,
+  // and neighbouring buttons' labels overlap.
   content: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: space.sm,
+    flexShrink: 1,
+    maxWidth: '100%',
   },
   // A caller that gives the button `flexShrink` gets an ellipsised label instead of overflow
   // (workspace names in narrow headers).
   label: {
     flexShrink: 1,
+    textAlign: 'center',
   },
 })
