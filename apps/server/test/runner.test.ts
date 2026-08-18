@@ -399,6 +399,44 @@ describe('out of time', () => {
     await untilRun(t, ticket.id, 'done')
   })
 
+  test('a hold does not burn the budget: answering after a long wait carries the run on', async () => {
+    const decisions: GateDecision[] = []
+    const { t, ticket } = await setup({
+      act: async (ctx) => {
+        decisions.push(
+          await ctx.gate({ tool: 'mcp__tada__ask_user', input: { question: 'which backoff?' } }),
+        )
+        decisions.push(await ctx.gate({ tool: 'Read', input: { file_path: 'a' } }))
+        const run = t.db.drizzle
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.runToken, ctx.runToken))
+          .get()
+        if (run) reportOutcome(t.db, run.id, 'success', 'answered and carried on')
+      },
+    })
+    tinyBudget(t, 100)
+    const runId = t.scheduler.enqueue(ticket.id)
+    expect((await untilRun(t, ticket.id, 'held')).heldReason).toBe('question')
+
+    // the human takes far longer to answer than the entire time budget
+    await new Promise((r) => setTimeout(r, 300))
+    const res = await t.json({
+      method: 'POST',
+      url: `/runs/${runId}/answer`,
+      payload: { answer: '30s' },
+    })
+    expect(res.status).toBe(200)
+
+    // the waiting was the human's, not the agent's: no time hold on the way out
+    await untilRun(t, ticket.id, 'done')
+    expect(decisions).toEqual([
+      { behavior: 'allow', updatedInput: { question: 'which backoff?', answer: '30s' } },
+      { behavior: 'allow' },
+    ])
+    expect(activityTypes(t).filter((a) => a === 'run_held')).toHaveLength(1)
+  })
+
   test('stopping an out-of-time run cancels it (card to backlog), never fails it', async () => {
     const { t, ticket } = await setup({
       supportsGates: false,
