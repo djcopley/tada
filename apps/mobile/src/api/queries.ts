@@ -130,7 +130,12 @@ export function useCreateTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (t: { title: string; description?: string; column?: 'backlog' | 'queued' }) => client.createTicket(t),
+    mutationFn: (t: {
+      title: string
+      description?: string
+      column?: 'backlog' | 'queued'
+      repoTags?: string[]
+    }) => client.createTicket(t),
     onSuccess: () => invalidateTicket(qc),
   })
 }

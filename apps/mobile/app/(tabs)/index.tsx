@@ -110,7 +110,12 @@ export default function Control() {
   const [noteTarget, setNoteTarget] = useState<ApiTicket | null>(null)
   const [historyAll, setHistoryAll] = useState(false)
 
-  const confirmNewTicket = (fields: { title: string; description: string; column: 'backlog' | 'queued' }) => {
+  const confirmNewTicket = (fields: {
+    title: string
+    description: string
+    column: 'backlog' | 'queued'
+    repoTags: string[]
+  }) => {
     createTicket.mutate(fields, {
       onSuccess: (ticket) => {
         setNewTicketVisible(false)

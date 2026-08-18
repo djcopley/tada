@@ -423,7 +423,12 @@ describe('Control screen', () => {
     await press(screen.getByTestId('new-ticket-lands-queued'))
     await press(screen.getByTestId('new-ticket-confirm'))
     await waitFor(() =>
-      expect(mockCreateTicket).toHaveBeenCalledWith({ title: 'Add retry metrics', description: 'Chart webhook retries', column: 'queued' }),
+      expect(mockCreateTicket).toHaveBeenCalledWith({
+        title: 'Add retry metrics',
+        description: 'Chart webhook retries',
+        column: 'queued',
+        repoTags: [],
+      }),
     )
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/tickets/900'))
   })

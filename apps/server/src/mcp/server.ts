@@ -12,7 +12,7 @@ import { agentRuns, comments, events, memoryNotes, tickets } from '../db/schema.
 import { stateDir } from '../paths.js'
 import { takeAnswer } from '../runs/answers.js'
 import { addWorktree, runDirFor } from '../runs/runDir.js'
-import { stampRepoTag } from '../runs/tags.js'
+import { normalizeRepoTags, stampRepoTag, unknownRepos } from '../runs/tags.js'
 import type { SourceStore } from '../sources/store.js'
 
 export interface RunOutcome {
@@ -203,10 +203,31 @@ function createMcpServer(ctx: RunContext): McpServer {
     'propose_ticket',
     {
       description:
-        'Propose a follow-up ticket for work discovered but out of scope for this run. Files it in the backlog as a pending proposal for a human to keep or dismiss.',
-      inputSchema: { title: z.string(), description: z.string().optional() },
+        'Propose a follow-up ticket for work discovered but out of scope for this run. Files it in the backlog as a pending proposal for a human to keep or dismiss. Optionally tag it with the repos the work belongs to so it shows up on those boards — omit `repos` if you are not sure, the run that picks it up tags it anyway.',
+      inputSchema: {
+        title: z.string(),
+        description: z.string().optional(),
+        repos: z
+          .array(z.string())
+          .optional()
+          .describe('Optional. Names of connected repos this work belongs to.'),
+      },
     },
-    async ({ title, description }) => {
+    async ({ title, description, repos }) => {
+      const repoTags = normalizeRepoTags(repos ?? [])
+      const unknown = unknownRepos(ctx.store, repoTags)
+      if (unknown.length > 0) {
+        const known = ctx.store.repos().map((r) => r.name)
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `no repo named ${unknown.map((n) => `"${n}"`).join(', ')}. connected repos: ${known.length ? known.join(', ') : '(none)'}`,
+            },
+          ],
+        }
+      }
       const last = ctx.db.drizzle
         .select({ position: tickets.position })
         .from(tickets)
@@ -220,6 +241,7 @@ function createMcpServer(ctx: RunContext): McpServer {
           column: 'backlog',
           title,
           description: description ?? '',
+          repoTags,
           position: (last?.position ?? 0) + 1,
           origin: 'agent',
           proposalState: 'pending',

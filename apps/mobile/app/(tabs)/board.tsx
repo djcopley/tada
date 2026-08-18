@@ -385,6 +385,7 @@ export default function Board() {
         visible={newTicketVisible}
         onClose={() => setNewTicketVisible(false)}
         pending={createTicket.isPending}
+        repo={repoFilter}
         onCreate={(fields) => createTicket.mutate(fields, { onSuccess: () => setNewTicketVisible(false) })}
       />
       <View ref={overlayRef} collapsable={false} style={[StyleSheet.absoluteFill, styles.overlayPassthrough]}>
