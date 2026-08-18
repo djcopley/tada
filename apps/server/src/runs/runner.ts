@@ -436,7 +436,12 @@ export async function executeRun(
       .all()
 
     const prompt = composePrompt({
-      ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
+      ticket: {
+        id: ticket.id,
+        title: ticket.title,
+        description: ticket.description,
+        repoTags: ticket.repoTags,
+      },
       comments: thread.map((c) => ({ author: c.author, body: c.body, createdAt: c.createdAt })),
       notes: globalNotes.map((n) => ({ title: n.title, body: n.body })),
       repos: repos.map((r) => ({

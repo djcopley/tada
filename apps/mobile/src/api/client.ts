@@ -138,7 +138,12 @@ export class TadaClient {
     return this.req('GET', '/board')
   }
 
-  createTicket(t: { title: string; description?: string; column?: 'backlog' | 'queued' }): Promise<ApiTicket> {
+  createTicket(t: {
+    title: string
+    description?: string
+    column?: 'backlog' | 'queued'
+    repoTags?: string[]
+  }): Promise<ApiTicket> {
     return this.req('POST', '/tickets', t)
   }
 

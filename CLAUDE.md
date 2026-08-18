@@ -69,6 +69,13 @@ against a temp SQLite file (`test/helpers/testApp.ts`).
 There is **no workspace layer**: one board, one memory list, one rule table, one `settings` row,
 one `manifest.json` of sources.
 
+**Repo tags** (`tickets.repoTags`) are written in exactly two moments, both in `runs/tags.ts`'s
+orbit: at *insert* time as a plan (`POST /tickets` with `repoTags`, MCP `propose_ticket` with
+`repos` — this is what makes a card created under the board's repo filter show up on that board
+immediately), and during a run as evidence (`stampRepoTag`, when `use_repo` makes a worktree).
+Nothing edits tags on an existing ticket; there is deliberately no route for that. Every writer
+validates names against connected repos — an unknown tag is a card no filter can reach.
+
 ### The run lifecycle
 
 This is the core of the system; changing it means touching all of these:
@@ -83,7 +90,7 @@ This is the core of the system; changing it means touching all of these:
 3. **Execution** — `runs/runner.ts#executeRun` marks the run running, moves the card
    queued→running, tears down earlier attempts' run dirs, builds `<stateDir>/runs/<runId>/`
    (scratch + folder-source symlinks; **repo worktrees are created lazily** by the MCP tool
-   `use_repo`, which is also the only place a ticket's `repoTags` are written — see
+   `use_repo`, which is the only place a ticket's `repoTags` grow *during* a run — see
    `runs/tags.ts`), composes the prompt (`runs/prompt.ts`), arms the time budget, and starts the
    adapter with a **gate** (`ctx.gate`) the Claude adapter installs as a `PreToolUse` hook.
 4. **Holds** — the gate applies the rule table (`src/rules.ts`, first match wins, unmatched =
