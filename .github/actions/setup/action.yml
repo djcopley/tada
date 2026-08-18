@@ -4,11 +4,11 @@ description: Node 22 + pnpm with a warm store, and the workspace installed from 
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@v4
+    - uses: pnpm/action-setup@v6
       with:
         # Matches the pnpm that wrote pnpm-lock.yaml (lockfileVersion 9.0).
         version: 9
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v6
       with:
         node-version-file: .nvmrc
         cache: pnpm
