@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch supersedes the run already in flight for it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # biome over everything but apps/mobile, then expo lint (eslint) for mobile.
+      - run: pnpm lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm typecheck
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # The server tests shell out to git (worktrees, commits) and expect an identity.
+      - name: Configure git identity for the runner
+        run: |
+          git config --global user.name 'tada CI'
+          git config --global user.email 'ci@tada.invalid'
+          git config --global init.defaultBranch main
+      # vitest (server, shared) + jest (mobile). TADA_IT is unset, so the Claude
+      # Agent SDK integration test stays skipped — it would burn real quota.
+      - run: pnpm test
