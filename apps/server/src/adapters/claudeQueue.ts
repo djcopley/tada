@@ -51,12 +51,28 @@ export class UserMessageQueue implements AsyncIterable<SDKUserMessage> {
     return true
   }
 
-  /** Called for every `result` message: retire one outstanding nudge, or end the session. */
-  onTurnEnd(): void {
+  /**
+   * Called for every `result` message: retire one outstanding nudge, or end the session.
+   *
+   * `lastChance` is the runner's veto on that ending. A turn ending is the only signal we get
+   * that the agent thinks it is finished, and the agent is often wrong about that — it may have
+   * parked waiting for background work that will never wake it, since nothing can reach it once
+   * this queue closes. So before closing we ask: returning a note keeps the session alive and
+   * gives that note a turn; returning null ends the session.
+   *
+   * That note is `push`ed, not `inject`ed, and the difference is load-bearing. `outstanding`
+   * counts notes queued *during* a turn, which the turn's own `result` then retires. A note
+   * queued at a turn end is already past that point: reserving a turn for it here would mean the
+   * `result` it produces retires the reservation instead of asking again, and the session would
+   * hang with stdin open and no one left to close it.
+   */
+  onTurnEnd(lastChance?: () => string | null): void {
     if (this.outstanding > 0) {
       this.outstanding--
       return
     }
+    const note = lastChance?.()
+    if (note != null && this.push(note)) return
     this.close()
   }
 

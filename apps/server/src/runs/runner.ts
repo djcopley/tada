@@ -32,6 +32,22 @@ export type BroadcastFn = (runId: number, e: AdapterEvent) => void
 /** The tool name the Claude SDK gives tada's `ask_user` MCP tool. */
 export const ASK_USER_TOOL = 'mcp__tada__ask_user'
 
+/** How many times a run will ask an agent that stopped without reporting to carry on. */
+export const MAX_IDLE_NUDGES = 2
+
+const FIRST_IDLE_NUDGE =
+  'You ended your turn without calling `report_outcome`, and your turn ending is what ends this ' +
+  'run — nothing will wake you up afterwards, and a background task you started cannot reach ' +
+  'you once the session is closed. If work is still outstanding, wait for it here (poll it, or ' +
+  're-run the command in the foreground) and finish it. Then call `report_outcome` with success ' +
+  'or failed and a concise summary, in this turn.'
+
+const FINAL_IDLE_NUDGE =
+  'You stopped again without calling `report_outcome`. This is the last turn you get: the run ' +
+  'ends when it does, and with no outcome it is recorded as a failure. Call `report_outcome` ' +
+  'now — status `failed` with an honest summary of where you got to is a far better result than ' +
+  'nothing. Do not start new work.'
+
 export interface RunnerDeps {
   db: TadaDb
   store: SourceStore
@@ -354,6 +370,38 @@ export async function executeRun(
     return false
   }
 
+  // ---- idle turns ------------------------------------------------------------------------------
+  // An agent that ends a turn without reporting an outcome is not necessarily finished: it may
+  // have parked on background work expecting to be woken (nothing wakes it — its own turn ending
+  // is what closes the session), or simply forgotten. Closing the session there fails a run that
+  // was one sentence from succeeding, so we spend a turn asking. Bounded, because an agent that
+  // ignores two direct instructions is stuck, and looping would burn the budget in silence.
+  let idleNudges = 0
+
+  const onIdle = (): string | null => {
+    // Aborted, or out of time: the run is already going somewhere else. Let the session close.
+    if (externalSignal.aborted || timeExhausted) return null
+    if (pendingOutcome(db, runId)) return null
+    if (idleNudges >= MAX_IDLE_NUDGES) {
+      journal.write({
+        type: 'text',
+        payload: { text: 'stopped without reporting an outcome, twice over — giving up on it' },
+      })
+      return null
+    }
+    idleNudges++
+    const last = idleNudges >= MAX_IDLE_NUDGES
+    journal.write({
+      type: 'text',
+      payload: {
+        text: last
+          ? 'stopped without reporting an outcome — asked it one last time'
+          : 'stopped without reporting an outcome — asked it to finish',
+      },
+    })
+    return last ? FINAL_IDLE_NUDGE : FIRST_IDLE_NUDGE
+  }
+
   const gate = async (req: GateRequest): Promise<GateDecision> => {
     if (!(await holdIfOutOfTime())) return { behavior: 'deny', reason: 'the run was stopped' }
 
@@ -520,6 +568,7 @@ export async function executeRun(
       journal,
       signal: externalSignal,
       gate,
+      onIdle,
     })
     // A suspended process never sees SIGTERM; wake it before the abort reaches it.
     externalSignal.addEventListener('abort', () => session?.resume(), { once: true })

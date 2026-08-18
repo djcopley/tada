@@ -99,7 +99,9 @@ This is the core of the system; changing it means touching all of these:
    tool error), answer, continue (+time). Timeout and deny are resumes; only failure and re-run are
    restarts — don't share code paths between them.
 5. **Outcome** — MCP `report_outcome` is the primary channel; `scratch/outcome.json` is the
-   fallback for CLI adapters. No outcome = failure. The run **files itself**: status `done`, card
+   fallback for CLI adapters. An agent that ends a turn without reporting is *not* taken at its
+   word: `onIdle` (runner → `AdapterStartCtx`) hands the session a note asking it to finish, up to
+   `MAX_IDLE_NUDGES` times, before the run gives up. Still no outcome = failure. The run **files itself**: status `done`, card
    → `done`, run dir cleaned. There is no automatic push or PR — the agent does that itself
    (`git push`, `gh pr create`), which is what the default rules gate.
 6. **Failure / cancel** — `failed` parks the card in `stopped` (the only red); `cancelled` (Stop
@@ -122,7 +124,9 @@ holds with zero tokens.
 - `claude.ts` — Claude Agent SDK in **streaming-input mode** with a `PreToolUse` hook (`gateHook`)
   that awaits `ctx.gate` — the hold *is* that pending hook. `claudeQueue.ts`'s `UserMessageQueue`
   keeps the session alive so notes can be injected mid-run; it counts injected-but-unanswered
-  messages so the session doesn't close underneath a nudge.
+  messages so the session doesn't close underneath a nudge. A note handed back by `onIdle` at a
+  turn end is `push`ed rather than `inject`ed — reserving a turn for it there would leave stdin
+  open with nothing left to close it.
 - `codex.ts` / `gemini.ts` — one-shot CLIs via `adapters/exec.ts#startCliSession`. No gate, no
   tools: they get every repo checked out eagerly (tags stamped for repos whose branch moved),
   their prompt gets the outcome-file instruction appended, `inject()` declines, and out-of-time

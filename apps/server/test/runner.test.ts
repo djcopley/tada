@@ -100,11 +100,49 @@ describe('failure', () => {
     expect(activityTypes(t)).toEqual(['run_started', 'run_failed'])
   })
 
-  test('no outcome reported is a failure', async () => {
-    const { t, ticket } = await setup({})
+  test('a turn that ends without an outcome is nudged back to work, not failed', async () => {
+    const { t, fake, ticket } = await setup({
+      // The first turn ends with no report — the sleep-in-the-background trap.
+      onNudge: async (ctx) => {
+        const run = t.db.drizzle
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.runToken, ctx.runToken))
+          .get()
+        if (!run) throw new Error('no run')
+        reportOutcome(t.db, run.id, 'success', 'finished after the nudge')
+      },
+    })
+    t.scheduler.enqueue(ticket.id)
+    const run = await untilRun(t, ticket.id, 'done')
+    expect(run.summary).toBe('finished after the nudge')
+    expect(fake.nudges).toHaveLength(1)
+    expect(fake.nudges[0]).toMatch(/report_outcome/)
+  })
+
+  test('an agent that ignores the nudges still fails, and is only nudged twice', async () => {
+    const { t, fake, ticket } = await setup({})
     t.scheduler.enqueue(ticket.id)
     const run = await untilRun(t, ticket.id, 'failed')
     expect(run.summary).toBe('agent did not report an outcome')
+    expect(fake.nudges).toHaveLength(2)
+  })
+
+  test('an agent that reported is never nudged', async () => {
+    const { t, fake, ticket } = await setup({
+      act: async (ctx) => {
+        const run = t.db.drizzle
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.runToken, ctx.runToken))
+          .get()
+        if (!run) throw new Error('no run')
+        reportOutcome(t.db, run.id, 'success', 'done first time')
+      },
+    })
+    t.scheduler.enqueue(ticket.id)
+    await untilRun(t, ticket.id, 'done')
+    expect(fake.nudges).toEqual([])
   })
 
   test('re-run is a fresh attempt: new run, old transcript kept, card back through queued', async () => {
