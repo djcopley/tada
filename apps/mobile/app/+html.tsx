@@ -1,5 +1,28 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { ScrollViewStyleReset } from 'expo-router/html'
 import type { PropsWithChildren } from 'react'
+
+/**
+ * WORKAROUND — not for mainline. See the commit message on this bookmark.
+ *
+ * iOS Safari refuses to fetch `apple-touch-icon` when the site's certificate is not publicly
+ * trusted, and substitutes a generated letter tile instead:
+ * https://developer.apple.com/forums/thread/92304. Reported against iOS 11, never fixed,
+ * reproduced on iOS 18.7. Plain HTTP works and a publicly trusted certificate works; a privately
+ * trusted root does not. Only the icon fetch is suppressed — the manifest is still read and web
+ * push still works.
+ *
+ * Inlining the PNG as a data: URI means there is no network request for Safari to refuse. This
+ * file runs in Node during `expo export`, so the bytes are read at build time and no encoded blob
+ * is committed.
+ *
+ * Delete this the moment the host has a publicly trusted certificate.
+ */
+function iconDataUri(): string {
+  const png = readFileSync(join(process.cwd(), 'public', 'icon-180.png'))
+  return `data:image/png;base64,${png.toString('base64')}`
+}
 
 /**
  * Web-only. Configures the root HTML document for every page of the web export — this runs in
@@ -10,6 +33,7 @@ import type { PropsWithChildren } from 'react'
  * something iOS will install with a real icon.
  */
 export default function Root({ children }: PropsWithChildren) {
+  const icon = iconDataUri()
   return (
     <html lang="en">
       <head>
@@ -34,8 +58,8 @@ export default function Root({ children }: PropsWithChildren) {
             Note: iOS will not fetch these at all when the certificate is not publicly trusted
             (https://developer.apple.com/forums/thread/92304). That only affects deployments
             behind a private CA; see the workaround/self-signed-cert-icon bookmark. */}
-        <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
-        <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icon-180.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href={icon} />
+        <link rel="apple-touch-icon-precomposed" sizes="180x180" href={icon} />
         <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
 
         {/* Launches without Safari chrome when opened from the home screen. Safari also honours
