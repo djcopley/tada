@@ -152,6 +152,35 @@ export const webPushSubscriptions = sqliteTable('web_push_subscriptions', {
   createdAt: createdAt(),
 })
 
+/**
+ * Push-to-start tokens (iOS 17.2+). One per device, and it outlives every run: it is what lets
+ * the server put a card on a locked phone whose app has never been opened tonight.
+ */
+export const liveActivityStartTokens = sqliteTable('live_activity_start_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token: text('token').notNull().unique(),
+  createdAt: createdAt(),
+})
+
+/**
+ * One row per Live Activity the server has started. `pushToken` is null until the app reports it —
+ * iOS hands the token to the app, not to us, and gives no way to say which run it belongs to,
+ * which is why only one session is ever open at a time (see src/liveActivity.ts).
+ *
+ * `lastProps` is the JSON last pushed, kept so an event that changes nothing on the card sends
+ * nothing to Apple.
+ */
+export const liveActivitySessions = sqliteTable('live_activity_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: integer('run_id').notNull(),
+  pushToken: text('push_token'),
+  lastProps: text('last_props'),
+  startedAt: integer('started_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
+})
+
 export const activity = sqliteTable('activity', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   ticketId: integer('ticket_id'),
