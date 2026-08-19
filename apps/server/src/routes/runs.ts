@@ -12,7 +12,9 @@ import {
   pushTokens,
   rules,
   tickets,
+  webPushSubscriptions,
 } from '../db/schema.js'
+import { ping } from '../notify.js'
 import { runDiff } from '../runs/diff.js'
 import { runDirFor } from '../runs/runDir.js'
 import { humanizeMs, type LiveRun } from '../runs/runner.js'
@@ -20,6 +22,10 @@ import { intParam, type RouteDeps } from './deps.js'
 import { publicRun } from './serialize.js'
 
 const pushTokenSchema = z.object({ token: z.string().min(1) })
+const webPushSubscriptionSchema = z.object({
+  endpoint: z.string().min(1),
+  keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+})
 const approveSchema = z.object({ alwaysAllow: z.boolean().default(false) })
 const denySchema = z.object({ note: z.string().min(1), saveToMemory: z.boolean().default(false) })
 const answerSchema = z.object({
@@ -295,5 +301,46 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
     db.drizzle.insert(pushTokens).values({ token: parsed.data.token }).onConflictDoNothing().run()
     return reply.code(201).send({ ok: true })
+  })
+
+  // The client needs the application server key before it can call pushManager.subscribe(). It
+  // is public by definition; the bearer auth in front of it is incidental.
+  app.get('/web-push/public-key', async () => ({ publicKey: deps.config.vapidPublicKey }))
+
+  app.post('/web-push/subscriptions', async (req, reply) => {
+    const parsed = webPushSubscriptionSchema.safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+    // Idempotent: a browser hands back the same endpoint every time it re-subscribes.
+    db.drizzle
+      .insert(webPushSubscriptions)
+      .values({
+        endpoint: parsed.data.endpoint,
+        p256dh: parsed.data.keys.p256dh,
+        auth: parsed.data.keys.auth,
+      })
+      .onConflictDoNothing()
+      .run()
+    return reply.code(201).send({ ok: true })
+  })
+
+  app.delete('/web-push/subscriptions', async (req, reply) => {
+    const parsed = z.object({ endpoint: z.string().min(1) }).safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+    db.drizzle
+      .delete(webPushSubscriptions)
+      .where(eq(webPushSubscriptions.endpoint, parsed.data.endpoint))
+      .run()
+    return { ok: true }
+  })
+
+  // Lets the Settings screen prove delivery end to end with one tap, instead of queueing a real
+  // ticket to find out whether notifications work.
+  app.post('/web-push/test', async () => {
+    await ping(
+      db,
+      { ticketId: 0, runId: 0, title: 'tada', body: 'Notifications are working.' },
+      { webPush: deps.webPush },
+    )
+    return { ok: true }
   })
 }

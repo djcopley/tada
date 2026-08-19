@@ -217,7 +217,8 @@ NodeNext source resolves) — each is commented; don't simplify them away.
 - `pnpm test` consumes **zero LLM tokens**. The one exception is
   `apps/server/test/claudeAdapter.it.test.ts`, gated behind `TADA_IT=1` because it burns real
   Max/API quota — never run it in CI.
-- Tests set `pr: false` in `RunnerDeps` (no `gh`/network) and pass `fetchImpl` to stub Expo push.
+- Tests set `pr: false` in `RunnerDeps` (no `gh`/network) and pass a `NotifyDeps` object to `ping`
+  (`fetchImpl` stubs the Expo channel, `webPush` the web one).
 - CI (`.github/workflows/ci.yml`) runs `pnpm lint`, `pnpm typecheck` and `pnpm test` as three
   parallel jobs on every push to `main` and every PR; each starts from the shared composite action
   in `.github/actions/setup` (pnpm 9 + Node from `.nvmrc` + `--frozen-lockfile`). The test job
