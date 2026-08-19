@@ -178,9 +178,10 @@ Live Activity. APNs is dormant without credentials — `apns.ts#createApnsSender
 `liveActivity.ts` keeps **at most one** activity in flight at a time: `focusRunId` picks the run
 that most wants you (`held` outranks `running`; among equals, the newest `startedAt` wins) and
 `sync()` rebuilds that run's `LiveActivityProps` and pushes it. It's driven from `runs/runner.ts`,
-called (as `syncActivity()`) beside every `hub.boardChanged()` — the lock screen follows the board
-exactly, so it refreshes wherever the board does, and the call is wrapped so a broken notification
-can never fail a run. The one-activity rule isn't a product choice, it's forced by the platform:
+called (as `syncActivity()`) beside every `hub.boardChanged()` **in that file** — the run lifecycle
+is the only thing the card follows; route-level `boardChanged()` calls (an MCP `update_ticket`
+renaming a ticket, say) do not sync it. The call is wrapped so a broken notification can never fail
+a run. The one-activity rule isn't a product choice, it's forced by the platform:
 when iOS hands back an activity's push token, the payload carries no way to say which run it
 belongs to, so the server has to already know there is only one to bind it to.
 

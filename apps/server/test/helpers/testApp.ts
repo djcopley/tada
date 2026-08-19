@@ -9,6 +9,7 @@ import type { Config } from '../../src/config.js'
 import { loadConfig } from '../../src/config.js'
 import { openDb, type TadaDb } from '../../src/db/index.js'
 import { agentRuns, tickets } from '../../src/db/schema.js'
+import type { LiveActivityChannel } from '../../src/liveActivity.js'
 import type { RunnerDeps } from '../../src/runs/runner.js'
 import { Scheduler } from '../../src/runs/scheduler.js'
 import { SourceStore } from '../../src/sources/store.js'
@@ -33,7 +34,11 @@ export interface TestApp {
 /** A real app against a temp SQLite file and an isolated XDG tree. Call in each test (it calls
  * `isolateXdg()` itself). */
 export async function makeTestApp(
-  opts: { adapters?: Map<string, Adapter>; runner?: Partial<RunnerDeps> } = {},
+  opts: {
+    adapters?: Map<string, Adapter>
+    runner?: Partial<RunnerDeps>
+    liveActivity?: LiveActivityChannel
+  } = {},
 ): Promise<TestApp> {
   isolateXdg()
   const db = testDb()
@@ -47,11 +52,20 @@ export async function makeTestApp(
     broadcast: hub.runEvent,
     hub,
     repingMs: 0,
+    liveActivity: opts.liveActivity,
     ...opts.runner,
   })
   scheduler.recover()
   const config = loadConfig()
-  const app = buildApp({ db, config, store, scheduler, broadcastHub: hub, adapters })
+  const app = buildApp({
+    db,
+    config,
+    store,
+    scheduler,
+    broadcastHub: hub,
+    adapters,
+    liveActivity: opts.liveActivity,
+  })
   await app.ready()
 
   const json = async (o: InjectOptions) => {

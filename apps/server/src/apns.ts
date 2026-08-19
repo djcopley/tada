@@ -37,7 +37,13 @@ export interface ApnsMessage {
   now?: Date
 }
 
-export type ApnsSender = (msg: ApnsMessage) => Promise<void>
+export interface ApnsResult {
+  /** true when the response says the token is dead (410, BadDeviceToken, ExpiredToken) — the
+   * caller's cue to delete whatever row holds it, mirroring notify.ts#sendWeb's 404/410 handling. */
+  gone: boolean
+}
+
+export type ApnsSender = (msg: ApnsMessage) => Promise<ApnsResult>
 
 function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url')
@@ -143,7 +149,7 @@ export function createApnsSender(config: Config): ApnsSender | undefined {
   }
 
   return async (msg) =>
-    new Promise<void>((resolve) => {
+    new Promise<ApnsResult>((resolve) => {
       try {
         const now = msg.now ?? new Date()
         if (!jwt || now.getTime() - jwt.at > JWT_TTL_MS) {
@@ -169,29 +175,31 @@ export function createApnsSender(config: Config): ApnsSender | undefined {
           payload += chunk
         })
         stream.on('end', () => {
-          if (status !== 200) {
-            const reason = (() => {
-              try {
-                return JSON.parse(payload).reason as string | undefined
-              } catch {
-                return undefined
-              }
-            })()
-            // Never log the token: it is a capability to push to that device.
-            console.error(`apns send failed: HTTP ${status} ${reason ?? ''}`.trim())
+          if (status === 200) {
+            resolve({ gone: false })
+            return
           }
-          resolve()
+          const reason = (() => {
+            try {
+              return JSON.parse(payload).reason as string | undefined
+            } catch {
+              return undefined
+            }
+          })()
+          // Never log the token: it is a capability to push to that device.
+          console.error(`apns send failed: HTTP ${status} ${reason ?? ''}`.trim())
+          resolve({ gone: isApnsGone(status, reason) })
         })
         stream.on('error', (err) => {
           console.error('apns send failed:', err)
           session?.destroy()
           session = undefined
-          resolve()
+          resolve({ gone: false })
         })
         stream.end(req.body)
       } catch (err) {
         console.error('apns send failed:', err)
-        resolve()
+        resolve({ gone: false })
       }
     })
 }

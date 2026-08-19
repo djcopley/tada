@@ -155,9 +155,13 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
         {body}
       </VStack>
     ),
-    minimal: <Circle modifiers={[background(chrome.dot), frame({ width: 11, height: 11 })]} />,
+    // SwiftUI fills a Shape from its foreground style, not `.background` (which paints behind the
+    // view's bounding box) — `CircleProps` has no separate fill prop, so `foregroundColor` is the
+    // only modifier that actually colors the dot itself. `background` here would render a white
+    // circle on a chrome.dot-colored square instead.
+    minimal: <Circle modifiers={[foregroundColor(chrome.dot), frame({ width: 11, height: 11 })]} />,
     compactLeading: (
-      <Circle modifiers={[background(chrome.dot), frame({ width: 9, height: 9 })]} />
+      <Circle modifiers={[foregroundColor(chrome.dot), frame({ width: 9, height: 9 })]} />
     ),
     compactTrailing:
       props.phase === 'working' ? (

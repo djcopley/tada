@@ -1,6 +1,6 @@
 import type { Hold, LiveActivityProps } from '@tada/shared'
 import { ACTIVITY_DISMISSAL_MS, runToActivityProps } from '@tada/shared'
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, or } from 'drizzle-orm'
 import type { ApnsMessage, ApnsSender } from './apns.js'
 import type { TadaDb } from './db/index.js'
 import {
@@ -12,17 +12,40 @@ import {
 } from './db/schema.js'
 
 /**
- * Binds a token the app just read off ActivityKit to the session it must belong to: the newest
- * one still open and still tokenless. This is the whole reason only one activity exists at a
- * time — iOS returns a token with no way to say which activity, and therefore which run, it is
- * for. A token with nothing to bind to is dropped: the activity it belongs to is already over.
+ * How long a session that just closed is still allowed to catch a late-arriving token. Covers a
+ * background-launched app's round trip to POST /live-activity/tokens — generous on purpose, since
+ * the failure mode of too-short (a token silently dropped) is worse than too-long (an inert token
+ * bound to an already-closed session, which is harmless — nothing reads a closed session's token).
+ */
+const TOKEN_BIND_GRACE_MS = 30_000
+
+/**
+ * Binds a token the app just read off ActivityKit to the session it must belong to. iOS returns a
+ * token with no way to say which activity, and therefore which run, it is for — that's the whole
+ * reason only one activity exists at a time.
+ *
+ * The match is FIFO — the OLDEST still-tokenless session, not the newest — and includes sessions
+ * that closed within the last `TOKEN_BIND_GRACE_MS`, not just open ones. Both are needed together:
+ * without the grace window, a session that finishes (run A) right as a new one opens (run B) drops
+ * out of the pool the instant it closes, so A's in-flight token POST lands on B's row instead —
+ * and B's own token then finds nothing open and tokenless to bind to at all. Keeping the closing
+ * session bindable a little longer, and always preferring the oldest pending request over the
+ * newest, means a late token still finds the session it was actually issued for. A token with
+ * nothing to bind to (older than the grace window, or none tokenless at all) is dropped: the
+ * activity it belongs to is already over.
  */
 export function bindActivityToken(db: TadaDb, token: string): void {
+  const cutoff = new Date(Date.now() - TOKEN_BIND_GRACE_MS)
   const target = db.drizzle
     .select()
     .from(liveActivitySessions)
-    .where(and(isNull(liveActivitySessions.endedAt), isNull(liveActivitySessions.pushToken)))
-    .orderBy(desc(liveActivitySessions.startedAt))
+    .where(
+      and(
+        isNull(liveActivitySessions.pushToken),
+        or(isNull(liveActivitySessions.endedAt), gte(liveActivitySessions.endedAt, cutoff)),
+      ),
+    )
+    .orderBy(asc(liveActivitySessions.startedAt))
     .get()
   if (!target) return
   db.drizzle
@@ -137,7 +160,23 @@ export function createLiveActivityChannel(deps: {
   send: ApnsSender
 }): LiveActivityChannel {
   const { db, send: sender } = deps
-  const push = (msg: ApnsMessage) => void sender(msg).catch(() => {})
+  // `start` is the only event sent to a push-to-start token (see startIfFocusedAndIdle) —
+  // update/end go to a session's per-activity token, which lives only in `liveActivitySessions`
+  // and is never reused, so there is nothing to garbage-collect there. A dead start token
+  // (APNs 410/BadDeviceToken/ExpiredToken, e.g. after the app reinstalls) is deleted the same way
+  // notify.ts#sendWeb drops a dead web push subscription — otherwise it fans `start` out forever
+  // and, while a rotated token briefly coexists with its replacement, can produce two cards.
+  const push = (msg: ApnsMessage) =>
+    void sender(msg)
+      .then((result) => {
+        if (result.gone && msg.event === 'start') {
+          db.drizzle
+            .delete(liveActivityStartTokens)
+            .where(eq(liveActivityStartTokens.token, msg.token))
+            .run()
+        }
+      })
+      .catch(() => {})
 
   function sync(): void {
     // sync() is called from the runner's hot path on every lifecycle event and must never throw
@@ -226,19 +265,25 @@ export function createLiveActivityChannel(deps: {
     if (!props) return
     const propsJson = JSON.stringify(props)
     if (propsJson === openSession.lastProps) return
+    // `lastProps` is only written when a push actually goes out. If it were written unconditionally
+    // (even with no token yet), a change that lands in the tokenless window between "start" and the
+    // app's POST /live-activity/tokens would be recorded as already-sent and never pushed once the
+    // token finally arrives — the card would sit on stale "working" props for the run's first gate,
+    // silently, since a held run produces no further props change to retry with. Leaving `lastProps`
+    // untouched here means the next sync (e.g. the one bindActivityToken triggers) still sees a
+    // mismatch and pushes it for real.
+    if (!openSession.pushToken) return
     db.drizzle
       .update(liveActivitySessions)
       .set({ lastProps: propsJson })
       .where(eq(liveActivitySessions.id, openSession.id))
       .run()
-    if (openSession.pushToken) {
-      push({
-        token: openSession.pushToken,
-        event: 'update',
-        props,
-        ...delivery(props, source.ticket.title),
-      })
-    }
+    push({
+      token: openSession.pushToken,
+      event: 'update',
+      props,
+      ...delivery(props, source.ticket.title),
+    })
   }
 
   // Step 3: there is a focused run and no open session — start one. A push-to-start token goes

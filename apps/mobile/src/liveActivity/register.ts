@@ -3,7 +3,13 @@ import { runToActivityProps } from '@tada/shared'
 import { Platform } from 'react-native'
 import { TadaClient } from '../api/client'
 import { loadConnection } from '../settings'
-import { actionRequest, failedProps, optimisticProps, parseTarget } from './interactions'
+import {
+  actionRequest,
+  bareFailedProps,
+  failedProps,
+  optimisticProps,
+  parseTarget,
+} from './interactions'
 
 /**
  * Live Activity wiring, registered at module scope rather than in an effect. A button press is a
@@ -21,14 +27,39 @@ type TadaRunActivityFactory = ActivityModule['default']
 
 function loadWidgets(): WidgetsModule | null {
   if (Platform.OS !== 'ios') return null
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberately not a static import (see above)
-  return require('expo-widgets') as WidgetsModule
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberately not a static import (see above)
+    return require('expo-widgets') as WidgetsModule
+  } catch {
+    // The native module is absent — Expo Go, a simulator build without the widget extension, or
+    // (now that this loads unconditionally at module scope, not gated behind a stored connection)
+    // a test environment that reports Platform.OS as 'ios' with no native modules at all.
+    return null
+  }
 }
 
 function loadActivity(): ActivityModule | null {
   if (Platform.OS !== 'ios') return null
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberately not a static import (see above)
-  return require('./TadaRunActivity') as ActivityModule
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- deliberately not a static import (see above)
+    return require('./TadaRunActivity') as ActivityModule
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Builds a client from whatever connection is stored *right now*. Deliberately not resolved once
+ * and captured — a listener that closed over a client built at module-load time would leave the
+ * very first connect (or a later reconnect to a different server) with no start token registered
+ * and, for a button press, a request firing against stale or absent credentials until the app
+ * process restarts. Every call site below re-resolves this, so it always sees the current
+ * connection even though the listener registration itself happens once, at module scope.
+ */
+async function withClient<T>(fn: (client: TadaClient) => Promise<T>): Promise<T | undefined> {
+  const connection = await loadConnection()
+  if (!connection) return undefined
+  return fn(new TadaClient(connection))
 }
 
 /**
@@ -36,8 +67,14 @@ function loadActivity(): ActivityModule | null {
  * just run at import time) so the module-scope call below and any future direct caller share one
  * implementation. Every step swallows its own errors — a broken Live Activity must never break
  * app startup, exactly like push.ts's registerForPush.
+ *
+ * The listener registrations themselves are unconditional (not gated on a connection existing
+ * yet) — that's what "registered at module scope" buys: a button press or a push-to-start event
+ * that background-launches the app is caught no matter when the user connected relative to this
+ * module loading. Each listener resolves the connection fresh via `withClient` when it actually
+ * fires, rather than trusting one resolved at registration time.
  */
-export function registerLiveActivity(client: TadaClient): void {
+export function registerLiveActivity(): void {
   const widgets = loadWidgets()
   const activityModule = loadActivity()
   if (!widgets || !activityModule) return
@@ -46,7 +83,9 @@ export function registerLiveActivity(client: TadaClient): void {
   // 1. The push-to-start token: lets the server start a fresh activity for this device without
   // the app ever running. Idempotent server-side, so re-registering on every launch is fine.
   widgets.addPushToStartTokenListener((event) => {
-    client.registerLiveActivityStartToken(event.activityPushToStartToken).catch(() => {})
+    void withClient((client) =>
+      client.registerLiveActivityStartToken(event.activityPushToStartToken),
+    )
   })
 
   // 2. Any activity already running when the app launches (started by a previous session, or by
@@ -55,7 +94,9 @@ export function registerLiveActivity(client: TadaClient): void {
   for (const instance of TadaRunActivity.getInstances()) {
     instance
       .getPushToken()
-      .then((token) => (token ? client.registerLiveActivityToken(token) : undefined))
+      .then((token) =>
+        token ? withClient((client) => client.registerLiveActivityToken(token)) : undefined,
+      )
       .catch(() => {})
   }
 
@@ -65,7 +106,7 @@ export function registerLiveActivity(client: TadaClient): void {
   // shows an immediate "sending…" state, fires the call, and falls back to a visible failure
   // state rather than leaving the card stuck on that optimistic guess.
   widgets.addUserInteractionListener((event) => {
-    void handleInteraction(client, TadaRunActivity, event.target)
+    void withClient((client) => handleInteraction(client, TadaRunActivity, event.target))
   })
 }
 
@@ -74,15 +115,25 @@ async function handleInteraction(
   TadaRunActivity: TadaRunActivityFactory,
   target: string,
 ): Promise<void> {
-  try {
-    const parsed = parseTarget(target)
-    if (!parsed) return
-    const { runId, action } = parsed
-    const instance = TadaRunActivity.getInstances()[0]
-    if (!instance) return
+  const parsed = parseTarget(target)
+  if (!parsed) return
+  const { runId, action } = parsed
+  // Looked up before the try below so the failure path (unreachable server included) still has an
+  // instance to put the red state on — a torn-down instance is the one case there is truly nothing
+  // to update, and that alone is fine to fall out of silently.
+  const instance = TadaRunActivity.getInstances()[0]
+  if (!instance) return
 
+  // Set once `client.run` returns, so the catch below can build a real `failedProps` from it; a
+  // fetch that never lands leaves this null and falls back to `bareFailedProps(runId)` instead.
+  let props: LiveActivityProps | null = null
+  try {
+    // `client.run` — the most likely failure on a lock screen, an unreachable server — must sit
+    // inside this same guarded region as the rest of the call. It used to sit above the try, so a
+    // failed fetch fell straight to a bare catch with nothing to update: no `failedProps`, no
+    // visible change on the card, contradicting "if the call does not land the card says so".
     const run = await client.run(runId)
-    const props = runToActivityPropsFromRun(run)
+    props = runToActivityPropsFromRun(run)
     if (!props) return // the run has no card anymore (queued/cancelled) — nothing to act on
 
     // 'open' needs no call — the tap already brought the app forward — and checking this before
@@ -91,17 +142,12 @@ async function handleInteraction(
     if (!request) return
 
     await instance.update(optimisticProps(props))
-
-    try {
-      await client.postAction(request.path, request.body)
-    } catch {
-      // The gate held on you is worse off admitting it needs the app than sitting on an
-      // optimistic "sending…" that silently never happened.
-      await instance.update(failedProps(props)).catch(() => {})
-    }
+    await client.postAction(request.path, request.body)
   } catch {
-    // Anything above this point (a torn-down instance, a malformed event, a 404 on the run) must
-    // not crash the background launch it is running in.
+    // Anything above — `client.run` unreachable, a malformed event, a 404 on the run, `postAction`
+    // failing — must not crash the background launch it is running in, and must still leave the
+    // card saying so rather than stuck on an optimistic "sending…" that silently never happened.
+    await instance.update(props ? failedProps(props) : bareFailedProps(runId)).catch(() => {})
   }
 }
 
@@ -123,14 +169,8 @@ function runToActivityPropsFromRun(
   })
 }
 
-// Module-scope side effect: reads the stored connection (a background launch from a button press
-// may never mount ConnectionProvider) and wires the listeners above. Every failure is swallowed —
-// no stored connection, an unreachable server, expo-widgets missing on this platform — so a
-// broken Live Activity never breaks app startup.
-if (Platform.OS === 'ios') {
-  loadConnection()
-    .then((connection) => {
-      if (connection) registerLiveActivity(new TadaClient(connection))
-    })
-    .catch(() => {})
-}
+// Module-scope side effect: wires the listeners above (a background launch from a button press may
+// never mount ConnectionProvider, so this cannot be a hook). No connection is read here — each
+// listener resolves one fresh via `withClient` when it actually fires — so nothing about this call
+// depends on whether a connection already exists at the moment the module loads.
+registerLiveActivity()

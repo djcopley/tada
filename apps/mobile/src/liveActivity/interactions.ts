@@ -99,3 +99,22 @@ export function failedProps(props: LiveActivityProps): LiveActivityProps {
     actions: [{ kind: 'open', label: 'Open' }],
   }
 }
+
+/**
+ * The failure card built with nothing but the run id the button's `target` named — used when
+ * `client.run(runId)` itself is what failed, so there is no fetched `LiveActivityProps` left to
+ * spread `failedProps` from. `ticketId` and `title` are unknown in that case; `ticketId` is filled
+ * with `runId` as an inert placeholder (the only action this card offers is 'open', which needs no
+ * ticketId), and the title says so rather than showing something invented.
+ */
+export function bareFailedProps(runId: number): LiveActivityProps {
+  return {
+    runId,
+    ticketId: runId,
+    title: 'tada',
+    phase: 'failed',
+    agentLine: "couldn't reach tada — open the app",
+    startedAt: Date.now(),
+    actions: [{ kind: 'open', label: 'Open' }],
+  }
+}
