@@ -46,7 +46,11 @@ export default function SettingsScreen() {
   if (wide) {
     return (
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="settings-wide">
-        <ScrollView contentContainerStyle={styles.wideContent}>
+        <ScrollView
+          contentContainerStyle={styles.wideContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View style={styles.headerRow}>
             <Text style={[type.display, { color: colors.text }]}>Settings</Text>
           </View>
@@ -59,7 +63,13 @@ export default function SettingsScreen() {
   return (
     <Screen testID="settings-narrow">
       <AppHeader title="Settings" wordmark />
-      <ScrollView contentContainerStyle={styles.content}>{body}</ScrollView>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        {body}
+      </ScrollView>
     </Screen>
   )
 }

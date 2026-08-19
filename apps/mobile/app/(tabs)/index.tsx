@@ -210,6 +210,8 @@ export default function Control() {
       <View style={[styles.wideRoot, { backgroundColor: colors.ground }]} testID="control-wide">
         <ScrollView
           contentContainerStyle={styles.wideContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
         >
           <View style={styles.wideHeaderRow}>
@@ -286,6 +288,8 @@ export default function Control() {
       <ScrollView
         testID="control-narrow-scroll"
         contentContainerStyle={styles.narrowContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
         {headlineBlock}

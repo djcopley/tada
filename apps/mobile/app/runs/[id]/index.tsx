@@ -144,7 +144,15 @@ function RunBody({ runId }: { runId: number }) {
 
   return (
     <Screen edges={['top', 'bottom']} testID="run-activity">
-      <ScrollView testID="run-activity-scroll" contentContainerStyle={styles.content}>
+      <ScrollView
+        testID="run-activity-scroll"
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        // The note composer sits at the very bottom; without this the keyboard covers it and there
+        // is nothing to scroll to. iOS-only prop, ignored elsewhere.
+        automaticallyAdjustKeyboardInsets
+      >
         <View style={styles.headerRow}>
           <Button testID="run-back" variant="ghost" small icon="chevron-left" label="Control" onPress={() => goToControl(router)} />
           <View style={styles.headerTitleBlock}>

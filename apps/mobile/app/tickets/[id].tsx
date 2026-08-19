@@ -237,7 +237,11 @@ function TicketDetailBody({ ticketId, ticket, startEditing = false }: { ticketId
   return (
     <Screen>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={[styles.content, wide && styles.contentWide]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, wide && styles.contentWide]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           {header}
           {titleBlock}
           {wide ? (
