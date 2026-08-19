@@ -12,7 +12,7 @@ import {
   widgetURL,
 } from '@expo/ui/swift-ui/modifiers'
 import { createLiveActivity } from 'expo-widgets'
-import { phaseChrome, WIDGET_INK } from './chrome'
+import { phaseChrome, progressValue, timerBounds, WIDGET_INK } from './chrome'
 
 // Fonts: this app loads IBM Plex Mono and Instrument Sans via @expo-google-fonts/* at JS
 // runtime, which cannot register faces for a widget extension target. So the extension never
@@ -86,7 +86,7 @@ function Actions({ actions }: { actions: ActivityAction[] }) {
 export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', (props) => {
   'widget'
   const chrome = phaseChrome(props.phase)
-  const started = new Date(props.startedAt)
+  const timer = timerBounds(props.startedAt, props.budgetEndsAt)
 
   const header = (
     <HStack>
@@ -101,7 +101,7 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
       <Spacer />
       {props.phase === 'working' ? (
         <Text
-          timerInterval={{ lower: started, upper: new Date(props.budgetEndsAt ?? Date.now()) }}
+          timerInterval={timer}
           countsDown={false}
           modifiers={[font({ design: 'monospaced', size: 11 }), foregroundColor(chrome.text)]}
         />
@@ -133,7 +133,7 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
           // The budget consumed — the one honest progress tada has. A run without a budget
           // draws no bar at all rather than a made-up one.
           modifiers={[foregroundColor(WIDGET_INK.live)]}
-          value={Math.min(1, (Date.now() - props.startedAt) / (props.budgetEndsAt - props.startedAt))}
+          value={progressValue(props.startedAt, props.budgetEndsAt)}
         />
       ) : null}
       <Actions actions={props.actions} />
@@ -159,7 +159,7 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
     compactTrailing:
       props.phase === 'working' ? (
         <Text
-          timerInterval={{ lower: started, upper: new Date(props.budgetEndsAt ?? Date.now()) }}
+          timerInterval={timer}
           countsDown={false}
           modifiers={[font({ design: 'monospaced', size: 12 }), foregroundColor(chrome.text)]}
         />

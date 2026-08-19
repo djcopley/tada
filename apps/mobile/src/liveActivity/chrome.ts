@@ -32,6 +32,33 @@ export const WIDGET_INK = {
   failText: night.failText,
 } as const
 
+/**
+ * SwiftUI's `timerInterval` needs a real ceiling — it will not draw a live-counting timer with
+ * an open-ended upper bound. A run without a time budget has no such ceiling, so we hand it one
+ * far enough in the future that it never arrives, rather than falling back to `startedAt` itself
+ * (which collapses lower === upper and freezes the timer at zero the instant it appears).
+ */
+export const TIMER_UNBOUNDED_MS = 365 * 24 * 60 * 60 * 1000
+
+/**
+ * The `timerInterval` bounds for a run's live timer. Shared by the header and the compact
+ * trailing presentation so the two can't drift out of sync with each other.
+ */
+export function timerBounds(
+  startedAt: number,
+  budgetEndsAt?: number,
+): { lower: Date; upper: Date } {
+  return {
+    lower: new Date(startedAt),
+    upper: new Date(budgetEndsAt ?? startedAt + TIMER_UNBOUNDED_MS),
+  }
+}
+
+/** The budget consumed, clamped to `[0, 1]` — clock skew can otherwise push either end past it. */
+export function progressValue(startedAt: number, budgetEndsAt: number): number {
+  return Math.min(1, Math.max(0, (Date.now() - startedAt) / (budgetEndsAt - startedAt)))
+}
+
 /** The dot, the mono text color, and the two-word name each phase gives itself. */
 export function phaseChrome(phase: ActivityPhase): { dot: string; text: string; label: string } {
   switch (phase) {
