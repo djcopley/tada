@@ -280,8 +280,13 @@ pnpm --filter @tada/desktop build
 
 This exports the mobile app for web, compiles the Electron main/preload, and runs
 electron-builder to produce `apps/desktop/release/mac-arm64/tada.app` (path varies by
-architecture). The build is unsigned — it's meant to run on the machine that built it; macOS will
-warn about an unidentified developer if the `.app` is copied to another machine.
+architecture). The build carries no Developer ID and is not notarized — it's meant to run on the
+machine that built it, and macOS will warn about an unidentified developer if the `.app` is copied
+elsewhere. The last build step does re-sign the bundle *ad-hoc* with its real identifier
+(`dev.tada.desktop`), which has nothing to do with Gatekeeper and everything to do with
+notifications: macOS ties notification permission to the code-signature identity, and without it
+every notification fails silently. If notifications stop arriving after a packaging change, check
+`codesign -dv` on the bundle first.
 
 ## Running tests
 
