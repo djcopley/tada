@@ -1,4 +1,3 @@
-import type { Hold } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { TadaDb } from './db/index.js'
 import { pushTokens, settings, webPushSubscriptions } from './db/schema.js'
@@ -37,16 +36,9 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks
 }
 
-export function holdPingText(hold: Hold): string {
-  switch (hold.reason) {
-    case 'permission':
-      return `wants to: ${hold.ruleTitle} — ${hold.summary}`
-    case 'question':
-      return hold.question
-    case 'time':
-      return 'out of time — continue, or stop it'
-  }
-}
+// Lives in @tada/shared because the Live Activity card renders the same sentence the ping sends;
+// two copies of it drift, and the drift is invisible until you are reading a lock screen at 3am.
+export { holdPingText } from '@tada/shared'
 
 /** Expo channel: the native app's transport. Dormant until a device registers a token. */
 async function sendExpo(db: TadaDb, input: PingInput, fetchImpl: typeof fetch): Promise<void> {
