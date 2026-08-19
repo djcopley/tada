@@ -16,17 +16,12 @@ export function linkDecision(url: string, appOrigin: string): LinkDecision {
     return 'block'
   }
 
-  // For custom schemes like app://, origin may not be set correctly by the URL constructor.
-  // Build the expected origin from protocol, hostname, and port.
+  // URL.origin yields the string "null" for non-special schemes like app://, so construct it manually.
   let parsedOrigin: string
-  try {
-    if (parsed.port) {
-      parsedOrigin = `${parsed.protocol}//${parsed.hostname}:${parsed.port}`
-    } else {
-      parsedOrigin = `${parsed.protocol}//${parsed.hostname}`
-    }
-  } catch {
-    return 'block'
+  if (parsed.port) {
+    parsedOrigin = `${parsed.protocol}//${parsed.hostname}:${parsed.port}`
+  } else {
+    parsedOrigin = `${parsed.protocol}//${parsed.hostname}`
   }
 
   if (parsedOrigin === appOrigin) return 'internal'

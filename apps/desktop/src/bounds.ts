@@ -39,8 +39,7 @@ function onSomeDisplay(saved: Bounds, displays: DisplayArea[]): boolean {
   // The origin being inside a work area is enough: a window dragged slightly off the edge is
   // still reachable, whereas one whose whole frame is off-screen is not.
   return displays.some(
-    (d) =>
-      saved.x >= d.x && saved.x < d.x + d.width && saved.y >= d.y && saved.y < d.y + d.height,
+    (d) => saved.x >= d.x && saved.x < d.x + d.width && saved.y >= d.y && saved.y < d.y + d.height,
   )
 }
 
