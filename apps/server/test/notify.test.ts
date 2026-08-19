@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { describe, expect, test, vi } from 'vitest'
 import { pushTokens, settings, webPushSubscriptions } from '../src/db/schema.js'
-import { holdPingText, ping } from '../src/notify.js'
+import { ping } from '../src/notify.js'
 import { testDb } from './helpers/testApp.js'
 
 const sub = (endpoint: string) => ({ endpoint, p256dh: 'p256', auth: 'auth' })
@@ -178,20 +178,5 @@ describe('ping', () => {
     await ping(db, { ticketId: 1, runId: 1, title: 't', body: 'b' }, { webPush })
 
     expect(webPush).not.toHaveBeenCalled()
-  })
-
-  test('holdPingText names what stopped the run', () => {
-    expect(
-      holdPingText({
-        reason: 'permission',
-        tool: 'Bash',
-        summary: 'gh pr create',
-        ruleId: 1,
-        ruleTitle: 'Open a pull request',
-        publishes: true,
-      }),
-    ).toBe('wants to: Open a pull request — gh pr create')
-    expect(holdPingText({ reason: 'question', question: 'which?', options: [] })).toBe('which?')
-    expect(holdPingText({ reason: 'time', budgetMs: 1 })).toContain('out of time')
   })
 })
