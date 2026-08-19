@@ -2,7 +2,7 @@ import type { Hold, RunStatus } from '@tada/shared'
 import { ACTIVITY_DISMISSAL_MS } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import { expect, test } from 'vitest'
-import type { ApnsMessage } from '../src/apns.js'
+import type { ApnsMessage, ApnsSender } from '../src/apns.js'
 import { createApnsSender } from '../src/apns.js'
 import type { TadaDb } from '../src/db/index.js'
 import {
@@ -131,17 +131,36 @@ test('a held run takes the card from a merely working one', async () => {
 })
 
 test('an event that changes nothing on the card sends nothing', async () => {
-  // sync twice with no state change; expect one push, not two
+  // Bind an activity token first — otherwise step 4's push is gated off by the token check alone
+  // and the `lastProps` comparison this test is meant to exercise is never reached.
   const t = await makeTestApp()
   t.db.drizzle.insert(liveActivityStartTokens).values({ token: 'start-1' }).run()
   const sent: ApnsMessage[] = []
   const channel = createLiveActivityChannel({ db: t.db, send: async (m) => void sent.push(m) })
 
-  seedRun(t.db, { status: 'running' })
+  const runId = seedRun(t.db, { status: 'running' })
   channel.sync()
-  channel.sync()
+  expect(sent).toHaveLength(1) // the 'start' push
 
+  const session = t.db.drizzle.select().from(liveActivitySessions).all()[0]
+  if (!session) throw new Error('session was not opened')
+  t.db.drizzle
+    .update(liveActivitySessions)
+    .set({ pushToken: 'activity-a' })
+    .where(eq(liveActivitySessions.id, session.id))
+    .run()
+
+  channel.sync() // no state change: the comparison against lastProps must gate this push off
   expect(sent).toHaveLength(1)
+
+  t.db.drizzle
+    .update(agentRuns)
+    .set({ summary: 'reading the reports page' })
+    .where(eq(agentRuns.id, runId))
+    .run()
+  channel.sync() // a real change: the comparison must let this one through
+  expect(sent).toHaveLength(2)
+  expect(sent[1]?.event).toBe('update')
 })
 
 test('a run that stops on you is pushed at priority 10 with an alert; working is 5 and silent', async () => {
@@ -215,4 +234,66 @@ test('with no APNs sender configured the channel is undefined and nothing is sto
   // by calling createApnsSender with an empty config and expecting undefined
   const sender = createApnsSender({} as Parameters<typeof createApnsSender>[0])
   expect(sender).toBeUndefined()
+})
+
+test('a cancelled focused run pushes exactly one end (from lastProps) and closes the row', async () => {
+  // runToActivityProps returns null for a cancelled run — there is no "current" card to build.
+  // The card must still leave the lock screen: fall back to the session's stored lastProps and
+  // push a bare `end`, no dismissal delay (a run you stopped on purpose leaves at once).
+  const t = await makeTestApp()
+  t.db.drizzle.insert(liveActivityStartTokens).values({ token: 'start-1' }).run()
+  const sent: ApnsMessage[] = []
+  const channel = createLiveActivityChannel({ db: t.db, send: async (m) => void sent.push(m) })
+
+  const runId = seedRun(t.db, { status: 'running' })
+  channel.sync()
+  const session = t.db.drizzle.select().from(liveActivitySessions).all()[0]
+  if (!session) throw new Error('session was not opened')
+  t.db.drizzle
+    .update(liveActivitySessions)
+    .set({ pushToken: 'activity-a' })
+    .where(eq(liveActivitySessions.id, session.id))
+    .run()
+  sent.length = 0
+
+  t.db.drizzle.update(agentRuns).set({ status: 'cancelled' }).where(eq(agentRuns.id, runId)).run()
+  channel.sync()
+
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.event).toBe('end')
+  expect(sent[0]?.token).toBe('activity-a')
+  expect(sent[0]?.dismissalDate).toBeUndefined()
+
+  const rows = t.db.drizzle.select().from(liveActivitySessions).all()
+  expect(rows.find((r) => r.runId === runId)?.endedAt).not.toBeNull()
+})
+
+test('focusRunId breaks a tie between two running runs by recency, not just rank', async () => {
+  const t = await makeTestApp()
+  t.db.drizzle.insert(liveActivityStartTokens).values({ token: 'start-1' }).run()
+  const sent: ApnsMessage[] = []
+  const channel = createLiveActivityChannel({ db: t.db, send: async (m) => void sent.push(m) })
+
+  seedRun(t.db, { status: 'running', startedAt: new Date(1_000), title: 'older run' })
+  const newer = seedRun(t.db, { status: 'running', startedAt: new Date(9_000), title: 'newer run' })
+  channel.sync()
+
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.props.runId).toBe(newer)
+  const rows = t.db.drizzle.select().from(liveActivitySessions).all()
+  expect(rows[0]?.runId).toBe(newer)
+})
+
+test('sync() never throws, even when the sender throws synchronously', async () => {
+  const t = await makeTestApp()
+  t.db.drizzle.insert(liveActivityStartTokens).values({ token: 'start-1' }).run()
+  // A sender that throws before ever returning a promise — the case `.catch()` alone can't
+  // guard against, which is why `sync()` needs its own top-level try/catch.
+  const throwingSend = ((): never => {
+    throw new Error('boom')
+  }) as ApnsSender
+  const channel = createLiveActivityChannel({ db: t.db, send: throwingSend })
+
+  seedRun(t.db, { status: 'running' })
+  expect(() => channel.sync()).not.toThrow()
 })

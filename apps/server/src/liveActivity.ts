@@ -140,6 +140,17 @@ export function createLiveActivityChannel(deps: {
   const push = (msg: ApnsMessage) => void sender(msg).catch(() => {})
 
   function sync(): void {
+    // sync() is called from the runner's hot path on every lifecycle event and must never throw
+    // — a bad row, a synchronously-throwing sender, anything unexpected here must not take the
+    // run down with it. Log and swallow; the card just goes stale until the next event retries.
+    try {
+      syncUnguarded()
+    } catch (err) {
+      console.error('live activity sync failed:', err)
+    }
+  }
+
+  function syncUnguarded(): void {
     const openSession = db.drizzle
       .select()
       .from(liveActivitySessions)
@@ -173,6 +184,19 @@ export function createLiveActivityChannel(deps: {
           })
         } else if (props) {
           push({ token: openSession.pushToken, event: 'end', props, priority: 5 })
+        } else if (openSession.lastProps) {
+          // `runToActivityProps` returns null for a `cancelled` (or `queued`) run — there is no
+          // "current" card to describe. That is still a real card going away (Stop run / rerun
+          // are normal paths, not errors), so fall back to the last props actually pushed and
+          // end it with no dismissal delay: a run you stopped on purpose leaves the lock screen
+          // at once, unlike a finished run's card, which lingers to be read. With no `lastProps`
+          // either, nothing was ever pushed to this activity — just close the row below.
+          push({
+            token: openSession.pushToken,
+            event: 'end',
+            props: JSON.parse(openSession.lastProps) as LiveActivityProps,
+            priority: 5,
+          })
         }
       }
       db.drizzle
