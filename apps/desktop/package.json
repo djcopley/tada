@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "compile": "tsc -p tsconfig.build.json",
-    "dev": "concurrently -k -n expo,electron \"pnpm --filter @tada/mobile web\" \"wait-on http://localhost:8081 && pnpm compile && TADA_DESKTOP_DEV=1 electron .\""
+    "dev": "concurrently -k -n expo,electron \"pnpm --filter @tada/mobile web\" \"wait-on http://localhost:8081 && pnpm compile && TADA_DESKTOP_DEV=1 electron .\"",
+    "build": "pnpm --filter @tada/mobile exec expo export --platform web && pnpm compile && electron-builder --config electron-builder.yml"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

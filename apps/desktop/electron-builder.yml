@@ -1,0 +1,18 @@
+appId: dev.tada.desktop
+productName: tada
+directories:
+  output: release
+# Only the compiled main/preload and the manifest ship as app files; the renderer is the Expo
+# static export, copied into Resources/web where bundleRoot() looks for it when packaged.
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../mobile/dist
+    to: web
+mac:
+  target: dir
+  category: public.app-category.developer-tools
+  # Unsigned on purpose: this is a single-user tool built on the machine that runs it. Signing and
+  # notarization are the first thing to add if the app ever leaves this laptop.
+  identity: null

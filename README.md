@@ -271,6 +271,17 @@ pnpm --filter @tada/desktop dev
 This starts the Expo web dev server and, once it's up, launches an Electron window pointed at
 `http://localhost:8081`; editing a mobile screen hot-reloads inside the window. Stop with Ctrl+C.
 
+To package a local build:
+
+```sh
+pnpm --filter @tada/desktop build
+```
+
+This exports the mobile app for web, compiles the Electron main/preload, and runs
+electron-builder to produce `apps/desktop/release/mac-arm64/tada.app` (path varies by
+architecture). The build is unsigned — it's meant to run on the machine that built it; macOS will
+warn about an unidentified developer if the `.app` is copied to another machine.
+
 ## Running tests
 
 ```sh
