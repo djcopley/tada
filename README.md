@@ -258,9 +258,10 @@ option.
 
 ## Desktop
 
-`apps/desktop` (`@tada/desktop`) wraps the same web build in an Electron shell for macOS/Linux/
-Windows. It is a client like the phone app or a browser tab — it connects to a running
-`@tada/server` over the network and has no server logic of its own.
+`apps/desktop` (`@tada/desktop`) wraps the same web build in an Electron shell. macOS is the
+supported and exercised target (`electron-builder.yml` only declares a `mac` build); Linux and
+Windows are out of scope for now and untested. It is a client like the phone app or a browser tab
+— it connects to a running `@tada/server` over the network and has no server logic of its own.
 
 For development:
 

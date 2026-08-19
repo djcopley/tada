@@ -109,7 +109,16 @@ function createWindow(): BrowserWindow {
  * already sees every hold. Clicking one focuses the window and hands the run id back, which the
  * renderer turns into navigation to /runs/<id> — where the hold actions are.
  */
-function registerNotifications(getWindow: () => BrowserWindow | null): void {
+function registerNotifications(
+  getWindow: () => BrowserWindow | null,
+  createWindow: () => BrowserWindow,
+): void {
+  // Electron's Notification is a thin wrapper over the OS notification centre; if nothing keeps
+  // a reference to it, V8 is free to collect it once the IPC handler returns, and the OS-level
+  // click callback goes with it — a click on the notification then does nothing. Keeping the
+  // instance in this set until it's clicked or closed is what keeps the click handler alive.
+  const liveNotifications = new Set<Notification>()
+
   ipcMain.on('tada:notify', (_event, raw: unknown) => {
     if (typeof raw !== 'object' || raw === null) return
     const { title, body, runId } = raw as Record<string, unknown>
@@ -117,14 +126,27 @@ function registerNotifications(getWindow: () => BrowserWindow | null): void {
     if (!Notification.isSupported()) return
 
     const notification = new Notification({ title, body })
+    liveNotifications.add(notification)
+    const forget = () => liveNotifications.delete(notification)
     notification.on('click', () => {
-      const win = getWindow()
-      if (!win) return
+      forget()
+      const existing = getWindow()
+      const isNew = existing === null
+      const win = existing ?? createWindow()
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
-      if (typeof runId === 'number') win.webContents.send('tada:open-run', runId)
+      if (typeof runId !== 'number') return
+      // A freshly created window's renderer hasn't run yet, so it hasn't wired up onOpenRun —
+      // sending immediately would drop the message on the floor. An existing window has already
+      // loaded and is listening, so send right away.
+      if (isNew) {
+        win.webContents.once('did-finish-load', () => win.webContents.send('tada:open-run', runId))
+      } else {
+        win.webContents.send('tada:open-run', runId)
+      }
     })
+    notification.on('close', forget)
     notification.show()
   })
 }
@@ -150,7 +172,10 @@ void app.whenReady().then(() => {
   )
 
   let win = createWindow()
-  registerNotifications(() => (win.isDestroyed() ? null : win))
+  registerNotifications(
+    () => (win.isDestroyed() ? null : win),
+    () => (win = createWindow()),
+  )
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
