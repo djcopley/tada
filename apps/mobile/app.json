@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.tada"
+      "bundleIdentifier": "dev.copley.tada"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +33,16 @@
       "expo-router",
       "expo-secure-store",
       "expo-notifications",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "dev.copley.tada.widgets",
+          "groupIdentifier": "group.dev.copley.tada",
+          "enablePushNotifications": true,
+          "widgets": [{ "name": "TadaRun", "displayName": "tada run" }]
+        }
+      ]
     ]
   }
 }

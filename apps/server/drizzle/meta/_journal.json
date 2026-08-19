@@ -15,6 +15,13 @@
       "when": 1787030912074,
       "tag": "0001_nappy_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787122210681,
+      "tag": "0002_lying_moondragon",
+      "breakpoints": true
     }
   ]
 }

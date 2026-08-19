@@ -169,6 +169,22 @@ disable commit signing.
 broadcast hook, so any journaled `status` event also re-emits `board_changed`. Route handlers that
 mutate the board directly call `boardChanged` themselves; rule edits emit `rules_changed`.
 
+### Notifications
+
+Three channels, all best-effort: Expo push (native mobile), web push (PWA), and APNs for the iOS
+Live Activity. APNs is dormant without credentials — `apns.ts#createApnsSender` returns
+`undefined` when `apnsKeyPath`/`apnsKeyId`/`apnsTeamId`/`apnsBundleId` aren't all set in
+`config.json`, and everything downstream treats an absent sender as "no-op", not "error".
+`liveActivity.ts` keeps **at most one** activity in flight at a time: `focusRunId` picks the run
+that most wants you (`held` outranks `running`; among equals, the newest `startedAt` wins) and
+`sync()` rebuilds that run's `LiveActivityProps` and pushes it. It's driven from `runs/runner.ts`,
+called (as `syncActivity()`) beside every `hub.boardChanged()` **in that file** — the run lifecycle
+is the only thing the card follows; route-level `boardChanged()` calls (an MCP `update_ticket`
+renaming a ticket, say) do not sync it. The call is wrapped so a broken notification can never fail
+a run. The one-activity rule isn't a product choice, it's forced by the platform:
+when iOS hands back an activity's push token, the payload carries no way to say which run it
+belongs to, so the server has to already know there is only one to bind it to.
+
 ## Mobile architecture
 
 expo-router file-based routing under `app/`. Root `_layout.tsx` composes
@@ -204,6 +220,28 @@ expo-router file-based routing under `app/`. Root `_layout.tsx` composes
   color exists** — never introduce a raw hex literal in a component; add or use a token.
 - Screen logic that can be tested without rendering is split into plain modules
   (`src/control.ts`, `src/ticketDetail.ts`, `src/board/*.ts`, `src/runActivity.ts`).
+
+### Live Activity
+
+The card's UI lives in `src/liveActivity/`; the contract is `@tada/shared`'s `liveActivity.ts` —
+`runToActivityProps` is the whole state table, the one function that turns a run+ticket into what
+the lock screen shows, shared verbatim with the server so the two can't drift. `interactions.ts`
+is pure (target parsing, request building, optimistic/failure props) so jest can reach it directly;
+`register.ts` holds all the native access (`expo-widgets`, `TadaRunActivity`) and is untested for
+exactly that reason. `register.ts` is imported at **module scope** from the root layout on
+purpose, not wired up in an effect — a Live Activity button press is a `LiveActivityIntent` that
+iOS can run by background-launching the app, and a background launch may never mount a React tree,
+so an effect-based listener would miss exactly the press that matters most. The button `target`
+string (`` `${runId}:${kind}:${value}` ``) is a contract between `TadaRunActivity.tsx` (which
+writes it) and `interactions.ts#parseTarget` (which reads it); the run id leads because a terminal
+card can outlive its run as the focused activity, so a tap must name its own run rather than the
+client guessing which one is current. `chrome.ts`'s `WIDGET_INK` is the only place hex literals
+are allowed in the app: SwiftUI's bridge parses 6-digit hex only, and the night palette's hairlines
+are 8-digit (`#F0EADD14`), which would silently render as nothing — `WIDGET_INK` is those tokens
+composited onto their own surface once, by hand.
+
+iOS now requires a dev build (`expo prebuild -p ios` + `expo run:ios`) because the app carries a
+Live Activity widget extension, and no longer runs in Expo Go. Android and web are unaffected.
 
 `jest.config.js` has several non-obvious workarounds (setupFiles must re-include the jest-expo
 preset's list, a chained resolver for Reanimated, a `.js`-extension stripper so `@tada/shared`'s

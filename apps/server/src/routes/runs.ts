@@ -8,12 +8,14 @@ import {
   agentRuns,
   comments,
   events,
+  liveActivityStartTokens,
   memoryNotes,
   pushTokens,
   rules,
   tickets,
   webPushSubscriptions,
 } from '../db/schema.js'
+import { bindActivityToken } from '../liveActivity.js'
 import { ping } from '../notify.js'
 import { runDiff } from '../runs/diff.js'
 import { runDirFor } from '../runs/runDir.js'
@@ -300,6 +302,30 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const parsed = pushTokenSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
     db.drizzle.insert(pushTokens).values({ token: parsed.data.token }).onConflictDoNothing().run()
+    return reply.code(201).send({ ok: true })
+  })
+
+  // The device's push-to-start token. Idempotent: the app re-registers on every launch.
+  app.post('/live-activity/start-token', async (req, reply) => {
+    const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+    db.drizzle
+      .insert(liveActivityStartTokens)
+      .values({ token: parsed.data.token })
+      .onConflictDoNothing()
+      .run()
+    return reply.code(201).send({ ok: true })
+  })
+
+  // A specific activity's update token, read by the app from ActivityKit. It carries no run id —
+  // iOS does not provide one — so it binds to the newest session still waiting for a token.
+  app.post('/live-activity/tokens', async (req, reply) => {
+    const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body)
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
+    bindActivityToken(db, parsed.data.token)
+    // The freshly bound token is how the just-started activity gets its first real update rather
+    // than sitting on the placeholder props it was started with.
+    deps.liveActivity?.sync()
     return reply.code(201).send({ ok: true })
   })
 

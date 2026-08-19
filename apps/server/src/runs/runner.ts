@@ -14,6 +14,7 @@ import type {
 } from '../adapters/types.js'
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, comments, memoryNotes, settings, tickets } from '../db/schema.js'
+import type { LiveActivityChannel } from '../liveActivity.js'
 import { pendingOutcome } from '../mcp/server.js'
 import { holdPingText, ping } from '../notify.js'
 import { stateDir } from '../paths.js'
@@ -62,6 +63,8 @@ export interface RunnerDeps {
   fetchImpl?: typeof fetch
   /** Sender for the web push channel. Absent in tests and when no keys are configured. */
   webPush?: WebPushSender
+  /** Drives the iOS Live Activity. Absent in tests and when APNs is not configured. */
+  liveActivity?: LiveActivityChannel
   /** Re-ping delay while held; read from settings when absent. Tests pass 0 (never). */
   repingMs?: number
   /** Called the moment a run enters a hold — its slot is free, so the scheduler should tick. */
@@ -132,6 +135,16 @@ export async function executeRun(
   const { db, store } = deps
   const hub = deps.hub ?? noopBroadcaster
 
+  // The lock screen follows the board exactly, so it is refreshed wherever the board is. Wrapped
+  // because a notification surface must never be able to fail a run — see markFailed's contract.
+  const syncActivity = (): void => {
+    try {
+      deps.liveActivity?.sync()
+    } catch (err) {
+      console.error('live activity sync failed:', err)
+    }
+  }
+
   const run = db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, runId)).get()
   if (!run) throw new Error(`run ${runId} not found`)
   const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, run.ticketId)).get()
@@ -179,6 +192,12 @@ export async function executeRun(
     type: 'run_started',
     message: `Agent started "${ticket.title}"`,
   })
+  // The card follows the board, but the board side of this transition is already covered: the
+  // `setRunStatus` above journaled a `status` event, and the journal's broadcast hook re-emits
+  // `board_changed` for any `status` event (see ws.ts). Only the activity needs poking here —
+  // without it, a run that finishes without ever holding would sync the lock screen for the
+  // first time on the done path, starting and ending the activity in one call.
+  syncActivity()
 
   // Every failure between here and a terminal state must route through markFailed rather than
   // propagate — otherwise the run wedges at running/held with the card stuck in its lane and no
@@ -201,6 +220,7 @@ export async function executeRun(
       message: `"${ticket.title}" failed — ${reason}`,
     })
     hub.boardChanged()
+    syncActivity()
     void ping(
       db,
       { ticketId: ticket.id, runId, title: `"${ticket.title}" failed`, body: reason },
@@ -220,6 +240,7 @@ export async function executeRun(
       message: `You stopped "${ticket.title}"`,
     })
     hub.boardChanged()
+    syncActivity()
   }
 
   let session: AdapterSession | undefined
@@ -252,6 +273,7 @@ export async function executeRun(
       message: holdActivityMessage(ticket.title, hold),
     })
     hub.boardChanged()
+    syncActivity()
     deps.onHeld?.()
     void ping(
       db,
@@ -289,6 +311,7 @@ export async function executeRun(
     moveCard('running')
     journal.write({ type: 'gate', payload: { kind: 'resume' } })
     hub.boardChanged()
+    syncActivity()
   }
 
   /** Holds the run until a human resolves it (or the run is aborted). */
@@ -658,6 +681,7 @@ export async function executeRun(
       message: `"${ticket.title}" finished and moved itself to done — ${reported.summary}`,
     })
     hub.boardChanged()
+    syncActivity()
     await cleanupRunDirs(store, [runId])
   } catch (err) {
     markFailed(err instanceof Error ? err.message : String(err))

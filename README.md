@@ -83,6 +83,14 @@ Under the state dir, each run has `runs/<runId>/` (scratch, folder symlinks, wor
 | `vapidPublicKey` | generated on first boot | VAPID application server key handed to browsers before they subscribe to Web Push |
 | `vapidPrivateKey` | generated on first boot | Signs every push. Keep it secret - the file is written `0600` |
 | `vapidSubject` | `mailto:daniel@copley.dev` | Contact a push service uses to reach the operator about a misbehaving application |
+| `apnsKeyPath` | unset | Path to the `.p8` APNs auth key, used to sign Live Activity push updates |
+| `apnsKeyId` | unset | Key ID for that `.p8` key, from the Apple Developer portal |
+| `apnsTeamId` | unset | Apple Developer Team ID |
+| `apnsBundleId` | unset | `dev.copley.tada` — the app's bundle id, not the widget extension's |
+| `apnsEnv` | `sandbox` | `sandbox` for a dev build (Xcode-signed, ad hoc), `production` once distributed via TestFlight/App Store |
+
+All five are optional; without `apnsKeyPath`/`apnsKeyId`/`apnsTeamId`/`apnsBundleId` the server skips
+APNs setup and Live Activities never receive push updates.
 
 The VAPID keypair lives here rather than in the database because it is server identity, not a
 preference: regenerating it invalidates **every existing push subscription**, and a browser
@@ -129,6 +137,13 @@ Use Expo Go to preview development builds, or build a dev build for a faster ite
 
 4. Tap "Connect". The app stores credentials securely using `expo-secure-store` (native secure
    enclave on iOS, Keystore on Android), so you won't need to re-enter them.
+
+The iOS app carries a Live Activity extension, so it no longer runs in Expo Go:
+
+    pnpm --filter @tada/mobile exec expo prebuild -p ios
+    pnpm --filter @tada/mobile exec expo run:ios
+
+`ios/` is generated and not committed. Android and web are unaffected — `pnpm --filter @tada/mobile start` still works there.
 
 #### Native push (Expo)
 

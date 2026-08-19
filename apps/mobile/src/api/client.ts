@@ -262,6 +262,24 @@ export class TadaClient {
     await this.req('POST', '/push-tokens', { token })
   }
 
+  async registerLiveActivityStartToken(token: string): Promise<void> {
+    await this.req('POST', '/live-activity/start-token', { token })
+  }
+
+  async registerLiveActivityToken(token: string): Promise<void> {
+    await this.req('POST', '/live-activity/tokens', { token })
+  }
+
+  /**
+   * Fires an arbitrary POST built from a `{path, body}` descriptor. Used by the Live Activity's
+   * button handler (`liveActivity/register.ts`), whose target set is data-driven —
+   * `liveActivity/interactions.ts#actionRequest` picks the path and body, this just sends them —
+   * rather than adding one bespoke method per lock-screen action.
+   */
+  async postAction(path: string, body: Record<string, unknown>): Promise<void> {
+    await this.req('POST', path, body)
+  }
+
   webPushPublicKey(): Promise<{ publicKey: string }> {
     return this.req('GET', '/web-push/public-key')
   }
