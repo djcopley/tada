@@ -4,6 +4,7 @@ import fastify, { type FastifyInstance } from 'fastify'
 import type { Adapter } from './adapters/types.js'
 import type { Config } from './config.js'
 import type { TadaDb } from './db/index.js'
+import type { LiveActivityChannel } from './liveActivity.js'
 import { registerMcpRoute } from './mcp/server.js'
 import { registerActivityRoutes } from './routes/activity.js'
 import { registerMemoryRoutes } from './routes/memory.js'
@@ -32,6 +33,8 @@ export interface AppDeps {
   adapters: Map<string, Adapter>
   /** Sender for the web push channel; absent in tests that do not exercise it. */
   webPush?: WebPushSender
+  /** Drives the iOS Live Activity; absent in tests and when APNs is not configured. */
+  liveActivity?: LiveActivityChannel
 }
 
 export function buildApp({
@@ -42,6 +45,7 @@ export function buildApp({
   broadcastHub,
   adapters,
   webPush,
+  liveActivity,
 }: AppDeps): FastifyInstance {
   // Warn-level logging (off under vitest) so 500s and other server-side failures leave a trace
   // in the daemon's journal instead of vanishing.
@@ -94,7 +98,16 @@ export function buildApp({
     registerWsRoute(app, broadcastHub, config)
   })
 
-  const routeDeps = { db, store, scheduler, hub: broadcastHub, adapters, config, webPush }
+  const routeDeps = {
+    db,
+    store,
+    scheduler,
+    hub: broadcastHub,
+    adapters,
+    config,
+    webPush,
+    liveActivity,
+  }
   registerSettingsRoutes(app, routeDeps)
   registerTicketRoutes(app, routeDeps)
   registerRunRoutes(app, routeDeps)

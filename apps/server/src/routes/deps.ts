@@ -1,6 +1,7 @@
 import type { Adapter } from '../adapters/types.js'
 import type { Config } from '../config.js'
 import type { TadaDb } from '../db/index.js'
+import type { LiveActivityChannel } from '../liveActivity.js'
 import type { Scheduler } from '../runs/scheduler.js'
 import type { SourceStore } from '../sources/store.js'
 import type { WebPushSender } from '../webPush.js'
@@ -15,6 +16,8 @@ export interface RouteDeps {
   config: Config
   /** Sender for the web push channel; absent in tests that do not exercise it. */
   webPush?: WebPushSender
+  /** Drives the iOS Live Activity; absent in tests and when APNs is not configured. */
+  liveActivity?: LiveActivityChannel
 }
 
 export function intParam(id: string): number | undefined {

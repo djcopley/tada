@@ -1,9 +1,11 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildAdapterRegistry } from './adapters/registry.js'
+import { createApnsSender } from './apns.js'
 import { buildApp } from './app.js'
 import { loadConfig } from './config.js'
 import { openDb } from './db/index.js'
+import { createLiveActivityChannel } from './liveActivity.js'
 import { dataDir } from './paths.js'
 import { Scheduler } from './runs/scheduler.js'
 import { SourceStore } from './sources/store.js'
@@ -22,6 +24,11 @@ async function main(): Promise<void> {
   const store = new SourceStore()
   const adapters = buildAdapterRegistry()
   const hub = new BroadcastHub()
+
+  const apns = createApnsSender(config)
+  // Dormant without APNs credentials, exactly like the web push sender without VAPID keys.
+  const liveActivity = apns ? createLiveActivityChannel({ db, send: apns }) : undefined
+
   const scheduler = new Scheduler({
     db,
     store,
@@ -30,10 +37,20 @@ async function main(): Promise<void> {
     hub,
     mcpUrl: `http://127.0.0.1:${config.port}/mcp`,
     webPush,
+    liveActivity,
   })
   scheduler.recover()
 
-  const app = buildApp({ db, config, store, scheduler, broadcastHub: hub, adapters, webPush })
+  const app = buildApp({
+    db,
+    config,
+    store,
+    scheduler,
+    broadcastHub: hub,
+    adapters,
+    webPush,
+    liveActivity,
+  })
   const address = await app.listen({ port: config.port, host: config.host })
   app.log.info(`tada server listening on ${address}`)
 }

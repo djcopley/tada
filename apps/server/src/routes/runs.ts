@@ -323,7 +323,9 @@ export function registerRunRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
     bindActivityToken(db, parsed.data.token)
-    // Task 5 wires the live activity sync here.
+    // The freshly bound token is how the just-started activity gets its first real update rather
+    // than sitting on the placeholder props it was started with.
+    deps.liveActivity?.sync()
     return reply.code(201).send({ ok: true })
   })
 
