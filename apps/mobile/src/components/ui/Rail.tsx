@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
 import { goToSection, type SectionKey } from '../../nav'
+import { SettingsGear } from './SettingsGear'
 import { ThemeToggle } from './ThemeToggle'
 
 export type RailNavKey = SectionKey
@@ -23,7 +24,8 @@ type Props = {
 }
 
 /** 188px web sidebar: wordmark, nav (Control's stopped-on-you count in live-text), a spacer, the
- * repos line, and the night/day theme toggle. Matches the mobile BottomStrip's routes. */
+ * repos line, and a footer shelf of night/day toggle + settings gear. Matches the mobile
+ * BottomStrip: three word-destinations, settings as a gear in the utility corner. */
 export function Rail({ active, stoppedCount, repoCount, testID }: Props) {
   const router = useRouter()
   const { colors } = useTheme()
@@ -32,7 +34,6 @@ export function Rail({ active, stoppedCount, repoCount, testID }: Props) {
     { key: 'control', label: 'Control', count: stoppedCount },
     { key: 'board', label: 'Board' },
     { key: 'memory', label: 'Memory' },
-    { key: 'settings', label: 'Settings' },
   ]
 
   return (
@@ -84,7 +85,13 @@ export function Rail({ active, stoppedCount, repoCount, testID }: Props) {
             {`${repoCount} ${repoCount === 1 ? 'repo' : 'repos'} connected`}
           </Text>
         ) : null}
-        <ThemeToggle testID="rail-theme-toggle" />
+        {/* The utility shelf: night/day on the left, settings at the far end — the sidebar's
+            counterpart to the gear at the trailing end of the mobile BottomStrip. */}
+        <View style={styles.footerRow}>
+          <ThemeToggle testID="rail-theme-toggle" />
+          <View style={styles.spacer} />
+          <SettingsGear active={active} size="rail" testID="rail-nav-settings" />
+        </View>
       </View>
     </View>
   )
@@ -121,5 +128,9 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: space.sm,
     gap: space.md,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 })
