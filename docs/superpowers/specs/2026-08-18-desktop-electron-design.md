@@ -17,7 +17,7 @@ In:
 - A window with the app, a native menu, external links opening in the system browser, window
   bounds remembered across launches.
 - OS notifications when a run holds (`permission`, `question`, `time`); clicking one focuses the
-  window and opens that ticket.
+  window and opens that run.
 - An unsigned local build for the developer's own machine.
 
 Out (deliberately, for now):
@@ -86,9 +86,10 @@ all — an Electron window with no menu silently loses them on macOS.
 **Security posture.** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The
 renderer never touches Node.
 
-### Preload — `apps/desktop/src/preload.ts`
+### Preload — `apps/desktop/src/preload.cts`
 
-Exposes exactly one object through `contextBridge`, and nothing else — no `ipcRenderer`, no
+Written as `.cts` because a **sandboxed preload must be CommonJS** — `tsc` emits it as
+`dist/preload.cjs` while main stays ESM. It exposes exactly one object through `contextBridge`, and nothing else — no `ipcRenderer`, no
 module access:
 
 ```ts
