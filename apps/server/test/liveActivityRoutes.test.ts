@@ -27,8 +27,17 @@ test('an activity token binds to the newest session that has none', async () => 
   db.drizzle
     .insert(liveActivitySessions)
     .values([
-      { runId: 1, pushToken: 'old', startedAt: new Date(1), endedAt: new Date(2) },
-      { runId: 2, pushToken: null, startedAt: new Date(3), endedAt: null },
+      // Ended and tokenless — excluded by the `endedAt is null` leg, not by having a token.
+      // startedAt values are seconds apart: the column is stored as integer seconds, and values
+      // within the same second would make `orderBy(desc(startedAt))` non-deterministic here.
+      { runId: 1, pushToken: null, startedAt: new Date(1_000), endedAt: new Date(2_000) },
+      // Open but already carries a token — excluded by the `pushToken is null` leg, not by being
+      // closed. If this row were picked instead, it would silently overwrite a live token.
+      { runId: 2, pushToken: 'already-bound', startedAt: new Date(5_000), endedAt: null },
+      // Two qualifying rows (open, tokenless) at different startedAt — proves the newest, not
+      // just any match, wins the `orderBy(desc(startedAt))`.
+      { runId: 3, pushToken: null, startedAt: new Date(3_000), endedAt: null },
+      { runId: 4, pushToken: null, startedAt: new Date(4_000), endedAt: null },
     ])
     .run()
 
@@ -40,8 +49,10 @@ test('an activity token binds to the newest session that has none', async () => 
   expect(res.status).toBe(201)
 
   const rows = db.drizzle.select().from(liveActivitySessions).all()
-  expect(rows.find((r) => r.runId === 2)?.pushToken).toBe('bb22')
-  expect(rows.find((r) => r.runId === 1)?.pushToken).toBe('old')
+  expect(rows.find((r) => r.runId === 1)?.pushToken).toBeNull()
+  expect(rows.find((r) => r.runId === 2)?.pushToken).toBe('already-bound')
+  expect(rows.find((r) => r.runId === 3)?.pushToken).toBeNull()
+  expect(rows.find((r) => r.runId === 4)?.pushToken).toBe('bb22')
 })
 
 test('an activity token with nothing to bind to is accepted and dropped', async () => {
