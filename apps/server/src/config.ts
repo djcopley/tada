@@ -21,6 +21,14 @@ const configFileSchema = z.object({
   vapidPublicKey: z.string().min(1).optional(),
   vapidPrivateKey: z.string().min(1).optional(),
   vapidSubject: z.string().min(1).optional(),
+  // APNs, for the iOS Live Activity. All five are optional: absent means the channel is dormant,
+  // exactly like an unconfigured web push sender. The key is referenced by path rather than
+  // inlined so the .p8 never ends up in a file that gets pasted into a terminal.
+  apnsKeyPath: z.string().min(1).optional(),
+  apnsKeyId: z.string().min(1).optional(),
+  apnsTeamId: z.string().min(1).optional(),
+  apnsBundleId: z.string().min(1).optional(),
+  apnsEnv: z.enum(['sandbox', 'production']).default('sandbox'),
 })
 
 export interface Config {
@@ -30,6 +38,12 @@ export interface Config {
   vapidPublicKey: string
   vapidPrivateKey: string
   vapidSubject: string
+  apnsKeyPath?: string
+  apnsKeyId?: string
+  apnsTeamId?: string
+  apnsBundleId?: string
+  /** A dev build's activity tokens are only valid against the sandbox host. */
+  apnsEnv: 'sandbox' | 'production'
 }
 
 /**
@@ -64,6 +78,11 @@ export function loadConfig(): Config {
     vapidPublicKey: keys.publicKey,
     vapidPrivateKey: keys.privateKey,
     vapidSubject: parsed.vapidSubject ?? DEFAULT_VAPID_SUBJECT,
+    apnsKeyPath: parsed.apnsKeyPath,
+    apnsKeyId: parsed.apnsKeyId,
+    apnsTeamId: parsed.apnsTeamId,
+    apnsBundleId: parsed.apnsBundleId,
+    apnsEnv: parsed.apnsEnv,
   }
 
   // Write back whenever the file is absent or was missing fields, so keys are stable from here on.
