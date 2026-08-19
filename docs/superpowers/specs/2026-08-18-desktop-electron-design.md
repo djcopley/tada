@@ -93,13 +93,18 @@ module access:
 
 ```ts
 window.tadaDesktop = {
-  notify(n: { title: string; body: string; ticketId?: string }): void
-  onOpenTicket(cb: (ticketId: string) => void): () => void
+  notify(n: { title: string; body: string; runId?: number }): void
+  onOpenRun(cb: (runId: number) => void): () => void
 }
 ```
 
 `notify` sends to main, which shows an `electron.Notification`. On click, main focuses the window
-and sends the ticket id back down; `onOpenTicket` delivers it and returns an unsubscribe.
+and sends the run id back down; `onOpenRun` delivers it and returns an unsubscribe.
+
+The identifier is the **run**, not the ticket: the hold arrives on the socket as
+`{ type: 'gate', payload: { kind: 'hold', hold } }` on a `run_event` that carries `runId` alone, and
+`/runs/[id]` is where `HoldActions` renders anyway. Routing to the ticket would mean an extra
+lookup to reach a screen with the same buttons.
 
 ### Renderer — the existing mobile web build
 
@@ -108,11 +113,15 @@ everywhere `window.tadaDesktop` is absent, so nothing on iOS, Android or the bro
 
 - `isDesktop()` — presence check.
 - `notifyDesktop(n)` — forwards, or does nothing.
-- `useDesktopOpenTicket()` — subscribes and routes through `src/nav.ts`.
+- `useDesktopOpenRun()` — subscribes and routes to `/runs/<id>`.
 
 Wiring: the hold events `useAppSocket` already receives feed `notifyDesktop`; the root layout
-mounts `useDesktopOpenTicket` once, next to the other globally-mounted concerns; the push settings
-card reports `unsupported` when `isDesktop()`.
+mounts `useDesktopOpenRun` once, next to the other globally-mounted concerns; the push settings
+card reports `unsupported` under Electron, which falls out of `readPushEnv()` reporting
+`hasPushManager: false` there — one place, and `pushUiState` stays untouched.
+
+The hold's wording is shared with the phone: `holdPingText(hold)` moves from
+`apps/server/src/notify.ts` into `@tada/shared` so both channels say the same thing.
 
 ## Build and tooling
 
