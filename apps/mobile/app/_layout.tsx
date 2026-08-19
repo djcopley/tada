@@ -22,6 +22,10 @@ import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
 import { showToast, ToastHost } from '../src/toast'
+// Side-effect import, deliberately not a hook: a Live Activity button press is a background
+// launch that may never render a component (see the file's own header comment for why), so its
+// listeners must be wired the moment this module loads rather than waiting for a screen to mount.
+import '../src/liveActivity/register'
 
 const GENERIC_MUTATION_ERROR = 'Something went wrong'
 
