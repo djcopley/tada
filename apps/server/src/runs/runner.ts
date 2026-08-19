@@ -192,10 +192,11 @@ export async function executeRun(
     type: 'run_started',
     message: `Agent started "${ticket.title}"`,
   })
-  // Explicit, unlike every other status change here, because nothing else broadcasts a board
-  // change this early — without it, a run that finishes without ever holding would sync the lock
-  // screen for the first time on the done path, starting and ending the activity in one call.
-  hub.boardChanged()
+  // The card follows the board, but the board side of this transition is already covered: the
+  // `setRunStatus` above journaled a `status` event, and the journal's broadcast hook re-emits
+  // `board_changed` for any `status` event (see ws.ts). Only the activity needs poking here —
+  // without it, a run that finishes without ever holding would sync the lock screen for the
+  // first time on the done path, starting and ending the activity in one call.
   syncActivity()
 
   // Every failure between here and a terminal state must route through markFailed rather than
