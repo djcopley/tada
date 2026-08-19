@@ -82,6 +82,23 @@ export default function Root({ children }: PropsWithChildren) {
         {/* Required by expo-router: without it ScrollView on web scrolls the body instead of the
             container, which breaks every scrollable screen. */}
         <ScrollViewStyleReset />
+
+        {/* The safe-area strips are painted by the *document*, not by the React tree. In a
+            standalone iOS PWA the status-bar strip and the bar under the home indicator are drawn
+            from html/body's background — the root RN view paints `ground`, but html/body are
+            transparent by default, so those strips came out white (and iOS blurs a light scrim
+            over the notch on top of that). Painting the document the same ground makes them
+            continuous with the app. ThemeProvider re-paints this at runtime when the scheme flips;
+            the literal here is night's ground, which is also the manifest's background_color, so
+            the very first frame is already right.
+
+            overscroll-behavior stops the rubber-band bounce from exposing the same strips, and
+            color-scheme keeps the UA from painting form controls and scrollbars light. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: 'html,body{background-color:#1B1613;overscroll-behavior:none}:root{color-scheme:dark}',
+          }}
+        />
       </head>
       <body>{children}</body>
     </html>
