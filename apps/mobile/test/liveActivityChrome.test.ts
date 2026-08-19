@@ -1,7 +1,11 @@
 import { night } from '../src/design/tokens'
 import { phaseChrome, progressValue, timerBounds, WIDGET_INK } from '../src/liveActivity/chrome'
-import type { ApiRun, ApiTicket } from '@tada/shared'
-import { actionRequest, focusedActivityProps, parseTarget, pickFocusedTicket } from '../src/liveActivity/interactions'
+import {
+  actionRequest,
+  failedProps,
+  optimisticProps,
+  parseTarget,
+} from '../src/liveActivity/interactions'
 
 test('orange is live for both working and your turn', () => {
   expect(phaseChrome('working').dot).toBe(night.live)
@@ -53,10 +57,29 @@ const props = {
   agentLine: 'l', startedAt: 0, actions: [],
 }
 
-test('a button target round-trips to the action it was drawn from', () => {
-  expect(parseTarget('approve:')).toEqual({ kind: 'approve', label: 'Approve' })
-  expect(parseTarget('answer:Postgres')).toEqual({ kind: 'answer', label: 'Postgres', value: 'Postgres' })
+test('a button target round-trips to the run and action it was drawn from', () => {
+  expect(parseTarget('4128:approve:')).toEqual({
+    runId: 4128,
+    action: { kind: 'approve', label: 'Approve' },
+  })
+  expect(parseTarget('4128:answer:Postgres')).toEqual({
+    runId: 4128,
+    action: { kind: 'answer', label: 'Postgres', value: 'Postgres' },
+  })
+})
+
+test('an answer value containing a colon still round-trips — only the first two colons split', () => {
+  expect(parseTarget('4128:answer:use https://example.com')).toEqual({
+    runId: 4128,
+    action: { kind: 'answer', label: 'use https://example.com', value: 'use https://example.com' },
+  })
+})
+
+test('an unparseable target, an empty answer, and a non-numeric run id all yield null', () => {
   expect(parseTarget('nonsense')).toBeNull()
+  expect(parseTarget('4128:nonsense:')).toBeNull()
+  expect(parseTarget('4128:answer:')).toBeNull()
+  expect(parseTarget('notanid:approve:')).toBeNull()
 })
 
 test('each action names the route it calls', () => {
@@ -84,95 +107,20 @@ test('each action names the route it calls', () => {
   expect(actionRequest(props, { kind: 'open', label: 'Open' })).toBeNull()
 })
 
-function run(overrides: Partial<ApiRun>): ApiRun {
-  return {
-    id: 1,
-    ticketId: 1,
-    adapter: 'claude',
-    model: 'opus',
-    effort: 'high',
-    attemptNumber: 1,
-    status: 'running',
-    heldReason: null,
-    hold: null,
-    heldAt: null,
-    budgetMs: 0,
-    summary: null,
-    diffAdditions: null,
-    diffDeletions: null,
-    testsPassed: null,
-    startedAt: null,
-    finishedAt: null,
-    createdAt: new Date(0).toISOString(),
-    ...overrides,
-  }
-}
-
-function ticket(overrides: Partial<ApiTicket>): ApiTicket {
-  return {
-    id: 1,
-    column: 'running',
-    title: 'a ticket',
-    description: '',
-    position: 0,
-    repoTags: [],
-    origin: 'human',
-    proposalState: null,
-    followUpOfTicketId: null,
-    createdAt: new Date(0).toISOString(),
-    doneAt: null,
-    run: null,
-    ...overrides,
-  }
-}
-
-test('a held run outranks a merely-running one, regardless of order', () => {
-  const running = ticket({ id: 1, run: run({ id: 10, ticketId: 1, status: 'running' }) })
-  const held = ticket({ id: 2, run: run({ id: 20, ticketId: 2, status: 'held' }) })
-  expect(pickFocusedTicket([running, held])?.id).toBe(2)
-  expect(pickFocusedTicket([held, running])?.id).toBe(2)
+test('the optimistic state clears the buttons and says the tap is in flight', () => {
+  expect(optimisticProps(props)).toEqual({
+    ...props,
+    phase: 'working',
+    agentLine: 'sending…',
+    actions: [],
+  })
 })
 
-test('between two equally-ranked runs, the most recently started wins', () => {
-  const older = ticket({
-    id: 1,
-    run: run({ id: 10, ticketId: 1, status: 'running', startedAt: new Date(1000).toISOString() }),
-  })
-  const newer = ticket({
-    id: 2,
-    run: run({ id: 20, ticketId: 2, status: 'running', startedAt: new Date(2000).toISOString() }),
-  })
-  expect(pickFocusedTicket([older, newer])?.id).toBe(2)
-})
-
-test('a ticket with no run, or a queued/done/failed one, is never focused', () => {
-  const idle = ticket({ id: 1, run: null })
-  const queued = ticket({ id: 2, run: run({ id: 20, ticketId: 2, status: 'queued' }) })
-  expect(pickFocusedTicket([idle, queued])).toBeNull()
-})
-
-test('focusedActivityProps rebuilds the focused ticket into the shape the server pushes', () => {
-  const held = ticket({
-    id: 7,
-    title: 'fix the thing',
-    run: run({
-      id: 4128,
-      ticketId: 7,
-      status: 'held',
-      hold: { reason: 'question', question: 'which db?', options: ['Postgres', 'SQLite'] },
-      startedAt: new Date(1000).toISOString(),
-    }),
-  })
-  expect(focusedActivityProps([held])).toEqual({
-    runId: 4128,
-    ticketId: 7,
-    title: 'fix the thing',
-    phase: 'yourTurn',
-    agentLine: 'which db?',
-    startedAt: 1000,
-    actions: [
-      { kind: 'answer', label: 'Postgres', value: 'Postgres' },
-      { kind: 'answer', label: 'SQLite', value: 'SQLite' },
-    ],
+test('the failed state admits it could not reach the server, with one way out', () => {
+  expect(failedProps(props)).toEqual({
+    ...props,
+    phase: 'failed',
+    agentLine: "couldn't reach tada — open the app",
+    actions: [{ kind: 'open', label: 'Open' }],
   })
 })

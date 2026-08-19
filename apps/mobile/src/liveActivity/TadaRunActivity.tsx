@@ -53,7 +53,7 @@ function AgentWell({ line }: { line: string }) {
 }
 
 /** Two actions maximum — that is the whole budget for a lock screen. */
-function Actions({ actions }: { actions: ActivityAction[] }) {
+function Actions({ runId, actions }: { runId: number; actions: ActivityAction[] }) {
   if (actions.length === 0) return null
   return (
     <HStack spacing={8}>
@@ -61,8 +61,11 @@ function Actions({ actions }: { actions: ActivityAction[] }) {
         <Button
           key={`${action.kind}:${action.value ?? action.label}`}
           // `target` is what comes back through addUserInteractionListener; interactions.ts
-          // parses it, so the format is a contract between those two files.
-          target={`${action.kind}:${action.value ?? ''}`}
+          // parses it, so the format is a contract between those two files. The run id leads
+          // because a terminal card (failed/re-run) can legitimately linger on the lock screen
+          // after a *different* run has taken focus — without it, a stale Re-run tap would act on
+          // whichever run the client guesses is current instead of the one the card is showing.
+          target={`${runId}:${action.kind}:${action.value ?? ''}`}
           modifiers={[
             background(index === 0 ? WIDGET_INK.primaryBg : WIDGET_INK.controlBg),
             cornerRadius(5),
@@ -136,7 +139,7 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
           value={progressValue(props.startedAt, props.budgetEndsAt)}
         />
       ) : null}
-      <Actions actions={props.actions} />
+      <Actions runId={props.runId} actions={props.actions} />
     </VStack>
   )
 
@@ -185,7 +188,7 @@ export const TadaRunActivity = createLiveActivity<LiveActivityProps>('TadaRun', 
         <AgentWell line={props.agentLine} />
       </VStack>
     ),
-    expandedBottom: <Actions actions={props.actions} />,
+    expandedBottom: <Actions runId={props.runId} actions={props.actions} />,
   }
 })
 

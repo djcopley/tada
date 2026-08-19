@@ -1,7 +1,9 @@
+import type { LiveActivityProps } from '@tada/shared'
+import { runToActivityProps } from '@tada/shared'
 import { Platform } from 'react-native'
 import { TadaClient } from '../api/client'
 import { loadConnection } from '../settings'
-import { actionRequest, focusedActivityProps, optimisticProps, parseTarget, failedProps } from './interactions'
+import { actionRequest, failedProps, optimisticProps, parseTarget } from './interactions'
 
 /**
  * Live Activity wiring, registered at module scope rather than in an effect. A button press is a
@@ -57,8 +59,9 @@ export function registerLiveActivity(client: TadaClient): void {
       .catch(() => {})
   }
 
-  // 3 & 4. A button press. ActivityKit hands back only the target string — no run id — so the
-  // handler re-derives which run the single Live Activity is following (focusedActivityProps),
+  // 3 & 4. A button press. The target names its own run id (see TadaRunActivity.tsx's comment —
+  // the single Live Activity slot can hold a terminal card for a run that is no longer the
+  // server's focused one, so the client must never guess). The handler fetches that run directly,
   // shows an immediate "sending…" state, fires the call, and falls back to a visible failure
   // state rather than leaving the card stuck on that optimistic guess.
   widgets.addUserInteractionListener((event) => {
@@ -72,19 +75,22 @@ async function handleInteraction(
   target: string,
 ): Promise<void> {
   try {
-    const action = parseTarget(target)
-    if (!action) return
+    const parsed = parseTarget(target)
+    if (!parsed) return
+    const { runId, action } = parsed
     const instance = TadaRunActivity.getInstances()[0]
     if (!instance) return
 
-    const board = await client.board()
-    const props = focusedActivityProps(Object.values(board).flat())
-    if (!props) return // nothing is live to act on — nothing to update either
+    const run = await client.run(runId)
+    const props = runToActivityPropsFromRun(run)
+    if (!props) return // the run has no card anymore (queued/cancelled) — nothing to act on
+
+    // 'open' needs no call — the tap already brought the app forward — and checking this before
+    // the optimistic update below means a plain Open tap never wipes a terminal card's buttons.
+    const request = actionRequest(props, action)
+    if (!request) return
 
     await instance.update(optimisticProps(props))
-
-    const request = actionRequest(props, action)
-    if (!request) return // 'open' needs no call — the tap already brought the app forward
 
     try {
       await client.postAction(request.path, request.body)
@@ -94,9 +100,27 @@ async function handleInteraction(
       await instance.update(failedProps(props)).catch(() => {})
     }
   } catch {
-    // Anything above this point (a torn-down instance, a malformed event) must not crash the
-    // background launch it is running in.
+    // Anything above this point (a torn-down instance, a malformed event, a 404 on the run) must
+    // not crash the background launch it is running in.
   }
+}
+
+/** `runToActivityProps` from `@tada/shared` takes the same shape the server builds from its DB
+ * rows; `ApiRunDetail` (from `client.run(runId)`) already carries `ticketTitle`/`ticketId` for it. */
+function runToActivityPropsFromRun(
+  run: Awaited<ReturnType<TadaClient['run']>>,
+): LiveActivityProps | null {
+  return runToActivityProps({
+    ticket: { id: run.ticketId, title: run.ticketTitle },
+    run: {
+      id: run.id,
+      status: run.status,
+      hold: run.hold,
+      startedAt: run.startedAt ? new Date(run.startedAt) : null,
+      budgetMs: run.budgetMs,
+    },
+    line: run.summary,
+  })
 }
 
 // Module-scope side effect: reads the stored connection (a background launch from a button press
