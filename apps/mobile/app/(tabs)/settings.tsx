@@ -1,6 +1,5 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSettings } from '../../src/api/queries'
-import { useAppSocket } from '../../src/api/useAppSocket'
 import { AgentCard } from '../../src/components/settings/AgentCard'
 import { LimitsCard } from '../../src/components/settings/LimitsCard'
 import { PingsCard } from '../../src/components/settings/PingsCard'
@@ -22,7 +21,6 @@ export default function SettingsScreen() {
   const { wide } = useLayout()
   const { data: settings, isLoading, isError } = useSettings()
   // The rule table changes underneath us when "always allow" is chosen at a gate.
-  useAppSocket()
 
   const body = isError ? (
     <EmptyState icon="alert-circle" message="Could not load settings." />

@@ -16,7 +16,10 @@ import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { WebSafeAreaShim } from '../src/design/webSafeArea'
+import { AppSocketProvider } from '../src/api/AppSocketContext'
 import { ApiError } from '../src/api/client'
+import { DesktopBridge } from '../src/components/DesktopBridge'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
@@ -184,23 +187,30 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <ThemeProvider>
-          <ThemedStatusBar />
-          <ConnectionProvider>
-            <PushSetup />
-            <AppQueryProvider>
-              {/*
-                Every group under here ((tabs), /tickets, /runs, /notes) has its own Stack.
-                Headers are drawn by the shared AppHeader component inside each screen, so every
-                native header stays hidden.
-              */}
-              <NavigationTheme>
-                <Stack screenOptions={{ headerShown: false }} />
-              </NavigationTheme>
-              <ToastHost />
-            </AppQueryProvider>
-          </ConnectionProvider>
-        </ThemeProvider>
+        {/* Inside the provider, because it corrects the insets the provider reports — an
+            installed iOS PWA reports none. See webSafeArea.tsx. */}
+        <WebSafeAreaShim>
+          <ThemeProvider>
+            <ThemedStatusBar />
+            <ConnectionProvider>
+              <PushSetup />
+              <AppQueryProvider>
+                {/*
+                  Every group under here ((tabs), /tickets, /runs, /notes) has its own Stack.
+                  Headers are drawn by the shared AppHeader component inside each screen, so every
+                  native header stays hidden.
+                */}
+                <AppSocketProvider>
+                  <DesktopBridge />
+                  <NavigationTheme>
+                    <Stack screenOptions={{ headerShown: false }} />
+                  </NavigationTheme>
+                </AppSocketProvider>
+                <ToastHost />
+              </AppQueryProvider>
+            </ConnectionProvider>
+          </ThemeProvider>
+        </WebSafeAreaShim>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

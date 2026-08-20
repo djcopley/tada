@@ -12,7 +12,8 @@ export interface UseAppSocketOptions {
 
 /**
  * Opens the one WebSocket (there is one board, one room) and keeps queries fresh as the server
- * pushes changes:
+ * pushes changes. Mounted exactly once by `AppSocketProvider` (src/api/AppSocketContext.tsx) —
+ * screens subscribe to run events through `useRunEventListener` rather than calling this.
  *
  *  - `board_changed` invalidates the board, every `['ticket', ...]` query (a blunt but correct
  *    freshness signal — a thread/run change can't be mapped back to its ticket client-side), the
@@ -59,7 +60,7 @@ export function useAppSocket(
         }
         if (msg.type === 'board_changed') {
           void queryClient.invalidateQueries({ queryKey: keys.board })
-          void queryClient.invalidateQueries({ queryKey: ['ticket'] })
+          void queryClient.invalidateQueries({ queryKey: keys.tickets })
           void queryClient.invalidateQueries({ queryKey: keys.activity })
           void queryClient.invalidateQueries({ queryKey: keys.memory })
         } else if (msg.type === 'activity') {
@@ -70,10 +71,10 @@ export function useAppSocket(
         } else if (msg.type === 'run_event') {
           if (msg.event.type === 'status' || msg.event.type === 'gate') {
             void queryClient.invalidateQueries({ queryKey: keys.run(msg.runId) })
-            void queryClient.invalidateQueries({ queryKey: ['latestRunEvent', msg.runId] })
+            void queryClient.invalidateQueries({ queryKey: keys.latestRunEvent(msg.runId) })
             // The transcript stops polling once the run isn't live; the final lines land in it
             // around this event, so fetch it once more rather than leave the raw output stale.
-            void queryClient.invalidateQueries({ queryKey: ['transcript', msg.runId] })
+            void queryClient.invalidateQueries({ queryKey: keys.transcript(msg.runId) })
           }
           onRunEventRef.current?.(msg)
         }

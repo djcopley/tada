@@ -36,6 +36,13 @@ export interface AdapterStartCtx {
   signal: AbortSignal
   journal: Journal
   gate: ToolGate
+  /**
+   * Called when the agent ends a turn with nothing left owed to it — the moment the session
+   * would otherwise close. Returning a note gives the agent one more turn carrying that note;
+   * returning null (the default) lets the session end. The runner uses it to catch an agent that
+   * stopped without reporting an outcome, which would otherwise fail the run outright.
+   */
+  onIdle?: () => string | null
 }
 
 export interface AdapterResult {

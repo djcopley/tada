@@ -69,6 +69,13 @@ against a temp SQLite file (`test/helpers/testApp.ts`).
 There is **no workspace layer**: one board, one memory list, one rule table, one `settings` row,
 one `manifest.json` of sources.
 
+**Repo tags** (`tickets.repoTags`) are written in exactly two moments, both in `runs/tags.ts`'s
+orbit: at *insert* time as a plan (`POST /tickets` with `repoTags`, MCP `propose_ticket` with
+`repos` — this is what makes a card created under the board's repo filter show up on that board
+immediately), and during a run as evidence (`stampRepoTag`, when `use_repo` makes a worktree).
+Nothing edits tags on an existing ticket; there is deliberately no route for that. Every writer
+validates names against connected repos — an unknown tag is a card no filter can reach.
+
 ### The run lifecycle
 
 This is the core of the system; changing it means touching all of these:
@@ -83,7 +90,7 @@ This is the core of the system; changing it means touching all of these:
 3. **Execution** — `runs/runner.ts#executeRun` marks the run running, moves the card
    queued→running, tears down earlier attempts' run dirs, builds `<stateDir>/runs/<runId>/`
    (scratch + folder-source symlinks; **repo worktrees are created lazily** by the MCP tool
-   `use_repo`, which is also the only place a ticket's `repoTags` are written — see
+   `use_repo`, which is the only place a ticket's `repoTags` grow *during* a run — see
    `runs/tags.ts`), composes the prompt (`runs/prompt.ts`), arms the time budget, and starts the
    adapter with a **gate** (`ctx.gate`) the Claude adapter installs as a `PreToolUse` hook.
 4. **Holds** — the gate applies the rule table (`src/rules.ts`, first match wins, unmatched =
@@ -91,13 +98,17 @@ This is the core of the system; changing it means touching all of these:
    `mcp__tada__ask_user` tool holds with reason `question`; an exhausted budget holds with reason
    `time` at the next tool call (CLI adapters, which have no gate, are SIGSTOPped instead). A hold
    is a pending promise: status `held` + `heldReason` + `hold` payload, card → `stopped`, slot
-   released, ping sent. Routes resolve it through `Scheduler.liveRun(id).resolve(...)`:
+   released, ping sent. **The time budget is suspended for the length of every hold** — it counts
+   the agent's working time, not the human's thinking time, so a question left overnight doesn't
+   come back to a spent budget the moment it's answered. Routes resolve it through `Scheduler.liveRun(id).resolve(...)`:
    approve (optionally **always allow**, which rewrites the matched rule with provenance and a
    Today receipt in the same synchronous block), deny with a note (fed back to the agent as the
    tool error), answer, continue (+time). Timeout and deny are resumes; only failure and re-run are
    restarts — don't share code paths between them.
 5. **Outcome** — MCP `report_outcome` is the primary channel; `scratch/outcome.json` is the
-   fallback for CLI adapters. No outcome = failure. The run **files itself**: status `done`, card
+   fallback for CLI adapters. An agent that ends a turn without reporting is *not* taken at its
+   word: `onIdle` (runner → `AdapterStartCtx`) hands the session a note asking it to finish, up to
+   `MAX_IDLE_NUDGES` times, before the run gives up. Still no outcome = failure. The run **files itself**: status `done`, card
    → `done`, run dir cleaned. There is no automatic push or PR — the agent does that itself
    (`git push`, `gh pr create`), which is what the default rules gate.
 6. **Failure / cancel** — `failed` parks the card in `stopped` (the only red); `cancelled` (Stop
@@ -120,7 +131,9 @@ holds with zero tokens.
 - `claude.ts` — Claude Agent SDK in **streaming-input mode** with a `PreToolUse` hook (`gateHook`)
   that awaits `ctx.gate` — the hold *is* that pending hook. `claudeQueue.ts`'s `UserMessageQueue`
   keeps the session alive so notes can be injected mid-run; it counts injected-but-unanswered
-  messages so the session doesn't close underneath a nudge.
+  messages so the session doesn't close underneath a nudge. A note handed back by `onIdle` at a
+  turn end is `push`ed rather than `inject`ed — reserving a turn for it there would leave stdin
+  open with nothing left to close it.
 - `codex.ts` / `gemini.ts` — one-shot CLIs via `adapters/exec.ts#startCliSession`. No gate, no
   tools: they get every repo checked out eagerly (tags stamped for repos whose branch moved),
   their prompt gets the outcome-file instruction appended, `inject()` declines, and out-of-time
@@ -175,7 +188,9 @@ expo-router file-based routing under `app/`. Root `_layout.tsx` composes
   `expo-secure-store` on native and `localStorage` on web (`src/settings.ts`).
 - **Query cache.** All keys are defined in `src/api/queries.ts#keys`. `useAppSocket` opens one
   WebSocket and invalidates on `board_changed` / `activity` / `rules_changed`, forwarding
-  `run_event` to the caller. Changing the connection's identity `resetQueries()` (not `clear()`)
+  `run_event` to the caller. It is mounted **exactly once**, by `AppSocketProvider` in the root
+  layout — screens never call it; they subscribe to run events with `useRunEventListener`.
+  (Tabs stay mounted, so a per-screen socket meant five or six sockets to one room.) Changing the connection's identity `resetQueries()` (not `clear()`)
   — the comment in `app/_layout.tsx` explains why.
 - **Gates.** `src/components/gate/HoldActions.tsx` is the one implementation of the stopped-on-you
   actions (approve / always allow / deny with a note / view diff, question options, continue,
@@ -202,7 +217,12 @@ NodeNext source resolves) — each is commented; don't simplify them away.
 - `pnpm test` consumes **zero LLM tokens**. The one exception is
   `apps/server/test/claudeAdapter.it.test.ts`, gated behind `TADA_IT=1` because it burns real
   Max/API quota — never run it in CI.
-- Tests set `pr: false` in `RunnerDeps` (no `gh`/network) and pass `fetchImpl` to stub Expo push.
+- Tests set `pr: false` in `RunnerDeps` (no `gh`/network) and pass a `NotifyDeps` object to `ping`
+  (`fetchImpl` stubs the Expo channel, `webPush` the web one).
+- CI (`.github/workflows/ci.yml`) runs `pnpm lint`, `pnpm typecheck` and `pnpm test` as three
+  parallel jobs on every push to `main` and every PR; each starts from the shared composite action
+  in `.github/actions/setup` (pnpm 9 + Node from `.nvmrc` + `--frozen-lockfile`). The test job
+  configures a git identity first — the server tests shell out to `git` and commit.
 
 ## Code style
 

@@ -43,8 +43,10 @@ workspace-era schema or API is kept — everything is set up fresh.
 - Rules: `{ title, tool, patterns[], decision: allow|ask|never, publishes, source: default|human|gate,
   sourceRunId }`, first match wins, unmatched tools are allowed. `publishes` marks the gates where
   code leaves the box (push, pr create, pr merge) — the only place the diff endpoint answers.
-- Repo tags are **output**: `tickets.repoTags` is written only by the server when a run makes a
-  worktree for a repo. There is no API to set them.
+- Repo tags are mostly **output**: `tickets.repoTags` is written by the server when a run makes a
+  worktree for a repo. The one exception is *creation* — a ticket may be born tagged (created
+  under the board's repo filter, or proposed by an agent that passed `repos`), so it is visible on
+  that repo's board before any run touches it. There is no API to retag an existing ticket.
 
 ## Server
 

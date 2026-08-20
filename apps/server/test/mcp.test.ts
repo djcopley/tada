@@ -186,8 +186,38 @@ describe('MCP', () => {
       proposalState: 'pending',
       followUpOfTicketId: ticket.id,
     })
+    expect(proposal?.repoTags).toEqual([])
     const act = t.db.drizzle.select().from(activity).get()
     expect(act).toMatchObject({ type: 'follow_up_filed', ticketId: id, runId: run.id })
+  })
+
+  test('propose_ticket takes optional repos, and rejects ones that are not connected', async () => {
+    await connect()
+    await t.store.addRepo(await makeOrigin('proj'))
+    const r = await client.callTool({
+      name: 'propose_ticket',
+      arguments: { title: 'Paginate /reports/all', repos: ['proj', 'proj'] },
+    })
+    const proposal = t.db.drizzle
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, Number(text(r))))
+      .get()
+    expect(proposal?.repoTags).toEqual(['proj'])
+
+    const bad = await client.callTool({
+      name: 'propose_ticket',
+      arguments: { title: 'Nope', repos: ['ghost'] },
+    })
+    expect(bad.isError).toBe(true)
+    expect(text(bad)).toContain('no repo named "ghost"')
+    expect(
+      t.db.drizzle
+        .select()
+        .from(tickets)
+        .all()
+        .map((x) => x.title),
+    ).not.toContain('Nope')
   })
 
   test('report_outcome is what the runner reads back', async () => {

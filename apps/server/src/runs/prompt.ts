@@ -23,7 +23,13 @@ export interface PromptRepo {
 }
 
 export interface PromptInput {
-  ticket: { id: number; title: string; description: string }
+  ticket: {
+    id: number
+    title: string
+    description: string
+    /** Repos the ticket is already tagged for — where the human expects the work to happen. */
+    repoTags: string[]
+  }
   comments: PromptComment[]
   /** Untagged (global) memory notes — every run reads these. */
   notes: PromptNote[]
@@ -63,6 +69,8 @@ export function composePrompt(input: PromptInput): string {
   }
   s.push('')
 
+  const tagged = input.ticket.repoTags.filter((name) => input.repos.some((r) => r.name === name))
+
   s.push('## Where you work')
   s.push(
     'You are in a run directory of your own. `scratch/` is yours. Not every task needs code changes — some are operational.',
@@ -76,6 +84,11 @@ export function composePrompt(input: PromptInput): string {
     s.push(
       `Before touching a repo call \`use_repo\` with its name: it checks out a fresh worktree at ./<name> on branch \`${branch}\` and hands you the memory notes for that repo. Only check out repos you actually need — the ticket is tagged with what you touch.`,
     )
+    if (tagged.length > 0) {
+      s.push(
+        `This ticket is already tagged for ${tagged.join(', ')} — start there, but it is a hint, not a fence.`,
+      )
+    }
   } else {
     s.push(
       `Repos are checked out under this directory, each on branch \`${branch}\`: ${input.repos.map((r) => `./${r.name} (off ${r.defaultBranch})`).join(', ')}.`,
@@ -108,10 +121,13 @@ export function composePrompt(input: PromptInput): string {
       '- If you need a decision from the human, call `ask_user` (with options when there is a natural choice). It pauses until they answer.',
     )
     s.push(
-      '- Work you discover but that is out of scope: file it with `propose_ticket` instead of doing it.',
+      '- Work you discover but that is out of scope: file it with `propose_ticket` instead of doing it (pass `repos` if you already know which repos it belongs to).',
     )
     s.push(
       '- When finished, you MUST call `report_outcome` with status success or failed and a concise summary. A run that never reports is a failure.',
+    )
+    s.push(
+      '- Your turn ending is the run ending — nothing wakes you up afterwards. Never stop a turn waiting on something: a background command, a timer, a check you meant to come back to. Wait for it here, in this turn, then report.',
     )
   }
 

@@ -10,30 +10,49 @@ export type NewTicketLanding = 'backlog' | 'queued'
 type Props = {
   visible: boolean
   onClose: () => void
-  /** Called with the trimmed title, brief and where the ticket lands; the caller owns the
-   * mutation. */
-  onCreate: (fields: { title: string; description: string; column: NewTicketLanding }) => void
+  /** Called with the trimmed title, brief, where the ticket lands and any repo tags; the caller
+   * owns the mutation. */
+  onCreate: (fields: {
+    title: string
+    description: string
+    column: NewTicketLanding
+    repoTags: string[]
+  }) => void
   pending?: boolean
+  /** The board's selected repo, if any — the new ticket is tagged for it so it shows up on that
+   * filtered board straight away. Tap the chip to drop the tag. */
+  repo?: string | null
   testID?: string
 }
 
 /**
  * The one "New ticket" dialog — Control, the Board header and the Backlog column's "Add a
- * ticket" all open this. Title and brief, nothing to configure: there is no repo picker (the
- * agent works out of your folder and tags the ticket with whatever repos the run touches).
+ * ticket" all open this. Title and brief, and still no repo *picker*: the only tag it can set is
+ * the repo the board is already filtered to (`repo`), so a card you make while looking at a repo
+ * lands on that board instead of vanishing until a run touches something. Everything else is
+ * still evidence — the run tags the ticket with whatever repos it touches.
  * "Lands in" defaults to backlog; queued starts when a slot frees. Field state lives here and
  * resets on close; Enter in the title submits.
  */
-export function NewTicketDialog({ visible, onClose, onCreate, pending = false, testID = 'new-ticket-dialog' }: Props) {
+export function NewTicketDialog({
+  visible,
+  onClose,
+  onCreate,
+  pending = false,
+  repo = null,
+  testID = 'new-ticket-dialog',
+}: Props) {
   const { colors } = useTheme()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [column, setColumn] = useState<NewTicketLanding>('backlog')
+  const [tagRepo, setTagRepo] = useState(true)
 
   const reset = () => {
     setTitle('')
     setDescription('')
     setColumn('backlog')
+    setTagRepo(true)
   }
   const close = () => {
     reset()
@@ -42,7 +61,12 @@ export function NewTicketDialog({ visible, onClose, onCreate, pending = false, t
   const submit = () => {
     const trimmed = title.trim()
     if (!trimmed || pending) return
-    onCreate({ title: trimmed, description: description.trim(), column })
+    onCreate({
+      title: trimmed,
+      description: description.trim(),
+      column,
+      repoTags: repo && tagRepo ? [repo] : [],
+    })
     reset()
   }
 
@@ -109,8 +133,30 @@ export function NewTicketDialog({ visible, onClose, onCreate, pending = false, t
           queued starts when a slot frees
         </Text>
       </View>
+      {repo ? (
+        <Pressable
+          testID="new-ticket-repo-tag"
+          accessibilityRole="button"
+          accessibilityState={{ selected: tagRepo }}
+          accessibilityLabel={tagRepo ? `Tagged ${repo} — tap to remove` : `Tag ${repo}`}
+          onPress={() => setTagRepo((on) => !on)}
+          style={[
+            styles.repoChip,
+            {
+              borderColor: tagRepo ? colors.borderStrong : colors.borderSubtle,
+              backgroundColor: tagRepo ? colors.controlBgHover : 'transparent',
+            },
+          ]}
+        >
+          <Text style={[type.monoCaps, { color: tagRepo ? colors.text : colors.textFaintSolid }]}>{repo}</Text>
+        </Pressable>
+      ) : null}
       <Text style={[type.caption, styles.note, { color: colors.textFaintSolid }]}>
-        No repo picker — the agent works out of your folder and tags the ticket with whatever repos the run touches.
+        {repo
+          ? tagRepo
+            ? `Tagged ${repo}, so it shows on that board right away. Tap the tag to drop it. The run adds tags for whatever repos it touches.`
+            : `Untagged — it won't show on the ${repo} board until a run touches that repo.`
+          : 'No repo picker — the agent works out of your folder and tags the ticket with whatever repos the run touches.'}
       </Text>
     </Dialog>
   )
@@ -145,7 +191,15 @@ const styles = StyleSheet.create({
   landsHint: {
     textTransform: 'none',
   },
-  note: {
+  repoChip: {
+    alignSelf: 'flex-start',
     marginTop: space.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
+    borderWidth: 1,
+    borderRadius: radius.full,
+  },
+  note: {
+    marginTop: space.sm,
   },
 })

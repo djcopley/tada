@@ -1,6 +1,6 @@
 import type { ApiRunDetail, ApiRunDiff } from '@tada/shared'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native'
 import DiffScreen from '../app/runs/[id]/diff'
 import RunScreen from '../app/runs/[id]/index'
 import { ConnectionProvider } from '../src/ConnectionContext'
@@ -149,6 +149,31 @@ describe('Run screen', () => {
     await fireEvent.press(screen.getByTestId('note-send'))
     await waitFor(() => expect(mockNote).toHaveBeenCalledWith(1, 'go faster'))
     expect(screen.queryByTestId('gate-card')).toBeNull()
+  })
+
+  test('the narration scrolls on its own and the live controls are pinned outside it', async () => {
+    mockRun.mockResolvedValue(run())
+    await renderWith(RunScreen)
+    await waitFor(() => expect(screen.getByTestId('run-activity-scroll')).toBeTruthy())
+
+    // The feed is the only scroller, so a long run can't push the controls off the page.
+    const feed = screen.getByTestId('run-activity-scroll')
+    expect(within(feed).getByTestId('run-events')).toBeTruthy()
+    expect(within(feed).queryByTestId('note-input')).toBeNull()
+    expect(within(feed).queryByTestId('gate-card')).toBeNull()
+
+    const footer = screen.getByTestId('run-footer')
+    expect(within(footer).getByTestId('note-input')).toBeTruthy()
+    expect(within(footer).getByTestId('gate-card')).toBeTruthy()
+  })
+
+  test('the raw transcript starts collapsed so the bottom of the feed is the newest narration', async () => {
+    mockRun.mockResolvedValue(run())
+    await renderWith(RunScreen)
+    await waitFor(() => expect(screen.getByTestId('run-panel-raw-toggle')).toBeTruthy())
+    expect(screen.queryByTestId('run-panel-raw-content')).toBeNull()
+    await fireEvent.press(screen.getByTestId('run-panel-raw-toggle'))
+    expect(screen.getByTestId('run-panel-raw-content')).toBeTruthy()
   })
 
   test('a finished run shows the sage terminal line and no live controls', async () => {

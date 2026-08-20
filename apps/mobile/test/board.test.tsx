@@ -274,6 +274,59 @@ describe('Board screen', () => {
     expect(mockPush).toHaveBeenCalledWith('/runs/4128/diff')
   })
 
+  test('a ticket created while a repo is selected is tagged for it and lands on that board', async () => {
+    mockBoard.mockResolvedValue({
+      ...emptyBoard(),
+      backlog: [ticket({ id: 1, title: 'Web thing', repoTags: ['parlor-web'] })],
+    })
+    mockCreateTicket.mockResolvedValue(ticket({ id: 9, title: 'Api thing', repoTags: ['parlor-api'] }))
+    await renderBoard()
+    await waitFor(() => expect(screen.getByText('Web thing')).toBeTruthy())
+    await fireEvent.press(screen.getByTestId('board-repo-filter'))
+    await waitFor(() => expect(screen.getByTestId('board-repo-parlor-api')).toBeTruthy())
+    await fireEvent.press(screen.getByTestId('board-repo-parlor-api'))
+
+    await fireEvent.press(screen.getByTestId('board-new-ticket'))
+    await waitFor(() => expect(screen.getByTestId('new-ticket-repo-tag')).toBeTruthy())
+    await fireEvent.changeText(screen.getByTestId('new-ticket-title-input'), 'Api thing')
+    await fireEvent.press(screen.getByTestId('new-ticket-confirm'))
+    await waitFor(() =>
+      expect(mockCreateTicket).toHaveBeenCalledWith({
+        title: 'Api thing',
+        description: '',
+        column: 'backlog',
+        repoTags: ['parlor-api'],
+      }),
+    )
+  })
+
+  test('the repo tag can be dropped in the dialog', async () => {
+    mockBoard.mockResolvedValue({
+      ...emptyBoard(),
+      backlog: [ticket({ id: 1, title: 'Web thing', repoTags: ['parlor-web'] })],
+    })
+    mockCreateTicket.mockResolvedValue(ticket({ id: 9, title: 'Anything' }))
+    await renderBoard()
+    await waitFor(() => expect(screen.getByText('Web thing')).toBeTruthy())
+    await fireEvent.press(screen.getByTestId('board-repo-filter'))
+    await waitFor(() => expect(screen.getByTestId('board-repo-parlor-api')).toBeTruthy())
+    await fireEvent.press(screen.getByTestId('board-repo-parlor-api'))
+
+    await fireEvent.press(screen.getByTestId('board-new-ticket'))
+    await waitFor(() => expect(screen.getByTestId('new-ticket-repo-tag')).toBeTruthy())
+    await fireEvent.press(screen.getByTestId('new-ticket-repo-tag'))
+    await fireEvent.changeText(screen.getByTestId('new-ticket-title-input'), 'Anything')
+    await fireEvent.press(screen.getByTestId('new-ticket-confirm'))
+    await waitFor(() =>
+      expect(mockCreateTicket).toHaveBeenCalledWith({
+        title: 'Anything',
+        description: '',
+        column: 'backlog',
+        repoTags: [],
+      }),
+    )
+  })
+
   test('the repo filter narrows lanes by tag', async () => {
     mockBoard.mockResolvedValue({
       ...emptyBoard(),

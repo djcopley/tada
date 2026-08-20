@@ -138,7 +138,12 @@ export class TadaClient {
     return this.req('GET', '/board')
   }
 
-  createTicket(t: { title: string; description?: string; column?: 'backlog' | 'queued' }): Promise<ApiTicket> {
+  createTicket(t: {
+    title: string
+    description?: string
+    column?: 'backlog' | 'queued'
+    repoTags?: string[]
+  }): Promise<ApiTicket> {
     return this.req('POST', '/tickets', t)
   }
 
@@ -255,6 +260,25 @@ export class TadaClient {
 
   async registerPushToken(token: string): Promise<void> {
     await this.req('POST', '/push-tokens', { token })
+  }
+
+  webPushPublicKey(): Promise<{ publicKey: string }> {
+    return this.req('GET', '/web-push/public-key')
+  }
+
+  async registerWebPushSubscription(sub: {
+    endpoint: string
+    keys: { p256dh: string; auth: string }
+  }): Promise<void> {
+    await this.req('POST', '/web-push/subscriptions', sub)
+  }
+
+  async deleteWebPushSubscription(endpoint: string): Promise<void> {
+    await this.req('DELETE', '/web-push/subscriptions', { endpoint })
+  }
+
+  async sendTestPing(): Promise<void> {
+    await this.req('POST', '/web-push/test', {})
   }
 
   wsUrl(): string {

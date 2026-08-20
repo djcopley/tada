@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { composePrompt, type PromptInput } from '../src/runs/prompt.js'
 
 const base: PromptInput = {
-  ticket: { id: 7, title: 'Add CSV export', description: 'Stream it.' },
+  ticket: { id: 7, title: 'Add CSV export', description: 'Stream it.', repoTags: [] },
   comments: [],
   notes: [],
   repos: [{ name: 'web', defaultBranch: 'main', checkedOut: false }],
@@ -21,6 +21,13 @@ describe('composePrompt', () => {
     expect(p).toContain('report_outcome')
     expect(p).toContain('ask_user')
     expect(p).toContain('gh pr create')
+  })
+
+  test("a ticket's repo tags become a starting hint; unconnected tags are dropped", () => {
+    const p = composePrompt({ ...base, ticket: { ...base.ticket, repoTags: ['web', 'gone'] } })
+    expect(p).toContain('already tagged for web')
+    expect(p).not.toContain('gone')
+    expect(composePrompt(base)).not.toContain('already tagged for')
   })
 
   test('no tools: repos already checked out, no tool instructions', () => {

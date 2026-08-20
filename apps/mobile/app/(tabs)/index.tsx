@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useClient } from '../../src/api/ClientContext'
 import { keys, useActivity, useBoard, useCreateTicket, useMemory, useNote, useSettings } from '../../src/api/queries'
-import { useAppSocket } from '../../src/api/useAppSocket'
 import { useLatestRunEvents } from '../../src/api/useLatestRunEvent'
 import {
   LiveDigest,
@@ -54,8 +53,6 @@ export default function Control() {
   const client = useClient()
   const { wide } = useLayout()
   const now = useNowTick()
-
-  useAppSocket()
   const { data: board, isLoading, isError, isRefetching, refetch } = useBoard()
   const { data: settings } = useSettings()
   const { data: memory } = useMemory()
@@ -110,7 +107,12 @@ export default function Control() {
   const [noteTarget, setNoteTarget] = useState<ApiTicket | null>(null)
   const [historyAll, setHistoryAll] = useState(false)
 
-  const confirmNewTicket = (fields: { title: string; description: string; column: 'backlog' | 'queued' }) => {
+  const confirmNewTicket = (fields: {
+    title: string
+    description: string
+    column: 'backlog' | 'queued'
+    repoTags: string[]
+  }) => {
     createTicket.mutate(fields, {
       onSuccess: (ticket) => {
         setNewTicketVisible(false)

@@ -7,7 +7,6 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../src/api/client'
 import { keys, useBoard, useCreateTicket, useMoveTicket, useProposal, useSources } from '../../src/api/queries'
-import { useAppSocket } from '../../src/api/useAppSocket'
 import { useLatestRunEvents } from '../../src/api/useLatestRunEvent'
 import { canDropInto, LANES } from '../../src/board/cardMeta'
 import { BoardDnDProvider, measureInWindow, type BoardDnD, type DragTicket, type Rect } from '../../src/board/dnd'
@@ -59,8 +58,6 @@ export default function Board() {
   // The menu is keyed by id and reads the ticket fresh from the board on every render, so a
   // hold it just resolved is what it shows next.
   const [menu, setMenu] = useState<{ ticketId: number; anchor: ContextMenuAnchor | null } | null>(null)
-
-  useAppSocket()
 
   // ---------------------------------------------------------------- drag state
   const [drag, setDrag] = useState<DragTicket | null>(null)
@@ -385,6 +382,7 @@ export default function Board() {
         visible={newTicketVisible}
         onClose={() => setNewTicketVisible(false)}
         pending={createTicket.isPending}
+        repo={repoFilter}
         onCreate={(fields) => createTicket.mutate(fields, { onSuccess: () => setNewTicketVisible(false) })}
       />
       <View ref={overlayRef} collapsable={false} style={[StyleSheet.absoluteFill, styles.overlayPassthrough]}>

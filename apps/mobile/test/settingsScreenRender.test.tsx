@@ -140,8 +140,14 @@ describe('Settings screen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 500, height: 900, scale: 1, fontScale: 1 })
-    mockSettings.mockResolvedValue(settings())
-    mockPatchSettings.mockImplementation(async (patch: Partial<ApiSettings>) => settings(patch))
+    // A stateful fake: the hook refetches settings once the last patch settles, so a GET that
+    // forgot the PATCH would look like the server reverting the change.
+    let current = settings()
+    mockSettings.mockImplementation(async () => current)
+    mockPatchSettings.mockImplementation(async (patch: Partial<ApiSettings>) => {
+      current = { ...current, ...patch }
+      return current
+    })
     mockSources.mockResolvedValue(sources)
     mockAddSource.mockResolvedValue(sources)
     mockRemoveSource.mockResolvedValue([])

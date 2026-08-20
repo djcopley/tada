@@ -1,14 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ApiError } from '../../../src/api/client'
 import { useClient } from '../../../src/api/ClientContext'
-import { useCancelRun, useNote, useRun } from '../../../src/api/queries'
-import { useAppSocket } from '../../../src/api/useAppSocket'
+import { keys, useCancelRun, useNote, useRun } from '../../../src/api/queries'
+import { useRunEventListener } from '../../../src/api/AppSocketContext'
 import { useRunEvents } from '../../../src/api/useRunEvents'
 import { EventFeed, type LineContextRequest } from '../../../src/components/EventFeed'
 import { copyText } from '../../../src/components/run/clipboard'
+import { FollowingScroll } from '../../../src/components/run/FollowingScroll'
 import { GateCard } from '../../../src/components/run/GateCard'
 import { type LineAction, LineMenu } from '../../../src/components/run/LineMenu'
 import { AgentLine, AgentPanel, AppHeader, Badge, Button, Dialog, EmptyState, Input, Screen } from '../../../src/components/ui'
@@ -71,10 +72,10 @@ function RunBody({ runId }: { runId: number }) {
     },
     [runId, refetch],
   )
-  useAppSocket({ onRunEvent })
+  useRunEventListener(onRunEvent)
 
   const { data: transcript } = useQuery({
-    queryKey: ['transcript', runId],
+    queryKey: keys.transcript(runId),
     queryFn: async () => {
       try {
         return await client.transcript(runId)
@@ -144,15 +145,11 @@ function RunBody({ runId }: { runId: number }) {
 
   return (
     <Screen edges={['top', 'bottom']} testID="run-activity">
-      <ScrollView
-        testID="run-activity-scroll"
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        // The note composer sits at the very bottom; without this the keyboard covers it and there
-        // is nothing to scroll to. iOS-only prop, ignored elsewhere.
-        automaticallyAdjustKeyboardInsets
-      >
+      {/* A fixed frame, not a page scroll: header pinned above, controls pinned below, and the
+          narration as the only scroller between them. A run that journals hundreds of lines used
+          to push the note input and the gate card off the bottom of the page, so every
+          interaction with a live session started with a long scroll. */}
+      <KeyboardAvoidingView style={styles.frame} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.headerRow}>
           <Button testID="run-back" variant="ghost" small icon="chevron-left" label="Control" onPress={() => goToControl(router)} />
           <View style={styles.headerTitleBlock}>
@@ -176,64 +173,70 @@ function RunBody({ runId }: { runId: number }) {
           ) : null}
         </View>
 
-        <AgentPanel
-          testID="run-panel"
-          header={run ? `run #${run.id}${run.attemptNumber > 1 ? ` · attempt ${run.attemptNumber}` : ''}` : undefined}
-          meta={panelMeta(run, now)}
-          rawOutput={transcript ?? 'loading transcript…'}
-        >
-          {events.length === 0 ? (
-            <AgentLine muted prompt={false}>
-              {live ? 'waiting for the agent to start…' : 'nothing was journaled'}
-            </AgentLine>
-          ) : (
-            <EventFeed
-              testID="run-events"
-              events={events}
-              live={running}
-              onLineContext={setLineReq}
-              selectedId={lineReq?.line.event.id}
-            />
-          )}
-          {terminal ? (
-            <AgentLine
-              testID="run-terminal-line"
-              prompt={false}
-              color={terminal.tone === 'ok' ? colors.okText : terminal.tone === 'error' ? colors.failText : colors.agentTextMuted}
-            >
-              {terminal.text}
-            </AgentLine>
-          ) : null}
-        </AgentPanel>
-
-        {run && heldHold ? <GateCard run={run} hold={heldHold} ticketId={run.ticketId} /> : null}
-        {held ? (
-          <Text testID="run-held-copy" style={[type.caption, { color: colors.textFaintSolid }]}>
-            Holding freed its slot — the queue kept moving. Approving resumes this run at the front.
-          </Text>
-        ) : null}
-
-        {live && run ? (
-          <>
-            <View style={styles.noteRow}>
-              <Input
-                ref={noteInput}
-                testID="note-input"
-                containerStyle={styles.noteInputWrap}
-                placeholder="Add a note — the agent reads it at its next step"
-                value={noteText}
-                onChangeText={setNoteText}
-                returnKeyType="send"
-                onSubmitEditing={sendNote}
+        <FollowingScroll testID="run-activity-scroll" contentContainerStyle={styles.feedContent}>
+          <AgentPanel
+            testID="run-panel"
+            header={run ? `run #${run.id}${run.attemptNumber > 1 ? ` · attempt ${run.attemptNumber}` : ''}` : undefined}
+            meta={panelMeta(run, now)}
+            rawOutput={transcript ?? 'loading transcript…'}
+            rawStartsCollapsed
+          >
+            {events.length === 0 ? (
+              <AgentLine muted prompt={false}>
+                {live ? 'waiting for the agent to start…' : 'nothing was journaled'}
+              </AgentLine>
+            ) : (
+              <EventFeed
+                testID="run-events"
+                events={events}
+                live={running}
+                onLineContext={setLineReq}
+                selectedId={lineReq?.line.event.id}
               />
-              <Button testID="note-send" variant="secondary" small label="Send" loading={note.isPending} onPress={sendNote} />
-            </View>
-            <Text style={[type.caption, { color: colors.textFaintSolid }]}>
-              {"Safe to close — it runs unattended. You'll get a ping when it needs you."}
-            </Text>
-          </>
+            )}
+            {terminal ? (
+              <AgentLine
+                testID="run-terminal-line"
+                prompt={false}
+                color={terminal.tone === 'ok' ? colors.okText : terminal.tone === 'error' ? colors.failText : colors.agentTextMuted}
+              >
+                {terminal.text}
+              </AgentLine>
+            ) : null}
+          </AgentPanel>
+        </FollowingScroll>
+
+        {(run && heldHold) || held || (live && run) ? (
+          <View testID="run-footer" style={[styles.footer, { borderTopColor: colors.borderStrong }]}>
+            {run && heldHold ? <GateCard run={run} hold={heldHold} ticketId={run.ticketId} /> : null}
+            {held ? (
+              <Text testID="run-held-copy" style={[type.caption, { color: colors.textFaintSolid }]}>
+                Holding freed its slot — the queue kept moving. Approving resumes this run at the front.
+              </Text>
+            ) : null}
+            {live && run ? (
+              <>
+                <View style={styles.noteRow}>
+                  <Input
+                    ref={noteInput}
+                    testID="note-input"
+                    containerStyle={styles.noteInputWrap}
+                    placeholder="Add a note — the agent reads it at its next step"
+                    value={noteText}
+                    onChangeText={setNoteText}
+                    returnKeyType="send"
+                    onSubmitEditing={sendNote}
+                  />
+                  <Button testID="note-send" variant="secondary" small label="Send" loading={note.isPending} onPress={sendNote} />
+                </View>
+                <Text style={[type.caption, { color: colors.textFaintSolid }]}>
+                  {"Safe to close — it runs unattended. You'll get a ping when it needs you."}
+                </Text>
+              </>
+            ) : null}
+          </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAvoidingView>
 
       <LineMenu request={lineReq} onClose={() => setLineReq(null)} onAction={(a) => void onLineAction(a)} canStop={live} />
 
@@ -253,7 +256,15 @@ function RunBody({ runId }: { runId: number }) {
 }
 
 const styles = StyleSheet.create({
-  content: {
+  frame: {
+    flex: 1,
+  },
+  feedContent: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.lg,
+  },
+  footer: {
+    borderTopWidth: 1,
     padding: space.lg,
     gap: space.md,
   },
@@ -262,6 +273,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    paddingBottom: space.md,
   },
   headerTitleBlock: {
     gap: 2,

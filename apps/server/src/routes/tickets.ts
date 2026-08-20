@@ -7,6 +7,7 @@ import { recordActivity } from '../activity.js'
 import { agentRuns, comments, tickets } from '../db/schema.js'
 import { cleanupRunDirs } from '../runs/runDir.js'
 import { liveRunFor } from '../runs/runner.js'
+import { normalizeRepoTags, unknownRepos } from '../runs/tags.js'
 import { intParam, type RouteDeps } from './deps.js'
 import { cancelRun } from './runs.js'
 import { publicRun, publicTicket } from './serialize.js'
@@ -19,6 +20,12 @@ const createTicketSchema = z.object({
   description: z.string().max(DESCRIPTION_MAX).default(''),
   /** New tickets land in backlog by default; `queued` starts when a slot frees. */
   column: z.enum(['backlog', 'queued']).default('backlog'),
+  /**
+   * Repos this ticket is for — a plan, not evidence. Creating a card while a repo filter is
+   * selected tags it so it shows up on that board straight away; a run stamps its own tags on top
+   * as it touches repos. Names must be connected repos.
+   */
+  repoTags: z.array(z.string()).default([]),
 })
 
 const patchTicketSchema = z
@@ -146,10 +153,15 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     const parsed = createTicketSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
     const { title, description, column } = parsed.data
+    const repoTags = normalizeRepoTags(parsed.data.repoTags)
+    const unknown = unknownRepos(deps.store, repoTags)
+    if (unknown.length > 0) {
+      return reply.code(400).send({ error: `unknown repo: ${unknown.join(', ')}` })
+    }
 
     const [ticket] = db.drizzle
       .insert(tickets)
-      .values({ column, title, description, position: endOfColumnPosition(deps, column) })
+      .values({ column, title, description, repoTags, position: endOfColumnPosition(deps, column) })
       .returning()
       .all()
     if (!ticket) return reply.code(500).send({ error: 'failed to create ticket' })

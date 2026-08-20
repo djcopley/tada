@@ -12,6 +12,10 @@ type Props = {
   /** Raw transcript tail, shown in a collapsible section below the narration — expanded by
    * default, matching the artboard's live-run panel. */
   rawOutput?: string
+  /** Start the raw section collapsed. The run screen sets this: its feed is pinned to the
+   * bottom, and an expanded transcript underneath would be what the bottom lands on, pushing
+   * the newest narration — the thing you opened the screen for — back out of view. */
+  rawStartsCollapsed?: boolean
   style?: ViewStyle
   testID?: string
 }
@@ -21,9 +25,9 @@ type Props = {
  * in IBM Plex Mono, identical in both themes. Lines starting with the ▸
  * prompt are drawn by callers via <AgentLine>.
  */
-export function AgentPanel({ children, header, meta, rawOutput, style, testID }: Props) {
+export function AgentPanel({ children, header, meta, rawOutput, rawStartsCollapsed = false, style, testID }: Props) {
   const { colors } = useTheme()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(rawStartsCollapsed)
 
   return (
     <View

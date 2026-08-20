@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ColumnKind, Hold, RunStatus } from '@tada/shared'
-import { canMoveCard, canTransitionRun } from '@tada/shared'
+import { canMoveCard, canTransitionRun, holdPingText } from '@tada/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import type { Broadcaster } from '../activity.js'
 import { noopBroadcaster, recordActivity } from '../activity.js'
@@ -15,10 +15,11 @@ import type {
 import type { TadaDb } from '../db/index.js'
 import { agentRuns, comments, memoryNotes, settings, tickets } from '../db/schema.js'
 import { pendingOutcome } from '../mcp/server.js'
-import { holdPingText, ping } from '../notify.js'
+import { ping } from '../notify.js'
 import { stateDir } from '../paths.js'
 import { callSummary, matchRule } from '../rules.js'
 import type { SourceStore } from '../sources/store.js'
+import type { WebPushSender } from '../webPush.js'
 import { storeAnswer } from './answers.js'
 import { reposAhead, runDiff } from './diff.js'
 import { Journal } from './journal.js'
@@ -32,6 +33,22 @@ export type BroadcastFn = (runId: number, e: AdapterEvent) => void
 /** The tool name the Claude SDK gives tada's `ask_user` MCP tool. */
 export const ASK_USER_TOOL = 'mcp__tada__ask_user'
 
+/** How many times a run will ask an agent that stopped without reporting to carry on. */
+export const MAX_IDLE_NUDGES = 2
+
+const FIRST_IDLE_NUDGE =
+  'You ended your turn without calling `report_outcome`, and your turn ending is what ends this ' +
+  'run — nothing will wake you up afterwards, and a background task you started cannot reach ' +
+  'you once the session is closed. If work is still outstanding, wait for it here (poll it, or ' +
+  're-run the command in the foreground) and finish it. Then call `report_outcome` with success ' +
+  'or failed and a concise summary, in this turn.'
+
+const FINAL_IDLE_NUDGE =
+  'You stopped again without calling `report_outcome`. This is the last turn you get: the run ' +
+  'ends when it does, and with no outcome it is recorded as a failure. Call `report_outcome` ' +
+  'now — status `failed` with an honest summary of where you got to is a far better result than ' +
+  'nothing. Do not start new work.'
+
 export interface RunnerDeps {
   db: TadaDb
   store: SourceStore
@@ -43,6 +60,8 @@ export interface RunnerDeps {
   mcpUrl?: string
   /** fetch implementation used for Expo push notifications. Defaults to global fetch; override in tests. */
   fetchImpl?: typeof fetch
+  /** Sender for the web push channel. Absent in tests and when no keys are configured. */
+  webPush?: WebPushSender
   /** Re-ping delay while held; read from settings when absent. Tests pass 0 (never). */
   repingMs?: number
   /** Called the moment a run enters a hold — its slot is free, so the scheduler should tick. */
@@ -185,7 +204,7 @@ export async function executeRun(
     void ping(
       db,
       { ticketId: ticket.id, runId, title: `"${ticket.title}" failed`, body: reason },
-      deps.fetchImpl,
+      { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
     )
   }
 
@@ -212,10 +231,17 @@ export async function executeRun(
   let pending: { hold: Hold; resolve: (r: HoldResolution | { kind: 'abort' }) => void } | undefined
   let timeExhausted = false
   let deadline: ReturnType<typeof setTimeout> | undefined
+  // The budget counts the agent's working time, not the human's thinking time, so the deadline is
+  // suspended for the length of every hold. `armedAt`/`armedMs` are what's needed to work out how
+  // much of it was left when the hold started; `pausedMs` carries that across the hold.
+  let armedAt = 0
+  let armedMs = 0
+  let pausedMs: number | undefined
   const repingMs = deps.repingMs ?? currentSettingsRepingMs(db)
 
   const enterHold = (hold: Hold): void => {
     const heldAt = new Date()
+    pauseDeadline()
     setRunStatus('held', { heldReason: hold.reason, hold, heldAt })
     moveCard('stopped')
     journal.write({ type: 'gate', payload: { kind: 'hold', hold } })
@@ -235,7 +261,7 @@ export async function executeRun(
         title: `"${ticket.title}" is stopped on you`,
         body: holdPingText(hold),
       },
-      deps.fetchImpl,
+      { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
     )
     if (repingMs > 0) {
       const timer = setTimeout(() => {
@@ -249,7 +275,7 @@ export async function executeRun(
               title: `"${ticket.title}" is still waiting on you`,
               body: holdPingText(hold),
             },
-            deps.fetchImpl,
+            { fetchImpl: deps.fetchImpl, webPush: deps.webPush },
           )
         }
       }, repingMs)
@@ -258,6 +284,7 @@ export async function executeRun(
   }
 
   const leaveHold = (): void => {
+    resumeDeadline()
     setRunStatus('running', { heldReason: null, hold: null, heldAt: null })
     moveCard('running')
     journal.write({ type: 'gate', payload: { kind: 'resume' } })
@@ -285,9 +312,16 @@ export async function executeRun(
 
   const armDeadline = (ms: number): void => {
     if (deadline) clearTimeout(deadline)
+    armedAt = Date.now()
+    armedMs = ms
+    pausedMs = undefined
     deadline = setTimeout(() => {
+      deadline = undefined
       timeExhausted = true
-      journal.write({ type: 'gate', payload: { kind: 'time_up', budgetMs: ms } })
+      journal.write({
+        type: 'gate',
+        payload: { kind: 'time_up', budgetMs: currentRun()?.budgetMs ?? ms },
+      })
       // An adapter that can be suspended in place (a CLI subprocess) is held right now; the
       // Claude adapter can't, so its next tool call is where the gate holds it.
       if (!pending && session?.pause()) {
@@ -300,6 +334,21 @@ export async function executeRun(
       }
     }, ms)
     deadline.unref?.()
+  }
+
+  /** Stops the clock for the length of a hold. No-op once the budget is already spent — there is
+   * nothing left to count down, and `grantMoreTime` is what re-arms in that case. */
+  const pauseDeadline = (): void => {
+    if (!deadline) return
+    clearTimeout(deadline)
+    deadline = undefined
+    pausedMs = Math.max(0, armedMs - (Date.now() - armedAt))
+  }
+
+  /** Restarts the clock with whatever was left when the hold began. */
+  const resumeDeadline = (): void => {
+    if (pausedMs === undefined) return
+    armDeadline(pausedMs)
   }
 
   const grantMoreTime = (extraMs: number): void => {
@@ -322,6 +371,38 @@ export async function executeRun(
       return true
     }
     return false
+  }
+
+  // ---- idle turns ------------------------------------------------------------------------------
+  // An agent that ends a turn without reporting an outcome is not necessarily finished: it may
+  // have parked on background work expecting to be woken (nothing wakes it — its own turn ending
+  // is what closes the session), or simply forgotten. Closing the session there fails a run that
+  // was one sentence from succeeding, so we spend a turn asking. Bounded, because an agent that
+  // ignores two direct instructions is stuck, and looping would burn the budget in silence.
+  let idleNudges = 0
+
+  const onIdle = (): string | null => {
+    // Aborted, or out of time: the run is already going somewhere else. Let the session close.
+    if (externalSignal.aborted || timeExhausted) return null
+    if (pendingOutcome(db, runId)) return null
+    if (idleNudges >= MAX_IDLE_NUDGES) {
+      journal.write({
+        type: 'text',
+        payload: { text: 'stopped without reporting an outcome, twice over — giving up on it' },
+      })
+      return null
+    }
+    idleNudges++
+    const last = idleNudges >= MAX_IDLE_NUDGES
+    journal.write({
+      type: 'text',
+      payload: {
+        text: last
+          ? 'stopped without reporting an outcome — asked it one last time'
+          : 'stopped without reporting an outcome — asked it to finish',
+      },
+    })
+    return last ? FINAL_IDLE_NUDGE : FIRST_IDLE_NUDGE
   }
 
   const gate = async (req: GateRequest): Promise<GateDecision> => {
@@ -436,7 +517,12 @@ export async function executeRun(
       .all()
 
     const prompt = composePrompt({
-      ticket: { id: ticket.id, title: ticket.title, description: ticket.description },
+      ticket: {
+        id: ticket.id,
+        title: ticket.title,
+        description: ticket.description,
+        repoTags: ticket.repoTags,
+      },
       comments: thread.map((c) => ({ author: c.author, body: c.body, createdAt: c.createdAt })),
       notes: globalNotes.map((n) => ({ title: n.title, body: n.body })),
       repos: repos.map((r) => ({
@@ -490,6 +576,7 @@ export async function executeRun(
       journal,
       signal: externalSignal,
       gate,
+      onIdle,
     })
     // A suspended process never sees SIGTERM; wake it before the abort reaches it.
     externalSignal.addEventListener('abort', () => session?.resume(), { once: true })

@@ -72,6 +72,31 @@ describe('board & tickets', () => {
     expect(act.map((r) => r.type)).toEqual(['ticket_created', 'ticket_created'])
   })
 
+  test('a ticket created against a repo is tagged for it; unknown repos are refused', async () => {
+    const t = await makeTestApp()
+    await t.store.addRepo(await makeOrigin('proj'))
+    const ok = await t.json({
+      method: 'POST',
+      url: '/tickets',
+      payload: { title: 'Tagged', repoTags: ['proj', 'proj'] },
+    })
+    expect(ok.status).toBe(201)
+    expect(ok.body.repoTags).toEqual(['proj'])
+    // ...and it is on that repo's board straight away, before any run has touched anything.
+    const board = (await t.json({ method: 'GET', url: '/board' })).body as ApiBoard
+    expect(board.backlog.filter((x) => x.repoTags.includes('proj')).map((x) => x.title)).toEqual([
+      'Tagged',
+    ])
+
+    const bad = await t.json({
+      method: 'POST',
+      url: '/tickets',
+      payload: { title: 'Ghost', repoTags: ['nope'] },
+    })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toContain('nope')
+  })
+
   test('detail carries the thread, runs, follow-ups and parent', async () => {
     const t = await appWithFake()
     const parent = seedTicket(t.db, { title: 'parent' })

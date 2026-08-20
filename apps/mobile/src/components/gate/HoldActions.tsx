@@ -23,7 +23,7 @@ type Props = {
   ticketId: number
   /** Board-card sized buttons: primary Approve/Continue plus one ghost, nothing else. */
   compact?: boolean
-  /** Mobile Control cards: buttons stretch to fill the row. */
+  /** Mobile Control cards and the sheet: one full-width button per row. */
   stretch?: boolean
   testID?: string
 }
@@ -51,21 +51,30 @@ export function HoldActions({ run, ticketId, compact = false, stretch = false, t
   const [denying, setDenying] = useState(false)
   const [answering, setAnswering] = useState(false)
 
+  const hold = run.hold
   const size = compact ? { small: true } : {}
-  const btn = stretch ? styles.stretch : undefined
+  // Question options are written by the agent and run to a sentence, so they get a stacked
+  // full-width button each: sharing a wrapping row (the old `stretch`) squeezed three sentences
+  // onto one line and their labels ran over each other.
+  const stacked = !compact && hold?.reason === 'question'
+  // `stretch` (narrow Control, the mobile sheet) fills the row — but by growing from each label's
+  // own width, not by handing every button an equal slice (`flex: 1`, i.e. flexBasis 0). Equal
+  // slices ignore how long a label is; growing from `auto` keeps short labels abreast and wraps a
+  // button that doesn't fit onto a line of its own.
+  const row = stacked ? styles.column : styles.row
+  const btn = stacked ? styles.full : stretch ? styles.grow : undefined
 
   const stopAndEdit = () => {
-    cancel.mutate(run.id, { onSuccess: () => router.push(`/tickets/${ticketId}`) })
+    cancel.mutate(run.id, { onSuccess: () => router.push(`/tickets/${ticketId}?edit=1`) })
   }
   const toBacklog = () => {
     if (run.status === 'failed') move.mutate({ id: ticketId, to: { column: 'backlog' } })
     else cancel.mutate(run.id)
   }
 
-  const hold = run.hold
   if (run.status === 'held' && hold?.reason === 'permission') {
     return (
-      <View testID={testID} style={styles.row}>
+      <View testID={testID} style={row}>
         <Button
           testID="hold-approve"
           label="Approve"
@@ -116,13 +125,14 @@ export function HoldActions({ run, ticketId, compact = false, stretch = false, t
   if (run.status === 'held' && hold?.reason === 'question') {
     const options = compact ? [] : hold.options
     return (
-      <View testID={testID} style={styles.row}>
+      <View testID={testID} style={row}>
         {options.map((option) => (
           <Button
             key={option}
             testID={`hold-option-${option}`}
             label={option}
             variant="secondary"
+            lines={3}
             {...size}
             style={btn}
             loading={answer.isPending && answer.variables?.answer === option}
@@ -152,7 +162,7 @@ export function HoldActions({ run, ticketId, compact = false, stretch = false, t
 
   if (run.status === 'held' && hold?.reason === 'time') {
     return (
-      <View testID={testID} style={styles.row}>
+      <View testID={testID} style={row}>
         <Button
           testID="hold-continue"
           label="Continue +30m"
@@ -176,7 +186,7 @@ export function HoldActions({ run, ticketId, compact = false, stretch = false, t
 
   if (run.status === 'failed') {
     return (
-      <View testID={testID} style={styles.row}>
+      <View testID={testID} style={row}>
         <Button
           testID="hold-rerun"
           label="Re-run"
@@ -309,7 +319,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
   },
-  stretch: { flex: 1 },
+  column: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: space.sm,
+  },
+  full: { alignSelf: 'stretch' },
+  grow: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
   field: { marginTop: space.md, marginBottom: space.md },
   agentLine: {
     marginTop: space.md,

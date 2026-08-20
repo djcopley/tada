@@ -1,6 +1,7 @@
 import { type UseQueryOptions, useQueries, useQuery } from '@tanstack/react-query'
 import { narrationText } from '../components/EventFeed'
 import { useClient } from './ClientContext'
+import { keys } from './queries'
 
 /** Shared query shape for both the singular and plural hooks below, so a ticket rendered on
  * Board (via {@link useLatestRunEvent}) and on Control (via {@link useLatestRunEvents}) hits the
@@ -12,7 +13,7 @@ function latestRunEventQuery(
 ): UseQueryOptions<string | null, Error, string | null, readonly ['latestRunEvent', number | undefined]> {
   const active = enabled && runId !== undefined
   return {
-    queryKey: ['latestRunEvent', runId] as const,
+    queryKey: keys.latestRunEvent(runId),
     queryFn: async () => {
       const events = await client.runEvents(runId as number)
       for (let i = events.length - 1; i >= 0; i -= 1) {
