@@ -31,6 +31,18 @@ import { type EdgeInsets, SafeAreaInsetsContext, useSafeAreaInsets } from 'react
  */
 type Geometry = { standalone: boolean; screenHeight: number; innerHeight: number; screenY: number }
 
+/**
+ * How far iOS 26's scroll edge effect reaches past the safe-area inset. The effect blurs and dims
+ * content near the top edge so it reads against the status bar; content inside it is not legibly
+ * ours, which makes this unsafe area in every sense that matters to a layout.
+ *
+ * Measured, not derived — there is no way to query it, and no web-facing way to turn it off. (A
+ * native app would use SwiftUI's `scrollEdgeEffectStyle(.hard, for: .top)`; nothing in Safari 26.x
+ * exposes an equivalent.) So it is a constant, and a wrong one is a cosmetic gap rather than a
+ * broken layout.
+ */
+const SCROLL_EDGE_FEATHER = 28
+
 /** The arithmetic, separated from the DOM so it can be tested directly. */
 export function repairInsets(insets: EdgeInsets, geometry: Geometry): EdgeInsets {
   const { standalone, screenHeight, innerHeight, screenY } = geometry
@@ -42,7 +54,7 @@ export function repairInsets(insets: EdgeInsets, geometry: Geometry): EdgeInsets
   // we haven't seen, and acting on it would move the whole app for no reason.
   if (!(uncovered > 0 && uncovered <= 80)) return insets
 
-  const top = Math.max(insets.top, uncovered)
+  const top = Math.max(insets.top, uncovered) + SCROLL_EDGE_FEATHER
   const bottom = Math.max(0, insets.bottom - uncovered)
   // Same object identity when there is nothing to correct, so consumers re-render no more than
   // they did before this wrapper existed.
@@ -56,7 +68,11 @@ function readGeometry(): Geometry {
   }
   const nav = window.navigator as Navigator & { standalone?: boolean }
   return {
-    standalone: nav.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches === true,
+    // `navigator.standalone` rather than a display-mode query: it is Safari-only, and every
+    // correction here describes an iOS quirk. An Android home-screen app matches
+    // `display-mode: standalone` too, has none of these problems, and would be pushed 28pt down
+    // for a scroll edge effect it does not have.
+    standalone: nav.standalone === true,
     screenHeight: window.screen.height,
     innerHeight: window.innerHeight,
     screenY: window.screenY,

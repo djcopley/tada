@@ -14,14 +14,16 @@ describe('repairInsets', () => {
     expect(repairInsets(REPORTED, IPHONE_16_PRO).bottom).toBe(0)
   })
 
-  it('keeps the top inset, which iOS reports honestly', () => {
-    expect(repairInsets(REPORTED, IPHONE_16_PRO).top).toBe(62)
+  it('clears the status bar and the scroll edge effect below it', () => {
+    // iOS reports the 62pt status bar honestly; the effect that blurs content for another ~28pt
+    // below it is not reported anywhere, so it is added on.
+    expect(repairInsets(REPORTED, IPHONE_16_PRO).top).toBe(90)
   })
 
   it('floors the top when iOS reports no inset at all', () => {
     // What a page installed without a manifest measured: the status bar is composited over us
-    // regardless, so the withheld height is the padding we need.
-    expect(repairInsets(NONE, IPHONE_16_PRO).top).toBe(62)
+    // regardless, so the withheld height is the padding we need, plus the same feather.
+    expect(repairInsets(NONE, IPHONE_16_PRO).top).toBe(90)
   })
 
   it('subtracts only as far as zero', () => {
