@@ -1,4 +1,3 @@
-import type { Hold } from '@tada/shared'
 import { eq } from 'drizzle-orm'
 import type { TadaDb } from './db/index.js'
 import { pushTokens, settings, webPushSubscriptions } from './db/schema.js'
@@ -35,17 +34,6 @@ function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = []
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
   return chunks
-}
-
-export function holdPingText(hold: Hold): string {
-  switch (hold.reason) {
-    case 'permission':
-      return `wants to: ${hold.ruleTitle} — ${hold.summary}`
-    case 'question':
-      return hold.question
-    case 'time':
-      return 'out of time — continue, or stop it'
-  }
 }
 
 /** Expo channel: the native app's transport. Dormant until a device registers a token. */

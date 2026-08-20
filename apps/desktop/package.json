@@ -1,0 +1,24 @@
+{
+  "name": "@tada/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "compile": "tsc -p tsconfig.build.json",
+    "dev": "concurrently -k -n expo,electron \"pnpm --filter @tada/mobile web\" \"wait-on http://localhost:8081 && pnpm compile && TADA_DESKTOP_DEV=1 electron .\"",
+    "icon": "./scripts/make-icns.sh",
+    "build": "pnpm icon && pnpm --filter @tada/mobile exec expo export --platform web && pnpm compile && electron-builder --config electron-builder.yml && pnpm sign",
+    "sign": "./scripts/adhoc-sign.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^10.0.0",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0",
+    "vitest": "^3.0.0",
+    "wait-on": "^9.0.0"
+  }
+}

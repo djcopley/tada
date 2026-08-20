@@ -1,5 +1,6 @@
 import { Platform } from 'react-native'
 import type { TadaClient } from './api/client'
+import { isDesktop } from './desktop'
 
 /**
  * Everything the opt-in UI needs to know about the browser, gathered in one place so the decision
@@ -49,6 +50,12 @@ export function pushUiState(env: PushEnv): PushUiState {
 
 export function readPushEnv(): PushEnv {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return { hasPushManager: false, isIos: false, isStandalone: false, permission: 'default' }
+  }
+  // Electron's Chromium exposes PushManager but has no push service behind it: a subscription
+  // either fails or silently never delivers. The desktop app pings over its socket instead
+  // (src/components/DesktopBridge.tsx), so the card must not offer an Enable button here.
+  if (isDesktop()) {
     return { hasPushManager: false, isIos: false, isStandalone: false, permission: 'default' }
   }
   const nav = window.navigator as Navigator & { standalone?: boolean }

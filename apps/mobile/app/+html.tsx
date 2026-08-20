@@ -91,8 +91,13 @@ export default function Root({ children }: PropsWithChildren) {
 // Deferred to `load` so registration never competes with the app's own boot requests, and guarded
 // by feature detection because iOS Safari below 16.4 (and any non-secure origin) has no
 // serviceWorker at all — the app must still run there, just without pings.
+//
+// The protocol check is for the Electron shell (apps/desktop), which serves this same bundle from
+// app://tada. Chromium exposes navigator.serviceWorker there but refuses to register on a custom
+// scheme, so feature detection alone left a TypeError on the console at every launch. The desktop
+// app raises its own notifications over the socket instead, and reports web push as unsupported.
 const swBootstrap = `
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.protocol === 'http:')) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('/sw.js').catch(function (err) {
       console.error('Service worker registration failed', err)

@@ -256,6 +256,38 @@ option.
   app. Desktop browsers need no install, but must be running to receive one.
 - **Live updates:** board, thread and run events stream over one WebSocket.
 
+## Desktop
+
+`apps/desktop` (`@tada/desktop`) wraps the same web build in an Electron shell. macOS is the
+supported and exercised target (`electron-builder.yml` only declares a `mac` build); Linux and
+Windows are out of scope for now and untested. It is a client like the phone app or a browser tab
+— it connects to a running `@tada/server` over the network and has no server logic of its own.
+
+For development:
+
+```sh
+pnpm --filter @tada/desktop dev
+```
+
+This starts the Expo web dev server and, once it's up, launches an Electron window pointed at
+`http://localhost:8081`; editing a mobile screen hot-reloads inside the window. Stop with Ctrl+C.
+
+To package a local build:
+
+```sh
+pnpm --filter @tada/desktop build
+```
+
+This exports the mobile app for web, compiles the Electron main/preload, and runs
+electron-builder to produce `apps/desktop/release/mac-arm64/tada.app` (path varies by
+architecture). The build carries no Developer ID and is not notarized — it's meant to run on the
+machine that built it, and macOS will warn about an unidentified developer if the `.app` is copied
+elsewhere. The last build step does re-sign the bundle *ad-hoc* with its real identifier
+(`dev.tada.desktop`), which has nothing to do with Gatekeeper and everything to do with
+notifications: macOS ties notification permission to the code-signature identity, and without it
+every notification fails silently. If notifications stop arriving after a packaging change, check
+`codesign -dv` on the bundle first.
+
 ## Running tests
 
 ```sh
