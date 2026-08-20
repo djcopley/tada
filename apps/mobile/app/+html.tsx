@@ -41,10 +41,17 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         {/* viewport-fit=cover is required for env(safe-area-inset-*) to report real values in a
             standalone PWA; without it react-native-safe-area-context sees zero insets on web and
-            content collides with the notch. */}
+            content collides with the notch.
+
+            maximum-scale/user-scalable pin the app at 1:1. This is an app shell, not a document:
+            there is nothing to pinch into, and a stray zoom is not merely cosmetic here — the
+            safe-area repair in webSafeArea.tsx derives the status bar's height from
+            `screen.height - innerHeight`, and a scaled viewport makes that difference mean
+            something else entirely. (Note this does not override a per-site Page Zoom the user
+            set in Safari, which applies to the installed app too.) */}
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no, viewport-fit=cover"
         />
 
         <link rel="manifest" href="/manifest.json" />
