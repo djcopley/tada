@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react'
 import { Platform } from 'react-native'
 import { type EdgeInsets, SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -43,16 +43,27 @@ type Geometry = { standalone: boolean; screenHeight: number; innerHeight: number
  */
 const SCROLL_EDGE_FEATHER = 28
 
-/** The arithmetic, separated from the DOM so it can be tested directly. */
-export function repairInsets(insets: EdgeInsets, geometry: Geometry): EdgeInsets {
+/**
+ * Height of the screen below the view that iOS keeps for itself. Nothing can be drawn there — it
+ * is outside the web view, so no CSS length reaches it — which makes it clearance the layout gets
+ * for free: anything that would otherwise pad the bottom edge away from the physical screen is
+ * already that far away. 0 everywhere but an installed iOS PWA.
+ */
+export function bottomClearanceFrom(geometry: Geometry): number {
   const { standalone, screenHeight, innerHeight, screenY } = geometry
-  // screenY > 0 would mean the strip iOS withheld is above us, not below, and the corrections
-  // below would both be backwards. Bail rather than guess at a layout we have not seen.
-  if (!standalone || screenY !== 0) return insets
+  // screenY > 0 would mean the strip iOS withheld is above us, not below, and every use of this
+  // would be backwards. Bail rather than guess at a layout we have not seen.
+  if (!standalone || screenY !== 0) return 0
   const uncovered = screenHeight - innerHeight
   // Only ever a status bar's worth. Anything larger is a rotation caught mid-measure or a chrome
   // we haven't seen, and acting on it would move the whole app for no reason.
-  if (!(uncovered > 0 && uncovered <= 80)) return insets
+  return uncovered > 0 && uncovered <= 80 ? uncovered : 0
+}
+
+/** The arithmetic, separated from the DOM so it can be tested directly. */
+export function repairInsets(insets: EdgeInsets, geometry: Geometry): EdgeInsets {
+  const uncovered = bottomClearanceFrom(geometry)
+  if (uncovered === 0) return insets
 
   const top = Math.max(insets.top, uncovered) + SCROLL_EDGE_FEATHER
   const bottom = Math.max(0, insets.bottom - uncovered)
@@ -62,9 +73,13 @@ export function repairInsets(insets: EdgeInsets, geometry: Geometry): EdgeInsets
   return { ...insets, top, bottom }
 }
 
+const INERT: Geometry = { standalone: false, screenHeight: 0, innerHeight: 0, screenY: 0 }
+
+const GeometryContext = createContext<Geometry>(INERT)
+
 function readGeometry(): Geometry {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
-    return { standalone: false, screenHeight: 0, innerHeight: 0, screenY: 0 }
+    return INERT
   }
   const nav = window.navigator as Navigator & { standalone?: boolean }
   return {
@@ -98,5 +113,18 @@ export function WebSafeAreaShim({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(() => repairInsets(insets, geometry), [insets, geometry])
-  return <SafeAreaInsetsContext.Provider value={value}>{children}</SafeAreaInsetsContext.Provider>
+  return (
+    <GeometryContext.Provider value={geometry}>
+      <SafeAreaInsetsContext.Provider value={value}>{children}</SafeAreaInsetsContext.Provider>
+    </GeometryContext.Provider>
+  )
+}
+
+/**
+ * Clearance the layout already has below it — see bottomClearanceFrom. Padding meant to hold a
+ * component off the physical bottom edge can be reduced by this much, because iOS is holding it
+ * off that edge already.
+ */
+export function useBottomClearance(): number {
+  return bottomClearanceFrom(useContext(GeometryContext))
 }

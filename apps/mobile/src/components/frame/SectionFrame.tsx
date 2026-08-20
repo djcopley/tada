@@ -4,6 +4,7 @@ import { useBoard, useSources } from '../../api/queries'
 import { countStoppedOnYou } from '../../control'
 import { useTheme } from '../../design/ThemeContext'
 import { space } from '../../design/tokens'
+import { useBottomClearance } from '../../design/webSafeArea'
 import type { SectionKey } from '../../nav'
 import { BottomStrip, Rail } from '../ui'
 
@@ -36,8 +37,17 @@ export function SectionStrip({ active, testID }: Props) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { data: board } = useBoard()
+  // space.md holds the strip off the bottom edge of the screen. On an installed iOS PWA the view
+  // stops short of that edge anyway (see webSafeArea.tsx), so paying it again just floats the
+  // strip higher than it should sit — which is what it looked like. Spend the free clearance.
+  const clearance = useBottomClearance()
   return (
-    <View style={[styles.stripWell, { backgroundColor: colors.ground, paddingBottom: space.md + insets.bottom }]}>
+    <View
+      style={[
+        styles.stripWell,
+        { backgroundColor: colors.ground, paddingBottom: Math.max(0, space.md - clearance) + insets.bottom },
+      ]}
+    >
       <BottomStrip active={active} stoppedCount={countStoppedOnYou(board)} testID={testID} />
     </View>
   )

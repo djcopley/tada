@@ -1,4 +1,4 @@
-import { repairInsets } from '../src/design/webSafeArea'
+import { bottomClearanceFrom, repairInsets } from '../src/design/webSafeArea'
 
 const NONE = { top: 0, bottom: 0, left: 0, right: 0 }
 
@@ -50,5 +50,19 @@ describe('repairInsets', () => {
   it('ignores a gap too large to be a status bar', () => {
     // A rotation caught mid-measure: screen.height stays portrait while innerHeight is landscape.
     expect(repairInsets(REPORTED, { ...IPHONE_16_PRO, innerHeight: 402 })).toBe(REPORTED)
+  })
+})
+
+describe('bottomClearanceFrom', () => {
+  it('reports the strip iOS keeps below the view', () => {
+    expect(bottomClearanceFrom(IPHONE_16_PRO)).toBe(62)
+  })
+
+  it('reports none in a browser tab', () => {
+    expect(bottomClearanceFrom({ ...IPHONE_16_PRO, standalone: false })).toBe(0)
+  })
+
+  it('reports none when the view covers the screen', () => {
+    expect(bottomClearanceFrom({ ...IPHONE_16_PRO, innerHeight: 874 })).toBe(0)
   })
 })
