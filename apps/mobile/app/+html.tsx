@@ -41,10 +41,17 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         {/* viewport-fit=cover is required for env(safe-area-inset-*) to report real values in a
             standalone PWA; without it react-native-safe-area-context sees zero insets on web and
-            content collides with the notch. */}
+            content collides with the notch.
+
+            maximum-scale/user-scalable pin the app at 1:1. This is an app shell, not a document:
+            there is nothing to pinch into, and a stray zoom is not merely cosmetic here — the
+            safe-area repair in webSafeArea.tsx derives the status bar's height from
+            `screen.height - innerHeight`, and a scaled viewport makes that difference mean
+            something else entirely. (Note this does not override a per-site Page Zoom the user
+            set in Safari, which applies to the installed app too.) */}
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no, viewport-fit=cover"
         />
 
         <link rel="manifest" href="/manifest.json" />
@@ -82,6 +89,24 @@ export default function Root({ children }: PropsWithChildren) {
         {/* Required by expo-router: without it ScrollView on web scrolls the body instead of the
             container, which breaks every scrollable screen. */}
         <ScrollViewStyleReset />
+
+        {/* Installed to an iPhone home screen the web view does not cover the whole display: iOS
+            insets it, reports env(safe-area-inset-*) as 0, and fills the strips above and below by
+            propagating the *canvas* background — html/body. Leave that unset and they render
+            white, so the app's ground stops at the edge of the view and the seam shows as a band
+            over the status bar and under the tab strip. No CSS length reaches those strips; they
+            are outside the view. src/design/documentGround.ts has the measurements and repaints
+            this at runtime to follow the active screen.
+
+            The literal here is night's ground, which is also the manifest's background_color, so
+            the very first frame is right before any JS runs. overscroll-behavior stops the
+            rubber-band bounce from exposing the same strips, and color-scheme keeps the UA from
+            painting form controls and scrollbars light. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: 'html,body{background-color:#1B1613;overscroll-behavior:none}:root{color-scheme:dark}',
+          }}
+        />
       </head>
       <body>{children}</body>
     </html>

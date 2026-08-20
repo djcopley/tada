@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { loadThemeScheme, saveThemeScheme, type ThemeScheme } from '../settings'
+import { useDocumentGround } from './documentGround'
 import { day, night, type Palette, shadows } from './tokens'
 
 export type Theme = {
@@ -32,6 +33,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  // The base layer of the page canvas — see documentGround.ts for why an installed PWA needs it
+  // at all. `app/connect.tsx` registers the 'screen' layer over the top of this one.
+  useDocumentGround('app', scheme === 'day' ? day.ground : night.ground, scheme)
 
   const setScheme = useCallback((next: ThemeScheme) => {
     setSchemeState(next)

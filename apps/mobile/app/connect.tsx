@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-na
 import { ApiError, TadaClient } from '../src/api/client'
 import { Button, Input, Screen } from '../src/components/ui'
 import { useConnection } from '../src/ConnectionContext'
+import { useDocumentGround } from '../src/design/documentGround'
 import { buildTheme, ThemeContext } from '../src/design/ThemeContext'
 import { day, fonts, space, type } from '../src/design/tokens'
 
@@ -18,6 +19,9 @@ export default function Connect() {
   // without ever flipping the persisted scheme other screens see.
   const colors = day
   const dayTheme = useMemo(() => buildTheme('day'), [])
+  // The override has to reach the page canvas too, or an installed PWA frames this light screen
+  // with the night ground the root provider painted. See documentGround.ts.
+  useDocumentGround('screen', day.ground, 'day')
 
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
