@@ -122,6 +122,8 @@ function ticket(overrides: Partial<ApiTicket>): ApiTicket {
     position: 1,
     repoTags: [],
     origin: 'human',
+    adapter: null,
+    model: null,
     proposalState: null,
     followUpOfTicketId: null,
     createdAt: localTime(6),

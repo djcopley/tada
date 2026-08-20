@@ -146,7 +146,7 @@ export class TadaClient {
     return this.req('GET', `/tickets/${id}`)
   }
 
-  patchTicket(id: number, patch: Partial<Pick<ApiTicket, 'title' | 'description'>>): Promise<ApiTicket> {
+  patchTicket(id: number, patch: Partial<Pick<ApiTicket, 'title' | 'description' | 'adapter' | 'model'>>): Promise<ApiTicket> {
     return this.req('PATCH', `/tickets/${id}`, patch)
   }
 

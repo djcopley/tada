@@ -48,6 +48,8 @@ function ticket(overrides: Partial<ApiTicket> = {}): ApiTicket {
     position: 1,
     repoTags: [],
     origin: 'human',
+    adapter: null,
+    model: null,
     proposalState: null,
     followUpOfTicketId: null,
     createdAt: '2026-08-15T12:00:00.000Z',

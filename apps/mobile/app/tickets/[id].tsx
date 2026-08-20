@@ -3,8 +3,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { type ReactNode, useState } from 'react'
 import { KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../../src/api/client'
-import { useCancelRun, useMoveTicket, useNote, usePatchTicket, useTicket } from '../../src/api/queries'
+import { useCancelRun, useMoveTicket, useNote, usePatchTicket, useSettings, useTicket } from '../../src/api/queries'
 import { useAppSocket } from '../../src/api/useAppSocket'
+import { AgentOverrideCard } from '../../src/components/ticket/AgentOverrideCard'
 import { AgentWell, AttemptsCard, CardHeader, IfYouDenyCard, LinkedCard, StoppedCard, ThisRunCard } from '../../src/components/ticket/TicketCards'
 import { Thread } from '../../src/components/ticket/Thread'
 import { AppHeader, Badge, Button, Card, Dialog, EmptyState, Input, RunStatusChip, Screen, Skeleton, Tag } from '../../src/components/ui'
@@ -58,6 +59,7 @@ function TicketDetailBody({ ticketId, ticket, startEditing = false }: { ticketId
   const moveTicket = useMoveTicket()
   const cancelRun = useCancelRun()
   const note = useNote(ticketId)
+  const { data: settings } = useSettings()
 
   const [editing, setEditing] = useState(startEditing)
   const [titleDraft, setTitleDraft] = useState(ticket.title)
@@ -227,10 +229,12 @@ function TicketDetailBody({ ticketId, ticket, startEditing = false }: { ticketId
       {ticket.runs.length > 1 ? <AttemptsCard runs={ticket.runs} onOpen={(runId) => router.push(`/runs/${runId}`)} /> : null}
       <LinkedCard followUpOf={ticket.followUpOf} followUps={ticket.followUps} onOpen={(tid) => router.push(`/tickets/${tid}`)} />
       {run.status === 'held' && run.hold?.reason === 'permission' ? <IfYouDenyCard /> : null}
+      {settings ? <AgentOverrideCard ticketId={ticketId} ticket={ticket} settings={settings} /> : null}
     </View>
   ) : (
     <View style={styles.column}>
       <LinkedCard followUpOf={ticket.followUpOf} followUps={ticket.followUps} onOpen={(tid) => router.push(`/tickets/${tid}`)} />
+      {settings ? <AgentOverrideCard ticketId={ticketId} ticket={ticket} settings={settings} /> : null}
     </View>
   )
 

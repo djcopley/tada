@@ -139,7 +139,7 @@ export function usePatchTicket() {
   const client = useClient()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { id: number; patch: Partial<Pick<ApiTicket, 'title' | 'description'>> }) =>
+    mutationFn: (vars: { id: number; patch: Partial<Pick<ApiTicket, 'title' | 'description' | 'adapter' | 'model'>> }) =>
       client.patchTicket(vars.id, vars.patch),
     onSuccess: (_t, vars) => invalidateTicket(qc, vars.id),
   })

@@ -35,6 +35,8 @@ const mockNote = jest.fn()
 const mockMoveTicket = jest.fn()
 const mockPatchTicket = jest.fn()
 const mockApprove = jest.fn()
+const mockSettings = jest.fn()
+const mockAdapters = jest.fn()
 
 jest.mock('../src/api/client', () => {
   class FakeApiError extends Error {
@@ -55,6 +57,8 @@ jest.mock('../src/api/client', () => {
       moveTicket: mockMoveTicket,
       patchTicket: mockPatchTicket,
       approve: mockApprove,
+      settings: mockSettings,
+      adapters: mockAdapters,
       wsUrl: () => 'wss://example.com/ws',
     })),
   }
@@ -102,6 +106,8 @@ function ticket(overrides: Partial<ApiTicketDetail> = {}): ApiTicketDetail {
     position: 1,
     repoTags: ['parlor-web'],
     origin: 'human',
+    adapter: null,
+    model: null,
     proposalState: null,
     followUpOfTicketId: null,
     createdAt: '2026-08-14T10:00:00.000Z',
@@ -130,6 +136,19 @@ async function renderScreen() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockSettings.mockResolvedValue({
+    adapter: 'claude',
+    model: 'sonnet',
+    effort: 'medium',
+    concurrency: 2,
+    timeoutMs: 1_800_000,
+    pingChannel: 'push',
+    repingMs: 3_600_000,
+  })
+  mockAdapters.mockResolvedValue([
+    { id: 'claude', label: 'Claude', available: true, models: ['sonnet', 'opus'], efforts: ['low', 'medium', 'high'], supportsInjection: true, supportsGates: true },
+    { id: 'codex', label: 'Codex', available: true, models: ['gpt-5'], efforts: ['low', 'medium', 'high'], supportsInjection: false, supportsGates: false },
+  ])
 })
 
 describe('ticketDetail pure logic', () => {
@@ -254,6 +273,28 @@ describe('TicketDetail screen', () => {
     await waitFor(() =>
       expect(mockPatchTicket).toHaveBeenCalledWith(1, { title: 'Add CSV export to the reports page', description: 'new brief' }),
     )
+  })
+
+  test('agent override: shows "using global" until a harness is chosen, then patches adapter+model', async () => {
+    mockTicket.mockResolvedValue(ticket())
+    mockPatchTicket.mockResolvedValue({})
+    await renderScreen()
+    await screen.findByTestId('ticket-agent-override')
+    expect(screen.getByText('using global')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('ticket-harness-codex'))
+    await waitFor(() => expect(mockPatchTicket).toHaveBeenCalledWith(1, { adapter: 'codex', model: 'gpt-5' }))
+  })
+
+  test('agent override: picking a model overrides it without touching the adapter', async () => {
+    mockTicket.mockResolvedValue(ticket({ adapter: 'codex', model: 'gpt-5' }))
+    mockPatchTicket.mockResolvedValue({})
+    await renderScreen()
+    await screen.findByTestId('ticket-agent-override')
+    expect(screen.getByText('overriding global')).toBeTruthy()
+
+    fireEvent.press(screen.getByTestId('ticket-harness-global'))
+    await waitFor(() => expect(mockPatchTicket).toHaveBeenCalledWith(1, { adapter: null, model: null }))
   })
 
   test('404 shows the not-found state', async () => {
