@@ -13,6 +13,25 @@ import { makeTestApp, seedRun, seedTicket } from './helpers/testApp.js'
 const fakeMap = () =>
   new Map<string, Adapter>([['fake', new FakeAdapter({ act: () => new Promise(() => {}) })]])
 
+/** Two adapters with distinct model sets, for exercising override validation across adapters. */
+const twoAdapterMap = () => {
+  const fake = new FakeAdapter({ act: () => new Promise(() => {}) })
+  const other: Adapter = {
+    id: 'other',
+    label: 'Other',
+    models: ['other-1'],
+    efforts: ['medium'],
+    supportsInjection: true,
+    supportsGates: true,
+    available: async () => true,
+    start: fake.start.bind(fake),
+  }
+  return new Map<string, Adapter>([
+    ['fake', fake],
+    ['other', other],
+  ])
+}
+
 async function appWithFake() {
   const t = await makeTestApp({ adapters: fakeMap() })
   t.db.drizzle
@@ -109,6 +128,63 @@ describe('board & tickets', () => {
     expect(
       (await t.json({ method: 'PATCH', url: `/tickets/${tk.id}`, payload: { title: '' } })).status,
     ).toBe(400)
+  })
+
+  test('a ticket can override the global adapter/model, validated the same way settings are', async () => {
+    const t = await makeTestApp({ adapters: twoAdapterMap() })
+
+    // unknown adapter is rejected
+    expect(
+      (
+        await t.json({
+          method: 'POST',
+          url: '/tickets',
+          payload: { title: 'A', adapter: 'nope' },
+        })
+      ).status,
+    ).toBe(400)
+
+    // a model that isn't valid for the given adapter is rejected
+    expect(
+      (
+        await t.json({
+          method: 'POST',
+          url: '/tickets',
+          payload: { title: 'A', adapter: 'other', model: 'fake-1' },
+        })
+      ).status,
+    ).toBe(400)
+
+    const created = await t.json({
+      method: 'POST',
+      url: '/tickets',
+      payload: { title: 'A', adapter: 'other', model: 'other-1' },
+    })
+    expect(created.status).toBe(201)
+    expect(created.body).toMatchObject({ adapter: 'other', model: 'other-1' })
+
+    // a ticket created without an override defaults both fields to null
+    const bare = await t.json({ method: 'POST', url: '/tickets', payload: { title: 'B' } })
+    expect(bare.body).toMatchObject({ adapter: null, model: null })
+
+    // patching in a model without an adapter validates against the ticket's stored adapter
+    expect(
+      (
+        await t.json({
+          method: 'PATCH',
+          url: `/tickets/${created.body.id}`,
+          payload: { model: 'fake-1' },
+        })
+      ).status,
+    ).toBe(400)
+
+    // patching adapter back to null (use global) is how an override is cleared
+    const cleared = await t.json({
+      method: 'PATCH',
+      url: `/tickets/${created.body.id}`,
+      payload: { adapter: null, model: null },
+    })
+    expect(cleared.body).toMatchObject({ adapter: null, model: null })
   })
 
   test('move: humans reach backlog/queued/done, never running/stopped', async () => {

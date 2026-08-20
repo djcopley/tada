@@ -62,8 +62,8 @@ export class Scheduler {
   }
 
   /** Create an AgentRun (status 'queued') for the ticket — resolving adapter/model/effort and the
-   * time budget from settings — then kick the loop. The caller has already put the card in the
-   * queued column. */
+   * time budget from settings, with the ticket's own adapter/model overriding the global ones
+   * when set — then kick the loop. The caller has already put the card in the queued column. */
   enqueue(ticketId: number): number {
     const { db } = this.deps
     const ticket = db.drizzle.select().from(tickets).where(eq(tickets.id, ticketId)).get()
@@ -71,7 +71,10 @@ export class Scheduler {
 
     const prefs = db.drizzle.select().from(settings).get()
     if (!prefs) throw new Error('settings row missing')
-    if (!this.deps.adapters.has(prefs.adapter)) throw new Error(`unknown adapter: ${prefs.adapter}`)
+
+    const adapter = ticket.adapter ?? prefs.adapter
+    const model = ticket.model ?? prefs.model
+    if (!this.deps.adapters.has(adapter)) throw new Error(`unknown adapter: ${adapter}`)
 
     const priorRunCount = db.drizzle
       .select({ id: agentRuns.id })
@@ -83,8 +86,8 @@ export class Scheduler {
       .insert(agentRuns)
       .values({
         ticketId,
-        adapter: prefs.adapter,
-        model: prefs.model,
+        adapter,
+        model,
         effort: prefs.effort,
         attemptNumber: priorRunCount + 1,
         status: 'queued',

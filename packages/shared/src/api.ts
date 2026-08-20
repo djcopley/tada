@@ -83,6 +83,9 @@ export interface ApiTicket {
   position: number
   repoTags: string[]
   origin: TicketOrigin
+  /** Per-ticket override of the global adapter/model. Null = use the global settings. */
+  adapter: string | null
+  model: string | null
   proposalState: ProposalState
   followUpOfTicketId: number | null
   createdAt: string

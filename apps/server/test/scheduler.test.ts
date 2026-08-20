@@ -176,6 +176,29 @@ describe('Scheduler', () => {
     })
   })
 
+  test('a ticket override wins over the global settings adapter/model', async () => {
+    const { t } = await setup()
+    t.db.drizzle
+      .update(settings)
+      .set({ adapter: 'fake', model: 'fake-1' })
+      .where(eq(settings.id, 1))
+      .run()
+    const overridden = seedTicket(t.db, {
+      column: 'queued',
+      adapter: 'fake',
+      model: 'fake-2',
+    })
+    const id = t.scheduler.enqueue(overridden.id)
+    const run = t.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, id)).get()
+    expect(run).toMatchObject({ adapter: 'fake', model: 'fake-2' })
+
+    // a ticket with no override falls back to the global settings, as before
+    const plain = seedTicket(t.db, { column: 'queued' })
+    const plainId = t.scheduler.enqueue(plain.id)
+    const plainRun = t.db.drizzle.select().from(agentRuns).where(eq(agentRuns.id, plainId)).get()
+    expect(plainRun).toMatchObject({ adapter: 'fake', model: 'fake-1' })
+  })
+
   test('a pending proposal never starts', async () => {
     const { t } = await setup()
     const p = seedTicket(t.db, { column: 'queued', proposalState: 'pending', origin: 'agent' })

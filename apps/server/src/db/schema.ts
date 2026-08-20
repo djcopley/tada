@@ -47,6 +47,11 @@ export const tickets = sqliteTable('tickets', {
   origin: text('origin', { enum: ['human', 'agent'] })
     .notNull()
     .default('human'),
+  // Per-ticket overrides of the global settings row, snapshotted onto the run at enqueue time
+  // (`Scheduler.enqueue`) exactly like `settings.adapter`/`settings.model` are. Null = "use
+  // whatever the global settings say".
+  adapter: text('adapter'),
+  model: text('model'),
   proposalState: text('proposal_state', { enum: ['pending'] }), // null = not a proposal
   followUpOfTicketId: integer('follow_up_of_ticket_id').references(
     (): AnySQLiteColumn => tickets.id,

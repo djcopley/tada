@@ -56,6 +56,8 @@ export function publicTicket(db: TadaDb, row: TicketRow): ApiTicket {
     position: row.position,
     repoTags: row.repoTags,
     origin: row.origin,
+    adapter: row.adapter,
+    model: row.model,
     proposalState: row.proposalState,
     followUpOfTicketId: row.followUpOfTicketId,
     createdAt: row.createdAt.toISOString(),

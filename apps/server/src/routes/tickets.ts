@@ -4,7 +4,8 @@ import { asc, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { recordActivity } from '../activity.js'
-import { agentRuns, comments, tickets } from '../db/schema.js'
+import type { Adapter } from '../adapters/types.js'
+import { agentRuns, comments, settings, tickets } from '../db/schema.js'
 import { cleanupRunDirs } from '../runs/runDir.js'
 import { liveRunFor } from '../runs/runner.js'
 import { intParam, type RouteDeps } from './deps.js'
@@ -14,19 +15,63 @@ import { publicRun, publicTicket } from './serialize.js'
 const TITLE_MAX = 500
 const DESCRIPTION_MAX = 100_000
 
+// Per-ticket override of the global adapter/model. `null` means "use the global settings" —
+// distinct from `undefined` (leave whatever was there), so both create and patch accept it.
+const adapterOverride = z.string().min(1).nullable()
+const modelOverride = z.string().min(1).nullable()
+
 const createTicketSchema = z.object({
   title: z.string().min(1).max(TITLE_MAX),
   description: z.string().max(DESCRIPTION_MAX).default(''),
   /** New tickets land in backlog by default; `queued` starts when a slot frees. */
   column: z.enum(['backlog', 'queued']).default('backlog'),
+  adapter: adapterOverride.default(null),
+  model: modelOverride.default(null),
 })
 
 const patchTicketSchema = z
   .object({
     title: z.string().min(1).max(TITLE_MAX),
     description: z.string().max(DESCRIPTION_MAX),
+    adapter: adapterOverride,
+    model: modelOverride,
   })
   .partial()
+
+/**
+ * Validates a ticket's adapter/model override the same way `PATCH /settings` validates the
+ * global ones: model is checked against whichever adapter this write leaves the ticket on (the
+ * one it's switching to, otherwise the one already stored). Returns an error string, or
+ * undefined if the override is valid.
+ */
+function invalidOverride(
+  deps: RouteDeps,
+  data: { adapter?: string | null; model?: string | null },
+  existingAdapter: string | null,
+): string | undefined {
+  const { adapters } = deps
+  if (data.adapter !== undefined && data.adapter !== null && !adapters.has(data.adapter)) {
+    return `unknown adapter: ${data.adapter}. valid adapters: ${[...adapters.keys()].join(', ')}`
+  }
+  if (data.model === undefined || data.model === null) return undefined
+
+  const adapterName = data.adapter !== undefined ? data.adapter : existingAdapter
+  const adapter: Adapter | undefined = adapterName ? adapters.get(adapterName) : undefined
+  if (!adapterName) {
+    // No explicit adapter (ticket or patch) to validate the model against — fall back to the
+    // global default, matching what enqueue will actually resolve to.
+    const prefs = deps.db.drizzle.select().from(settings).get()
+    const fallback = prefs ? adapters.get(prefs.adapter) : undefined
+    if (!fallback?.models.includes(data.model)) {
+      return `unknown model: ${data.model} for adapter ${prefs?.adapter ?? 'unknown'}. valid models: ${fallback?.models.join(', ') ?? 'none'}`
+    }
+    return undefined
+  }
+  if (!adapter?.models.includes(data.model)) {
+    return `unknown model: ${data.model} for adapter ${adapterName}. valid models: ${adapter?.models.join(', ') ?? 'none'}`
+  }
+  return undefined
+}
 
 const moveTicketSchema = z.object({
   column: z.enum(['backlog', 'queued', 'done']),
@@ -145,11 +190,21 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
   app.post('/tickets', async (req, reply) => {
     const parsed = createTicketSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
-    const { title, description, column } = parsed.data
+    const { title, description, column, adapter, model } = parsed.data
+
+    const overrideError = invalidOverride(deps, { adapter, model }, null)
+    if (overrideError) return reply.code(400).send({ error: overrideError })
 
     const [ticket] = db.drizzle
       .insert(tickets)
-      .values({ column, title, description, position: endOfColumnPosition(deps, column) })
+      .values({
+        column,
+        title,
+        description,
+        adapter,
+        model,
+        position: endOfColumnPosition(deps, column),
+      })
       .returning()
       .all()
     if (!ticket) return reply.code(500).send({ error: 'failed to create ticket' })
@@ -226,6 +281,9 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
     const parsed = patchTicketSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.message })
 
+    const overrideError = invalidOverride(deps, parsed.data, ticket.adapter)
+    if (overrideError) return reply.code(400).send({ error: overrideError })
+
     // An empty patch is a no-op, not an error: drizzle's `set({})` throws ("No values to set").
     if (Object.keys(parsed.data).length > 0) {
       db.drizzle.update(tickets).set(parsed.data).where(eq(tickets.id, id)).run()
@@ -274,6 +332,8 @@ export function registerTicketRoutes(app: FastifyInstance, deps: RouteDeps): voi
         column: 'backlog',
         title: ticket.title,
         description: ticket.description,
+        adapter: ticket.adapter,
+        model: ticket.model,
         position: endOfColumnPosition(deps, 'backlog'),
       })
       .returning()
