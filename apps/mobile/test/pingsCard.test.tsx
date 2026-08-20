@@ -39,6 +39,28 @@ const stubWebPush = (env: Record<string, unknown>, live = true) => {
 const granted = { hasPushManager: true, isIos: false, isStandalone: false, permission: 'granted' }
 
 describe('PingsCard', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).tadaDesktop
+  })
+
+  it('hides the row under Electron — the socket carries pings there instead', async () => {
+    ;(globalThis as Record<string, unknown>).tadaDesktop = { notify: jest.fn(), onOpenRun: () => () => {} }
+    jest.spyOn(require('../src/webPush'), 'readPushEnv').mockReturnValue({
+      hasPushManager: false,
+      isIos: false,
+      isStandalone: false,
+      permission: 'default',
+    })
+    await render(
+      <ThemeProvider>
+        <PingsCard settings={settings as never} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByTestId('web-push-action')).toBeNull()
+    expect(screen.queryByTestId('web-push-row')).toBeNull()
+    expect(screen.getByTestId('settings-pings')).toBeTruthy()
+  })
+
   it('offers the browser opt-in when push is available', async () => {
     jest.spyOn(require('../src/webPush'), 'readPushEnv').mockReturnValue({
       hasPushManager: true,

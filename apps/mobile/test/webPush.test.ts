@@ -1,4 +1,5 @@
-import { type PushEnv, pushUiState, reconcileWebPushSubscription } from '../src/webPush'
+import { Platform } from 'react-native'
+import { type PushEnv, pushUiState, readPushEnv, reconcileWebPushSubscription } from '../src/webPush'
 
 const env = (over: Partial<PushEnv> = {}): PushEnv => ({
   hasPushManager: true,
@@ -43,6 +44,27 @@ describe('pushUiState', () => {
 
   it('prefers unsupported over every other state', () => {
     expect(pushUiState(env({ hasPushManager: false, permission: 'granted' }))).toBe('unsupported')
+  })
+})
+
+describe('readPushEnv', () => {
+  const originalPlatform = Platform.OS
+
+  afterEach(() => {
+    Object.defineProperty(Platform, 'OS', { get: () => originalPlatform })
+    delete (globalThis as Record<string, unknown>).tadaDesktop
+  })
+
+  it('reports no PushManager under the Electron shell — its Chromium has no push service', () => {
+    Object.defineProperty(Platform, 'OS', { get: () => 'web' })
+    ;(globalThis as Record<string, unknown>).tadaDesktop = { notify: jest.fn(), onOpenRun: () => () => {} }
+
+    expect(readPushEnv()).toEqual({
+      hasPushManager: false,
+      isIos: false,
+      isStandalone: false,
+      permission: 'default',
+    })
   })
 })
 

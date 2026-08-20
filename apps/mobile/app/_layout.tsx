@@ -19,6 +19,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { WebSafeAreaShim } from '../src/design/webSafeArea'
 import { AppSocketProvider } from '../src/api/AppSocketContext'
 import { ApiError } from '../src/api/client'
+import { DesktopBridge } from '../src/components/DesktopBridge'
 import { ConnectionProvider, useConnection } from '../src/ConnectionContext'
 import { ThemeProvider, useTheme } from '../src/design/ThemeContext'
 import { registerForPush, useNotificationDeepLinks } from '../src/push'
@@ -200,6 +201,7 @@ export default function RootLayout() {
                   native header stays hidden.
                 */}
                 <AppSocketProvider>
+                  <DesktopBridge />
                   <NavigationTheme>
                     <Stack screenOptions={{ headerShown: false }} />
                   </NavigationTheme>

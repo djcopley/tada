@@ -1,0 +1,23 @@
+appId: dev.tada.desktop
+productName: tada
+directories:
+  output: release
+# Only the compiled main/preload and the manifest ship as app files; the renderer is the Expo
+# static export, copied into Resources/web where bundleRoot() looks for it when packaged.
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../mobile/dist
+    to: web
+mac:
+  target: dir
+  # Generated from apps/mobile/assets/icon.png by scripts/make-icns.sh (run by `pnpm build`), so
+  # the desktop app wears the same icon as the phone without a second copy of the artwork here.
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # No Developer ID signing: this is a single-user tool built on the machine that runs it, and
+  # notarization is the first thing to add if the app ever leaves this laptop. The build script
+  # then re-signs the bundle ad-hoc via scripts/adhoc-sign.sh — without that, macOS silently
+  # refuses every notification. See that script for the full failure mode.
+  identity: null
