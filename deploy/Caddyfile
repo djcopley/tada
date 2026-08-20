@@ -73,6 +73,16 @@ https://{$TADA_HOST:192.168.1.91}:8443 {
 		# cached, or a deploy can leave clients pinned to an old worker.
 		header /sw.js Cache-Control "no-store"
 		header /manifest.json Content-Type "application/manifest+json"
+
+		# The prerendered shells carry no cache header of their own, so Safari was
+		# free to reuse them without revalidating — and an installed PWA does. The
+		# JS filename inside the shell is content-hashed, so a stale shell pins the
+		# app to a stale bundle: a deploy lands, the page is reloaded, and nothing
+		# changes. Cost of no-store here is one 42KB request per launch; the bundle
+		# it points at is immutable and still cached.
+		@shell not path /_expo/* /sw.js /manifest.json /favicon.ico
+		header @shell Cache-Control "no-store"
+		header /_expo/* Cache-Control "public, max-age=31536000, immutable"
 	}
 }
 
