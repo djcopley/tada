@@ -83,17 +83,18 @@ export default function Root({ children }: PropsWithChildren) {
             container, which breaks every scrollable screen. */}
         <ScrollViewStyleReset />
 
-        {/* The safe-area strips are painted by the *document*, not by the React tree. In a
-            standalone iOS PWA the status-bar strip and the bar under the home indicator are drawn
-            from html/body's background — the root RN view paints `ground`, but html/body are
-            transparent by default, so those strips came out white (and iOS blurs a light scrim
-            over the notch on top of that). Painting the document the same ground makes them
-            continuous with the app. ThemeProvider re-paints this at runtime when the scheme flips;
-            the literal here is night's ground, which is also the manifest's background_color, so
-            the very first frame is already right.
+        {/* Installed to an iPhone home screen the web view does not cover the whole display: iOS
+            insets it, reports env(safe-area-inset-*) as 0, and fills the strips above and below by
+            propagating the *canvas* background — html/body. Leave that unset and they render
+            white, so the app's ground stops at the edge of the view and the seam shows as a band
+            over the status bar and under the tab strip. No CSS length reaches those strips; they
+            are outside the view. src/design/documentGround.ts has the measurements and repaints
+            this at runtime to follow the active screen.
 
-            overscroll-behavior stops the rubber-band bounce from exposing the same strips, and
-            color-scheme keeps the UA from painting form controls and scrollbars light. */}
+            The literal here is night's ground, which is also the manifest's background_color, so
+            the very first frame is right before any JS runs. overscroll-behavior stops the
+            rubber-band bounce from exposing the same strips, and color-scheme keeps the UA from
+            painting form controls and scrollbars light. */}
         <style
           dangerouslySetInnerHTML={{
             __html: 'html,body{background-color:#1B1613;overscroll-behavior:none}:root{color-scheme:dark}',

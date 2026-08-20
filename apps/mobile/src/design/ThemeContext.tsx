@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { Platform } from 'react-native'
 import { loadThemeScheme, saveThemeScheme, type ThemeScheme } from '../settings'
+import { useDocumentGround } from './documentGround'
 import { day, night, type Palette, shadows } from './tokens'
 
 export type Theme = {
@@ -34,19 +34,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Web-only. An installed PWA paints its safe-area strips (the notch band, the bar below the
-  // home indicator) from the document background, not from the React tree — see the matching
-  // comment in app/+html.tsx. The static rule there is night's ground; this follows the scheme
-  // when it changes, so paper day doesn't get dark strips top and bottom.
-  useEffect(() => {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return
-    const { ground } = scheme === 'day' ? day : night
-    document.documentElement.style.backgroundColor = ground
-    document.documentElement.style.colorScheme = scheme === 'day' ? 'light' : 'dark'
-    document.body.style.backgroundColor = ground
-    // iOS reads this for the strips it tints itself rather than samples.
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', ground)
-  }, [scheme])
+  // The base layer of the page canvas — see documentGround.ts for why an installed PWA needs it
+  // at all. `app/connect.tsx` registers the 'screen' layer over the top of this one.
+  useDocumentGround('app', scheme === 'day' ? day.ground : night.ground, scheme)
 
   const setScheme = useCallback((next: ThemeScheme) => {
     setSchemeState(next)
