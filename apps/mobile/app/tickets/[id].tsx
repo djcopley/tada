@@ -272,8 +272,14 @@ function TicketDetailBody({ ticketId, ticket, startEditing = false }: { ticketId
     <Screen>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* The note composer's Send button lives inside this ScrollView: without `handled`, the
-            first tap with the keyboard up only dismisses the keyboard and never reaches Send. */}
-        <ScrollView contentContainerStyle={[styles.content, wide && styles.contentWide]} keyboardShouldPersistTaps="handled">
+            first tap with the keyboard up only dismisses the keyboard and never reaches Send.
+            `interactive` then gives that keyboard a way back down — drag the page and it follows
+            your finger, which on iOS is otherwise the only exit from a multiline field. */}
+        <ScrollView
+          contentContainerStyle={[styles.content, wide && styles.contentWide]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           {header}
           {titleBlock}
           {wide ? (

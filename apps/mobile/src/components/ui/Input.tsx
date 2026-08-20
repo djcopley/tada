@@ -2,6 +2,7 @@ import { forwardRef, useState } from 'react'
 import { StyleSheet, Text, TextInput, type TextInputProps, View, type ViewStyle } from 'react-native'
 import { useTheme } from '../../design/ThemeContext'
 import { radius, space, type } from '../../design/tokens'
+import { useKeyboardDoneBar } from './KeyboardDoneBar'
 
 type Props = TextInputProps & {
   label?: string
@@ -17,6 +18,8 @@ export const Input = forwardRef<TextInput, Props>(function Input(
 ) {
   const { colors } = useTheme()
   const [focused, setFocused] = useState(false)
+  // Multiline fields have no return key to close the keyboard with — see useKeyboardDoneBar.
+  const { inputAccessoryViewID, doneBar } = useKeyboardDoneBar(rest.multiline === true, rest.testID)
 
   const borderColor = error ? colors.fail : focused ? colors.live : colors.controlBorder
 
@@ -26,6 +29,7 @@ export const Input = forwardRef<TextInput, Props>(function Input(
       <TextInput
         ref={ref}
         placeholderTextColor={colors.textFaintSolid}
+        inputAccessoryViewID={inputAccessoryViewID}
         {...rest}
         onFocus={(e) => {
           setFocused(true)
@@ -47,6 +51,7 @@ export const Input = forwardRef<TextInput, Props>(function Input(
           style,
         ]}
       />
+      {doneBar}
       {error ? (
         <Text accessibilityRole="alert" style={[type.caption, styles.error, { color: colors.failText }]}>
           {error}
