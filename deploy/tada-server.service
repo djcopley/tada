@@ -1,14 +1,21 @@
 [Unit]
 Description=tada server
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=tada
-ExecStart=/usr/bin/env pnpm --dir /opt/tada start
+Group=tada
+WorkingDirectory=/opt/tada-runtime/current/server
+EnvironmentFile=/etc/tada/server.env
+Environment=HOME=/var/lib/tada
+Environment=PATH=/var/lib/tada/.local/bin:/var/lib/tada/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=__NODE_BIN__ --import tsx src/index.ts
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

@@ -23,6 +23,8 @@ const configFileSchema = z.object({
   vapidSubject: z.string().min(1).optional(),
 })
 
+const envPortSchema = z.coerce.number().int().min(1).max(65535)
+
 export interface Config {
   port: number
   host: string
@@ -57,7 +59,7 @@ export function loadConfig(): Config {
     ? webpush.generateVAPIDKeys()
     : { publicKey: parsed.vapidPublicKey ?? '', privateKey: parsed.vapidPrivateKey ?? '' }
 
-  const config: Config = {
+  const persistedConfig: Config = {
     port: parsed.port,
     host: parsed.host,
     bearerToken: parsed.bearerToken,
@@ -65,13 +67,20 @@ export function loadConfig(): Config {
     vapidPrivateKey: keys.privateKey,
     vapidSubject: parsed.vapidSubject ?? DEFAULT_VAPID_SUBJECT,
   }
+  const config: Config = {
+    ...persistedConfig,
+    port: process.env.TADA_SERVER_PORT
+      ? envPortSchema.parse(process.env.TADA_SERVER_PORT)
+      : persistedConfig.port,
+    host: process.env.TADA_SERVER_HOST || persistedConfig.host,
+  }
 
   // Write back whenever the file is absent or was missing fields, so keys are stable from here on.
   // Mode 0600: this file holds the bearer token and the VAPID private key, and the default 0644
   // would leave both readable by every account on the box.
   if (!existsSync(path) || needsKeys || !parsed.vapidSubject) {
     mkdirSync(dir, { recursive: true })
-    writeFileSync(path, JSON.stringify(config, null, 2), { mode: 0o600 })
+    writeFileSync(path, JSON.stringify(persistedConfig, null, 2), { mode: 0o600 })
     // writeFileSync's mode only applies when it creates the file, so an already-existing 0644
     // config (written before this, or before the VAPID keys existed) needs an explicit chmod.
     chmodSync(path, 0o600)

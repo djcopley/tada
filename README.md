@@ -12,44 +12,26 @@ give it more time. Red is reserved for real failure, and nothing ever auto-retri
 `tada-server` is the Node/TypeScript daemon: a REST + WebSocket API, SQLite database, and a
 scheduler that dispatches tickets to agent adapters (Claude via the Claude Agent SDK under your
 Max subscription — the only harness that supports gates — plus codex/gemini CLIs). It runs as a
-systemd service on a box you own, reachable over your Tailscale tailnet. This repository also
+systemd service on a box you own, reachable over the private or public network you choose. This
+repository also
 contains the client, `tada-app` (`apps/mobile`) — one Expo codebase for iOS, Android, and web.
 
-## Install
+## Deployment
 
-Prerequisites on the server:
+The recommended production setup uses atomic releases, a dedicated `tada` service account,
+systemd, and Caddy. Tailscale is optional. On the Linux deployment host:
 
-- Node 22+ (see `.nvmrc`)
-- [pnpm](https://pnpm.io) (`corepack enable` or `npm i -g pnpm`)
-- [GitHub CLI](https://cli.github.com) (`gh`) — used to open PRs
-- The `claude` CLI, logged into your Max subscription
+```sh
+pnpm install --frozen-lockfile
+pnpm deploy:install
+pnpm deploy
+```
 
-Steps:
-
-1. Create a dedicated, low-privilege `tada` user for the server (see
-   [Security posture](#security-posture) — this is not optional).
-2. Clone this repo to `/opt/tada` (or wherever `deploy/tada-server.service` points), owned by
-   `tada`.
-3. As the `tada` user, install dependencies: `pnpm install`.
-4. As the `tada` user, authenticate the tools the server shells out to:
-   - `claude login` — one-time login; the Claude adapter drives Claude Code under this session,
-     billed to your Max subscription (no API key involved).
-   - `gh auth login` — scope the token to just the repos you connect (see
-     [Security posture](#security-posture)).
-5. Install and enable the systemd unit:
-
-   ```sh
-   sudo cp deploy/tada-server.service /etc/systemd/system/tada-server.service
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now tada-server
-   ```
-
-   The unit runs `pnpm --dir /opt/tada start`, which resolves to `tsx src/index.ts` in
-   `apps/server` (see `apps/server/package.json`). Adjust `ExecStart`'s path if you clone
-   somewhere other than `/opt/tada`.
-6. First boot writes a config file with a fresh bearer token and default port — see
-   [Configuration & data locations](#configuration--data-locations) and
-   [Authentication](#authentication).
+The installer asks for the site address and TLS mode, requests root only for host setup, and leaves
+the application running as the low-privilege `tada` user. Later `pnpm deploy` runs builds as your
+normal user and requests sudo only when activating the release and restarting services. See
+[`docs/deployment.md`](docs/deployment.md) for prerequisites, TLS choices, rollback behavior, and
+operations.
 
 ## Configuration & data locations
 
@@ -167,51 +149,16 @@ the same connection screen as mobile.
 
 ### Serving the web build
 
-`deploy/Caddyfile` serves `dist/` over HTTPS. Start it **as your own user, not with `sudo`**:
+Use the supported host installer and release command:
 
 ```sh
-nix run nixpkgs#caddy -- run --config deploy/Caddyfile
+pnpm deploy:install
+pnpm deploy
 ```
 
-Running as your user matters. Caddy's internal CA root lives in that user's data dir
-(`~/Library/Application Support/Caddy` on macOS), and that root is the one installed and trusted
-on your devices. `sudo caddy` uses a different data dir, mints a fresh root, and every device
-starts showing certificate warnings. For the same reason the site listens on 8443 rather than
-443: macOS reserves ports below 1024 for root.
-
-The site address defaults to `192.168.1.91` and is overridable without editing the file:
-
-```sh
-TADA_HOST=10.0.0.5 nix run nixpkgs#caddy -- run --config deploy/Caddyfile
-```
-
-The host has no DNS name, so Caddy issues an IP-SAN certificate from its internal CA. Install
-that root (`~/Library/Application Support/Caddy/pki/authorities/local/root.crt`) on each device
-and trust it fully. Browsers then treat the origin as a **secure context**, which is what makes
-service workers, PWA installation and web push possible at all — a plain-HTTP origin supports
-none of them.
-
-Caddy also fronts the API, under **`/api` on the same origin as the app**, proxying to the
-server's plain-HTTP port 4242. Point the app's connection screen at **`https://<host>:8443/api`**,
-not `http://<host>:4242`.
-
-Fronting the API is required rather than convenient: once the app is served over HTTPS, a browser
-refuses to let it call an `http://` origin (mixed content), and blocks the request at the network
-layer with no useful error — the client reports "could not reach server", which is
-indistinguishable from the server being down.
-
-Putting it on the *same origin* rather than a second port matters just as much, and for a reason
-specific to a host with no publicly trusted certificate: **Safari requires the certificate to be
-accepted once per origin**, and a different port is a different origin. An API on `:8444` means a
-phone that has happily loaded the app still refuses every API call until the user visits the API
-port directly in Safari and accepts it there too — which presents as "could not reach server"
-while `curl` from the server itself works perfectly. Same origin means one acceptance, no CORS
-preflights, and no second port to explain.
-
-`handle_path` strips the `/api` prefix before proxying, so the server keeps seeing the paths it
-registers and needs no knowledge of where it is mounted. Websockets ride the same door: the client
-derives `wss://` from `https://` and appends `/ws` to the same base URL, and Caddy upgrades the
-connection through `reverse_proxy` automatically.
+Caddy serves the static export and proxies the API under `/api` on the same origin. The installer
+supports public HTTPS, private-CA HTTPS for LAN addresses, and plain HTTP; it does not require
+Tailscale. See [`docs/deployment.md`](docs/deployment.md).
 
 ### Installing as a home screen app
 

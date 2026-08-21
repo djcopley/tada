@@ -6,6 +6,9 @@
     "node": ">=22"
   },
   "scripts": {
+    "build:web": "pnpm --filter @tada/mobile exec expo export --platform web",
+    "deploy": "bash deploy/deploy.sh",
+    "deploy:install": "bash deploy/install.sh",
     "lint": "biome check . && pnpm --filter @tada/mobile lint",
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
