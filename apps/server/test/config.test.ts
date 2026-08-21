@@ -13,6 +13,8 @@ function isolateConfigDir(): string {
 describe('loadConfig', () => {
   beforeEach(() => {
     delete process.env.TADA_CONFIG_DIR
+    delete process.env.TADA_SERVER_HOST
+    delete process.env.TADA_SERVER_PORT
   })
 
   test('generates VAPID keys on first boot and persists them', () => {
@@ -77,5 +79,19 @@ describe('loadConfig', () => {
     const dir = isolateConfigDir()
     loadConfig()
     expect(statSync(join(dir, 'config.json')).mode & 0o777).toBe(0o600)
+  })
+
+  test('allows deployment environment to override the listen address without rewriting config', () => {
+    const dir = isolateConfigDir()
+    process.env.TADA_SERVER_HOST = '127.0.0.1'
+    process.env.TADA_SERVER_PORT = '4343'
+
+    const config = loadConfig()
+    expect(config.host).toBe('127.0.0.1')
+    expect(config.port).toBe(4343)
+
+    const onDisk = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'))
+    expect(onDisk.host).toBe('0.0.0.0')
+    expect(onDisk.port).toBe(4242)
   })
 })
