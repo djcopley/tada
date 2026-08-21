@@ -100,6 +100,8 @@ if [[ $SITE_ADDRESS =~ [[:space:]] ]]; then
   exit 2
 fi
 
+TLS_SERVER_NAME="$("$NODE_BIN" -e 'console.log(new URL(process.argv[1]).hostname)' "$SITE_ADDRESS")"
+
 case "$TLS_MODE" in
   auto)
     TLS_DIRECTIVE="# automatic TLS"
@@ -196,7 +198,10 @@ sed "s|__NODE_BIN__|$NODE_BIN|g" "$SCRIPT_DIR/tada-server.service" \
   > /etc/systemd/system/tada-server.service
 sed "s|__CADDY_BIN__|$CADDY_BIN|g" "$SCRIPT_DIR/tada-web.service" \
   > /etc/systemd/system/tada-web.service
-sed "s|__TADA_TLS_DIRECTIVE__|$TLS_DIRECTIVE|g" "$SCRIPT_DIR/Caddyfile" \
+sed \
+  -e "s|__TADA_TLS_DIRECTIVE__|$TLS_DIRECTIVE|g" \
+  -e "s|__TADA_TLS_SERVER_NAME__|$TLS_SERVER_NAME|g" \
+  "$SCRIPT_DIR/Caddyfile" \
   > /etc/tada/Caddyfile
 
 cat > /etc/tada/server.env <<'SERVER_ENV'

@@ -47,6 +47,9 @@ TLS modes:
 - `internal`: Caddy issues a private certificate. Use this for a LAN hostname or IP address.
 - `off`: Plain HTTP. PWA installation, service workers, and browser push will not work remotely.
 
+For IP addresses, the generated Caddy configuration also uses the IP as its default TLS server
+name because TLS clients do not normally send an IP address through SNI.
+
 For private TLS, install this CA certificate on each client and trust it:
 
 ```sh
