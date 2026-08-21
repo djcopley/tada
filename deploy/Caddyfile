@@ -1,5 +1,4 @@
 {
-	auto_https disable_redirects
 	default_sni __TADA_TLS_SERVER_NAME__
 }
 

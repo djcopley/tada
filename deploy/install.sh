@@ -226,6 +226,7 @@ runuser -u tada -- env \
   "TADA_SITE_ADDRESS=$SITE_ADDRESS" \
   TADA_SERVER_PORT=4242 \
   "$CADDY_BIN" validate --config /etc/tada/Caddyfile --adapter caddyfile
+systemctl disable --now caddy.service 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable tada-server.service tada-web.service
 

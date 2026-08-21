@@ -31,7 +31,8 @@ The installer asks for the site address and TLS mode, then uses `sudo` to:
 - Create or update the low-privilege `tada` service account.
 - Copy legacy XDG data from the account's previous home when the new directories are empty.
 - Create persistent data directories under `/var/lib/tada`.
-- Install the server and Caddy systemd units.
+- Disable the package-provided Caddy service and install the dedicated tada Caddy unit.
+- Redirect HTTP requests on port 80 to the configured HTTPS address.
 - Configure Caddy and bind the API to loopback only.
 - Install native build prerequisites with `apt` when they are missing and you approve it.
 
