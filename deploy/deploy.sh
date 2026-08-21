@@ -59,8 +59,7 @@ cd "$ROOT_DIR"
 rm -rf "$PACKAGE_WORKSPACE"
 printf '%s\n' "$RELEASE_ID" > "$STAGE_DIR/RELEASE"
 
-echo "Requesting root access to activate $RELEASE_ID..."
-sudo -v
+echo "Activating $RELEASE_ID..."
 sudo install -d -o root -g tada -m 0755 "$RELEASE_DIR"
 sudo cp -a "$STAGE_DIR/." "$RELEASE_DIR/"
 sudo chown -R root:tada "$RELEASE_DIR"
